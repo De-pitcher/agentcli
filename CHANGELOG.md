@@ -5,6 +5,20 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- Project metadata and API attribution headers now point at the real repository
+  (`De-pitcher/agentcli`) instead of `your-org` placeholders.
+- Python 3.13 and 3.14 classifiers added; CI matrix extended to match.
+
+### Fixed
+- `agentcli config init` now reports that a config file already exists instead
+  of printing "Wrote default config" when it left an existing file untouched.
+- Client test suite now covers the 5xx and network-error retry paths, exhausted
+  retries for both, the missing-API-key constructor error, normal stream
+  completion without a `[DONE]` sentinel, and async context-manager cleanup.
+
+## [0.1.0] - 2026-08-26
+
 ### Added - UX polish & exit code ergonomics
 - Multi-line input support in the chat REPL: lines ending with a trailing `\` continue prompting on the next line until a line without a trailing `\` is entered.
 - Distinct process exit codes (`0` for success/clean exit, `1` for general/unexpected error, `2` for configuration/missing-key/missing-file error, `3` for user interrupt).

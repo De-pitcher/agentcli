@@ -11,8 +11,9 @@ def test_defaults_when_no_file(tmp_path, monkeypatch):
 
 def test_init_config_writes_file(tmp_path):
     path = tmp_path / "config.toml"
-    result = init_config(path)
+    result, written = init_config(path)
     assert result == path
+    assert written is True
     assert path.exists()
     assert "openrouter" in path.read_text()
 
@@ -20,7 +21,9 @@ def test_init_config_writes_file(tmp_path):
 def test_init_config_no_overwrite_by_default(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text("# custom, do not clobber")
-    init_config(path)
+    result, written = init_config(path)
+    assert result == path
+    assert written is False
     assert path.read_text() == "# custom, do not clobber"
 
 
