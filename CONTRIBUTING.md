@@ -6,7 +6,7 @@ Thanks for considering a contribution. This project is early (Phase 1 of a
 ## Getting set up
 
 ```bash
-git clone https://github.com/your-org/agentcli
+git clone https://github.com/De-pitcher/agentcli
 cd agentcli
 pip install -e ".[dev]"
 pre-commit install
