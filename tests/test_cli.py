@@ -278,3 +278,103 @@ async def test_run_chat_survives_aclose_failure(monkeypatch):
 
     monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: FakeClient())
     assert await run_chat(args, config) == ExitCode.SUCCESS
+
+
+class RecordingClient:
+    def __init__(self, *args, **kwargs):
+        self.calls: list[dict] = []
+        self.last_served_model = "served/model:free"
+
+    async def aclose(self):
+        pass
+
+    async def chat_stream(self, messages, model=None, models=None):
+        self.calls.append({"model": model, "models": models})
+        yield "ok"
+
+
+@pytest.mark.asyncio
+async def test_run_chat_auto_routes_by_task(monkeypatch):
+    args = argparse.Namespace(model=None, file=[], show_model=False)
+    config = Config()
+
+    inputs = ["write a def hello() function in python", "/exit"]
+
+    def fake_input(prompt):
+        return inputs.pop(0)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    monkeypatch.setattr("builtins.print", lambda *a, **k: None)
+
+    fake_client = RecordingClient()
+    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+
+    assert await run_chat(args, config) == ExitCode.SUCCESS
+    assert fake_client.calls[0]["model"] is None
+    models = fake_client.calls[0]["models"]
+    assert isinstance(models, list)
+    assert models[0] == "cohere/north-mini-code:free"
+    assert len(models) > 1
+
+
+@pytest.mark.asyncio
+async def test_run_chat_model_flag_bypasses_routing(monkeypatch):
+    args = argparse.Namespace(model="forced/model:free", file=[], show_model=False)
+    config = Config()
+
+    inputs = ["explain why the sky is blue", "/exit"]
+
+    def fake_input(prompt):
+        return inputs.pop(0)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    monkeypatch.setattr("builtins.print", lambda *a, **k: None)
+
+    fake_client = RecordingClient()
+    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+
+    assert await run_chat(args, config) == ExitCode.SUCCESS
+    assert fake_client.calls[0] == {"model": "forced/model:free", "models": None}
+
+
+@pytest.mark.asyncio
+async def test_run_chat_routing_disabled_uses_default_model(monkeypatch):
+    args = argparse.Namespace(model=None, file=[], show_model=False)
+    config = Config()
+    config.routing.enabled = False
+
+    inputs = ["hello", "/exit"]
+
+    def fake_input(prompt):
+        return inputs.pop(0)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    monkeypatch.setattr("builtins.print", lambda *a, **k: None)
+
+    fake_client = RecordingClient()
+    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+
+    assert await run_chat(args, config) == ExitCode.SUCCESS
+    assert fake_client.calls[0]["model"] == config.openrouter.default_model
+    assert fake_client.calls[0]["models"] is None
+
+
+@pytest.mark.asyncio
+async def test_run_chat_show_model_reports_routed_model(monkeypatch, capsys):
+    args = argparse.Namespace(model=None, file=[], show_model=True)
+    config = Config()
+
+    inputs = ["explain why the sky is blue", "/exit"]
+
+    def fake_input(prompt):
+        return inputs.pop(0)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    fake_client = RecordingClient()
+    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+
+    assert await run_chat(args, config) == ExitCode.SUCCESS
+    out, _ = capsys.readouterr()
+    assert "[model: served/model:free" in out
+    assert "routed from" in out
