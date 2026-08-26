@@ -13,9 +13,25 @@ pre-commit install
 pytest
 ```
 
+## Branching & workflow
+
+`main` is protected: direct pushes are rejected, every change goes through a
+pull request, and the CI `test` check must pass before merging. History is
+kept linear — PRs are merged with **Squash merge** (or Rebase), never merge
+commits.
+
+1. Branch from an up-to-date `main` using a scoped name:
+   - `feat/<topic>` — new functionality (e.g. Phase 2 work)
+   - `fix/<topic>` — bug fixes
+   - `chore/<topic>` — tooling, CI, docs, dependency bumps
+2. Commit there; keep commits focused. Dependabot opens its own branches.
+3. Push and open a PR against `main`. Fill in the PR template.
+4. Wait for the CI `test` check to go green, then squash-merge.
+5. Rebase if `main` moved ahead: `git fetch origin && git rebase origin/main`.
+
 ## Before opening a PR
 
-- Run `pytest`, `ruff check .`, and `mypy .` locally (or rely on `pre-commit`). CI runs these on Ubuntu and Windows across Python 3.11 and 3.12. Ensure coverage remains above 85%.
+- Run `pytest`, `ruff check .`, and `mypy .` locally (or rely on `pre-commit`). CI runs these on Ubuntu and Windows across Python 3.11–3.14. Ensure coverage remains above 85%.
 - Keep new runtime dependencies to a minimum; this project optimizes for
   fast startup and low memory footprint so it can run alongside other CLI
   agents on modest hardware.
