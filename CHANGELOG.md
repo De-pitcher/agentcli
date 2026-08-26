@@ -5,6 +5,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added - UX polish & exit code ergonomics
+- Multi-line input support in the chat REPL: lines ending with a trailing `\` continue prompting on the next line until a line without a trailing `\` is entered.
+- Distinct process exit codes (`0` for success/clean exit, `1` for general/unexpected error, `2` for configuration/missing-key/missing-file error, `3` for user interrupt).
+- Explicit visible notification when a model returns an empty or whitespace-only response (`(model returned an empty response)`).
+
 ### Fixed - post-hardening verification pass
 - `openrouter_client.py`: `__aexit__` now has fully typed parameters
   (`exc_type`, `exc_val`, `exc_tb`) instead of an untyped `*exc` - closes the

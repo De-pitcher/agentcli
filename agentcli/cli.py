@@ -8,6 +8,7 @@ import sys
 
 from . import __version__
 from .config import Config, init_config, load_config
+from .exit_codes import ExitCode
 from .files import FileReadError, expand_file_references
 from .openrouter_client import ChatMessage, OpenRouterClient, OpenRouterError
 
@@ -48,7 +49,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         client = OpenRouterClient(config.openrouter)
     except OpenRouterError as exc:
         logger.error("%s", exc)
-        return 1
+        return ExitCode.CONFIG_ERROR
 
     model = args.model or config.openrouter.default_model
     history: list[ChatMessage] = []
@@ -59,24 +60,40 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         except FileReadError as exc:
             logger.error("%s", exc)
             await client.aclose()
-            return 1
+            return ExitCode.CONFIG_ERROR
         history.append(ChatMessage(
             role="system",
             content=f"The user has shared the following file(s) for context:\n\n{preloaded}",
         ))
         print(f"Loaded {len(args.file)} file(s) into context.")
 
-    print(f"agentcli — model: {model}  (Ctrl+C or /exit to quit)")
+    print(f"agentcli — model: {model}  (Ctrl+C or /exit to quit, end line with \\ for multi-line)")
 
+    interrupted = False
     try:
         while True:
-            try:
-                user_input = input("\nyou> ").strip()
-            except EOFError:
+            lines: list[str] = []
+            while True:
+                prompt = "\nyou> " if not lines else "... "
+                try:
+                    line = input(prompt)
+                except EOFError:
+                    break
+                except KeyboardInterrupt:
+                    interrupted = True
+                    break
+
+                if line.endswith("\\"):
+                    lines.append(line[:-1])
+                    continue
+                else:
+                    lines.append(line)
+                    break
+
+            if interrupted or not lines:
                 break
-            except KeyboardInterrupt:
-                break
-                
+
+            user_input = "\n".join(lines).strip()
             if not user_input:
                 continue
             if user_input in {"/exit", "/quit"}:
@@ -89,7 +106,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 continue
 
             history.append(ChatMessage(role="user", content=expanded))
-            
+
             if history and history[0].role == "system":
                 # Preserve system message, trim the rest to (turns * 2) previous messages + 1 current message
                 trimmed = [history[0]] + history[1:][-(config.app.history_turns * 2 + 1):]
@@ -102,8 +119,13 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 async for delta in client.chat_stream(trimmed, model=model):
                     print(delta, end="", flush=True)
                     reply_parts.append(delta)
-                print()
-                history.append(ChatMessage(role="assistant", content="".join(reply_parts)))
+
+                full_reply = "".join(reply_parts)
+                if not full_reply.strip():
+                    print("(model returned an empty response)")
+                else:
+                    print()
+                history.append(ChatMessage(role="assistant", content=full_reply))
             except KeyboardInterrupt:
                 print("\n[interrupted]")
                 partial = "".join(reply_parts)
@@ -121,14 +143,16 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         await client.aclose()
         print("\n(exiting)")
 
-    return 0
+    if interrupted:
+        return ExitCode.USER_INTERRUPT
+    return ExitCode.SUCCESS
 
 
 def run_config(args: argparse.Namespace, config: Config) -> int:
     if args.config_command == "init":
         path = init_config()
         print(f"Wrote default config to {path}")
-        return 0
+        return ExitCode.SUCCESS
     if args.config_command == "show":
         print(f"openrouter.api_key_env  = {config.openrouter.api_key_env}")
         print(f"openrouter.default_model = {config.openrouter.default_model}")
@@ -137,14 +161,14 @@ def run_config(args: argparse.Namespace, config: Config) -> int:
         print(f"openrouter.base_url     = {config.openrouter.base_url}")
         print(f"app.stream              = {config.app.stream}")
         print(f"app.history_turns       = {config.app.history_turns}")
-        return 0
-    return 1
+        return ExitCode.SUCCESS
+    return ExitCode.GENERAL_ERROR
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    
+
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s"
@@ -158,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         return run_config(args, config)
 
     parser.print_help()
-    return 1
+    return ExitCode.GENERAL_ERROR
 
 
 if __name__ == "__main__":

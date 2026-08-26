@@ -43,19 +43,35 @@ def expand_file_references(text: str) -> str:
     Missing/oversized/binary references raise FileReadError so the caller can
     surface a clear message instead of silently dropping context.
     """
-    tokens = text.split()
-    out_parts: list[str] = []
+    lines = text.split("\n")
+    cleaned_lines: list[str] = []
     file_blocks: list[str] = []
 
-    for tok in tokens:
-        if tok.startswith("@") and len(tok) > 1:
-            # Strip common trailing punctuation that users might type
-            clean_tok = tok.rstrip(".,;:?!")
-            file_blocks.append(read_file_for_context(clean_tok[1:]))
-        else:
-            out_parts.append(tok)
+    for line in lines:
+        if "@" not in line:
+            cleaned_lines.append(line)
+            continue
 
-    prompt = " ".join(out_parts)
+        tokens = line.split()
+        line_parts: list[str] = []
+        has_file_ref = False
+        for tok in tokens:
+            if tok.startswith("@") and len(tok) > 1:
+                clean_tok = tok.rstrip(".,;:?!)]}\"'")
+                file_blocks.append(read_file_for_context(clean_tok[1:]))
+                has_file_ref = True
+            else:
+                line_parts.append(tok)
+
+        if has_file_ref:
+            cleaned_lines.append(" ".join(line_parts))
+        else:
+            cleaned_lines.append(line)
+
+    prompt = "\n".join(cleaned_lines).strip()
     if file_blocks:
-        prompt = prompt + "\n\n" + "\n\n".join(file_blocks)
+        if prompt:
+            prompt = prompt + "\n\n" + "\n\n".join(file_blocks)
+        else:
+            prompt = "\n\n".join(file_blocks)
     return prompt
