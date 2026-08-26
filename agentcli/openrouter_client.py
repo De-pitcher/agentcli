@@ -52,7 +52,7 @@ class OpenRouterClient:
             headers={
                 "Authorization": f"Bearer {config.api_key}",
                 "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/your-org/agentcli",
+                "HTTP-Referer": "https://github.com/De-pitcher/agentcli",
                 "X-Title": "agentcli",
             },
         )

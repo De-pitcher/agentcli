@@ -17,13 +17,15 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 keywords = ["ai", "agent", "openrouter", "cli", "llm"]
 
 [project.urls]
-Homepage = "https://github.com/your-org/agentcli"
-Issues = "https://github.com/your-org/agentcli/issues"
-Changelog = "https://github.com/your-org/agentcli/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/De-pitcher/agentcli"
+Issues = "https://github.com/De-pitcher/agentcli/issues"
+Changelog = "https://github.com/De-pitcher/agentcli/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
