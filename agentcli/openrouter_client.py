@@ -5,6 +5,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from types import TracebackType
 from typing import Self
 
 import httpx
@@ -62,7 +63,12 @@ class OpenRouterClient:
     async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, *exc) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         await self.aclose()
 
     async def chat_stream(
