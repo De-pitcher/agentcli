@@ -6,6 +6,8 @@ import asyncio
 import logging
 import sys
 
+import httpx
+
 from . import __version__
 from .config import Config, init_config, load_config
 from .exit_codes import ExitCode
@@ -140,7 +142,10 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 continue
 
     finally:
-        await client.aclose()
+        try:
+            await client.aclose()
+        except (asyncio.CancelledError, KeyboardInterrupt, httpx.HTTPError) as exc:
+            logger.debug("Client close skipped: %s", exc)
         print("\n(exiting)")
 
     if interrupted:
@@ -176,11 +181,17 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s"
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     config = load_config()
 
     if args.command == "chat":
-        return asyncio.run(run_chat(args, config))
+        try:
+            return asyncio.run(run_chat(args, config))
+        except KeyboardInterrupt:
+            # Real SIGINT can surface here (e.g. delivered during async cleanup
+            # on Windows) after the REPL already handled the first press.
+            return ExitCode.USER_INTERRUPT
     if args.command == "config":
         return run_config(args, config)
 

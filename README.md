@@ -54,7 +54,7 @@ point at an arbitrary path.
 ```toml
 [openrouter]
 api_key_env = "OPENROUTER_API_KEY"
-default_model = "meta-llama/llama-3.1-8b-instruct:free"
+default_model = "google/gemma-4-31b-it:free"
 timeout_seconds = 30
 max_retries = 3
 base_url = "https://openrouter.ai/api/v1"
@@ -84,7 +84,9 @@ Run `agentcli config show` to see the resolved configuration.
 
 Measured on this Phase 1 baseline (see `scripts/bench_startup.py`):
 
-- Cold-import + argument-parser build: sub-100ms on typical hardware
+- Cold-import + argument-parser build: sub-100ms on Linux; Windows and
+  editable dev installs run higher (the `asyncio` import chain dominates —
+  a lazy-import optimization is planned for the optimization phase)
   (excludes network I/O, which dominates actual `chat` latency)
 - Idle process memory: well under the 200MB budget set for the full
   7-phase project, since Phase 1 has no sub-agent or routing overhead yet

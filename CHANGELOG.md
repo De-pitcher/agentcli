@@ -5,6 +5,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- Default model replaced: `meta-llama/llama-3.1-8b-instruct:free` was retired
+  from OpenRouter's free tier and returned 404 on first message. The default
+  is now `google/gemma-4-31b-it:free` (verified live against the models API).
+- Ctrl+C no longer dumps a traceback when the interrupt surfaces during async
+  cleanup: `run_chat` closes the HTTP client best-effort, and `main` maps any
+  real SIGINT reaching `asyncio.run` to exit code 3 (USER_INTERRUPT).
+- httpx per-request INFO log lines no longer pollute the chat REPL.
+
 ### Changed
 - Project metadata and API attribution headers now point at the real repository
   (`De-pitcher/agentcli`) instead of `your-org` placeholders.
