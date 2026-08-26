@@ -33,6 +33,19 @@ also preload files for the whole session:
 agentcli chat --file src/main.py --file src/utils.py
 ```
 
+### Automatic model routing
+
+By default, `agentcli chat` classifies each message (code / reasoning /
+chat) and routes it to the best available free model, sending an ordered
+candidate list so OpenRouter fails over automatically on rate limits or
+outages. Force a specific model with `--model` (skips routing entirely),
+and see which model actually answered with `--show-model`:
+
+```bash
+agentcli chat --show-model            # auto-route, print served model
+agentcli chat --model google/gemma-4-31b-it:free   # force one model
+```
+
 ### Multi-line Input
 
 End any line with a trailing backslash `\` to continue input across multiple lines:
@@ -62,6 +75,20 @@ base_url = "https://openrouter.ai/api/v1"
 [app]
 stream = true
 history_turns = 20
+
+[routing]
+enabled = true
+max_fallbacks = 2
+cooldown_seconds = 300
+failure_threshold = 3
+
+# Optional: extend or override the built-in model registry.
+# An id that matches a built-in replaces it; new ids are appended.
+# [[routing.models]]
+# id = "z-ai/glm-5.2:free"
+# categories = ["code", "reasoning"]
+# priority = 10
+# context_window = 128000
 ```
 
 Run `agentcli config show` to see the resolved configuration.
@@ -118,10 +145,10 @@ mypy .
 
 ## Roadmap
 
-This repo will grow through 7 phases: foundation (this one) → multi-model
-routing → sub-agent system → custom agent core → memory & context →
-optimization → ecosystem integration & release. See project issues/milestones
-for current status.
+This repo will grow through 7 phases: foundation ✅ → multi-model routing ✅
+→ sub-agent system → custom agent core → memory & context → optimization →
+ecosystem integration & release. See project issues/milestones for current
+status.
 
 ## License
 

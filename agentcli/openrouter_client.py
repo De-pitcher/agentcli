@@ -45,6 +45,7 @@ class OpenRouterClient:
                 f"Set it, e.g.: export {config.api_key_env}=sk-or-..."
             )
         self._config = config
+        self.last_served_model: str | None = None
         self._client = httpx.AsyncClient(
             base_url=config.base_url,
             timeout=httpx.Timeout(config.timeout_seconds),
@@ -75,19 +76,30 @@ class OpenRouterClient:
         self,
         messages: list[ChatMessage],
         model: str | None = None,
+        models: list[str] | None = None,
     ) -> AsyncIterator[str]:
         """
         Yields text deltas as they arrive over SSE. Retries transient failures
         (network errors, 429, 5xx) with exponential backoff up to
         config.max_retries attempts; raises OpenRouterError on exhaustion or
         on a non-retryable 4xx.
+
+        Pass `models` (ordered candidates) to use OpenRouter's server-side
+        model fallback; otherwise `model` selects a single model. After the
+        stream ends, `last_served_model` holds the model that actually
+        answered (it can differ from the request when fallbacks fire). Errors
+        raised mid-stream (inside the 200 SSE body) surface as
+        OpenRouterError too.
         """
-        model = model or self._config.default_model
-        payload = {
-            "model": model,
+        self.last_served_model = None
+        payload: dict[str, object] = {
             "messages": [m.to_dict() for m in messages],
             "stream": True,
         }
+        if models:
+            payload["models"] = models
+        else:
+            payload["model"] = model or self._config.default_model
 
         last_error: Exception | None = None
         for attempt in range(self._config.max_retries):
@@ -122,10 +134,29 @@ class OpenRouterClient:
                             chunk = json.loads(data)
                         except json.JSONDecodeError:
                             continue
+                        if not isinstance(chunk, dict):
+                            continue
+                        error = chunk.get("error")
+                        if isinstance(error, dict):
+                            raise OpenRouterError(
+                                f"OpenRouter stream error "
+                                f"{error.get('code', 'unknown')}: "
+                                f"{error.get('message', 'mid-stream failure')}"
+                            )
+                        choices = chunk.get("choices")
+                        choice = choices[0] if isinstance(choices, list) and choices else {}
+                        if isinstance(choice, dict) and choice.get("finish_reason") == "error":
+                            raise OpenRouterError(
+                                "OpenRouter stream error: mid-stream failure "
+                                "with no error detail"
+                            )
+                        served = chunk.get("model")
+                        if isinstance(served, str) and served:
+                            self.last_served_model = served
                         delta = (
-                            chunk.get("choices", [{}])[0]
-                            .get("delta", {})
-                            .get("content")
+                            choice.get("delta", {}).get("content")
+                            if isinstance(choice, dict)
+                            else None
                         )
                         if delta:
                             yield delta

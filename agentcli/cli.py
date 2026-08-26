@@ -12,7 +12,15 @@ from . import __version__
 from .config import Config, init_config, load_config
 from .exit_codes import ExitCode
 from .files import FileReadError, expand_file_references
-from .openrouter_client import ChatMessage, OpenRouterClient, OpenRouterError
+from .openrouter_client import (
+    ChatMessage,
+    OpenRouterClient,
+    OpenRouterError,
+    RateLimitedError,
+)
+from .routing.classifier import classify
+from .routing.registry import ModelRegistry
+from .routing.router import Router
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--file", action="append", default=[],
         help="Include a file's contents as context (repeatable)",
     )
+    chat_p.add_argument(
+        "--show-model",
+        action="store_true",
+        help="Print the model that actually served each reply",
+    )
 
     config_p = sub.add_parser("config", help="Manage agentcli configuration")
     config_sub = config_p.add_subparsers(dest="config_command", required=True)
@@ -53,7 +66,16 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         logger.error("%s", exc)
         return ExitCode.CONFIG_ERROR
 
-    model = args.model or config.openrouter.default_model
+    forced_model = args.model or config.openrouter.default_model
+    show_model = bool(getattr(args, "show_model", False)) or bool(
+        getattr(args, "verbose", False)
+    )
+    router: Router | None = None
+    registry: ModelRegistry | None = None
+    if not args.model and config.routing.enabled:
+        registry = ModelRegistry(config.routing)
+        router = Router(registry, config.routing.max_fallbacks)
+
     history: list[ChatMessage] = []
 
     if args.file:
@@ -69,7 +91,14 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         ))
         print(f"Loaded {len(args.file)} file(s) into context.")
 
-    print(f"agentcli — model: {model}  (Ctrl+C or /exit to quit, end line with \\ for multi-line)")
+    if router is not None:
+        print(
+            "agentcli — model: auto (task-based routing)  "
+            "(Ctrl+C or /exit to quit, end line with \\ for multi-line)"
+        )
+    else:
+        print(f"agentcli — model: {forced_model}  "
+              "(Ctrl+C or /exit to quit, end line with \\ for multi-line)")
 
     interrupted = False
     try:
@@ -117,8 +146,17 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
 
             print("assistant> ", end="", flush=True)
             reply_parts: list[str] = []
+            decision = None
+            if router is not None:
+                decision = router.decide(classify(expanded))
+            requested_primary = decision.primary if decision is not None else None
             try:
-                async for delta in client.chat_stream(trimmed, model=model):
+                stream = (
+                    client.chat_stream(trimmed, models=decision.models)
+                    if decision is not None
+                    else client.chat_stream(trimmed, model=forced_model)
+                )
+                async for delta in stream:
                     print(delta, end="", flush=True)
                     reply_parts.append(delta)
 
@@ -127,7 +165,19 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print("(model returned an empty response)")
                 else:
                     print()
+                if show_model and client.last_served_model:
+                    if requested_primary and client.last_served_model != requested_primary:
+                        print(
+                            f"[model: {client.last_served_model} — "
+                            f"routed from {requested_primary}]"
+                        )
+                    else:
+                        print(f"[model: {client.last_served_model}]")
                 history.append(ChatMessage(role="assistant", content=full_reply))
+                if registry is not None and requested_primary is not None:
+                    registry.mark_success(
+                        client.last_served_model or requested_primary
+                    )
             except KeyboardInterrupt:
                 print("\n[interrupted]")
                 partial = "".join(reply_parts)
@@ -138,6 +188,11 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 continue
             except OpenRouterError as exc:
                 logger.error("%s", exc)
+                if registry is not None and requested_primary is not None:
+                    registry.mark_failure(
+                        client.last_served_model or requested_primary,
+                        rate_limited=isinstance(exc, RateLimitedError),
+                    )
                 history.pop()  # don't poison history with a failed turn
                 continue
 

@@ -5,6 +5,29 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added — Phase 2: Multi-Model Routing
+- Task-based auto-routing: each chat message is classified (code / reasoning
+  / chat) by a zero-I/O heuristic classifier and routed to the best
+  available free model from a built-in, data-driven registry.
+- Hybrid fallback: the ordered candidate list is sent as OpenRouter's
+  `models` array so the server fails over across models/providers remotely;
+  the client handles transport errors, chain exhaustion, and health marking.
+- Per-session model health tracking: consecutive failures (configurable
+  threshold) or an immediate 429 put a model into cooldown; the router skips
+  cooling-down models and success resets the streak.
+- `--show-model` flag (and `--verbose`) prints the model that actually
+  served each reply, including a notice when server-side fallback routed
+  away from the requested primary.
+- `--model` continues to force a specific model and bypass routing entirely
+  (regression-tested).
+- `[routing]` config section: `enabled`, `max_fallbacks`, `cooldown_seconds`,
+  `failure_threshold`, plus optional `[[routing.models]]` entries that
+  extend or override the built-in registry. Phase 1 config files work
+  unchanged.
+- Client: `chat_stream` accepts a `models` list, raises `OpenRouterError`
+  on mid-stream SSE error events (`finish_reason: "error"` / inline error
+  objects) instead of silently truncating, and exposes `last_served_model`.
+
 ### Fixed
 - Default model replaced: `meta-llama/llama-3.1-8b-instruct:free` was retired
   from OpenRouter's free tier and returned 404 on first message. The default

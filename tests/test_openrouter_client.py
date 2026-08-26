@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -270,3 +272,123 @@ async def test_async_context_manager_closes_client(monkeypatch):
     async with OpenRouterClient(config) as client:
         assert not client._client.is_closed
     assert client._client.is_closed
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_models_array_payload(monkeypatch):
+    monkeypatch.setenv("DUMMY", "sk-123")
+    captured: dict[str, object] = {}
+
+    def handler(request):
+        captured["body"] = json.loads(request.content)
+
+        async def stream():
+            yield (
+                b'data: {"model":"z-ai/glm-5.2:free",'
+                b'"choices": [{"delta": {"content": "Hi"}}]}\n\n'
+            )
+            yield b'data: [DONE]\n\n'
+
+        return httpx.Response(200, content=stream())
+
+    transport = httpx.MockTransport(handler)
+    config = OpenRouterConfig(api_key_env="DUMMY")
+
+    client = OpenRouterClient(config)
+    client._client = httpx.AsyncClient(transport=transport, base_url=config.base_url)
+
+    parts = []
+    async for chunk in client.chat_stream(
+        [ChatMessage(role="user", content="hi")],
+        models=["a/b:free", "c/d:free"],
+    ):
+        parts.append(chunk)
+
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["models"] == ["a/b:free", "c/d:free"]
+    assert "model" not in body
+    assert "".join(parts) == "Hi"
+    assert client.last_served_model == "z-ai/glm-5.2:free"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_single_model_keeps_model_key(monkeypatch):
+    monkeypatch.setenv("DUMMY", "sk-123")
+    captured: dict[str, object] = {}
+
+    def handler(request):
+        captured["body"] = json.loads(request.content)
+
+        async def stream():
+            yield b'data: [DONE]\n\n'
+
+        return httpx.Response(200, content=stream())
+
+    transport = httpx.MockTransport(handler)
+    config = OpenRouterConfig(api_key_env="DUMMY", default_model="single/model:free")
+
+    client = OpenRouterClient(config)
+    client._client = httpx.AsyncClient(transport=transport, base_url=config.base_url)
+
+    async for _ in client.chat_stream([ChatMessage(role="user", content="hi")]):
+        pass
+
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["model"] == "single/model:free"
+    assert "models" not in body
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_mid_stream_error_event(monkeypatch):
+    monkeypatch.setenv("DUMMY", "sk-123")
+
+    def handler(request):
+        async def stream():
+            yield b'data: {"choices": [{"delta": {"content": "partial"}}]}\n\n'
+            yield (
+                b'data: {"error":{"code":429,"message":"Rate limit exceeded"},'
+                b'"choices":[{"index":0,"delta":{"content":""},'
+                b'"finish_reason":"error"}]}\n\n'
+            )
+
+        return httpx.Response(200, content=stream())
+
+    transport = httpx.MockTransport(handler)
+    config = OpenRouterConfig(api_key_env="DUMMY")
+
+    client = OpenRouterClient(config)
+    client._client = httpx.AsyncClient(transport=transport, base_url=config.base_url)
+
+    with pytest.raises(OpenRouterError, match="stream error 429"):
+        async for _ in client.chat_stream([ChatMessage(role="user", content="hi")]):
+            pass
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_mid_stream_error_without_detail(monkeypatch):
+    monkeypatch.setenv("DUMMY", "sk-123")
+
+    def handler(request):
+        async def stream():
+            yield (
+                b'data: {"choices":[{"index":0,"delta":{"content":""},'
+                b'"finish_reason":"error"}]}\n\n'
+            )
+
+        return httpx.Response(200, content=stream())
+
+    transport = httpx.MockTransport(handler)
+    config = OpenRouterConfig(api_key_env="DUMMY")
+
+    client = OpenRouterClient(config)
+    client._client = httpx.AsyncClient(transport=transport, base_url=config.base_url)
+
+    with pytest.raises(OpenRouterError, match="mid-stream failure"):
+        async for _ in client.chat_stream([ChatMessage(role="user", content="hi")]):
+            pass
+    await client.aclose()

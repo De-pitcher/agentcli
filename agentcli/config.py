@@ -31,6 +31,12 @@ base_url = "https://openrouter.ai/api/v1"
 [app]
 stream = true
 history_turns = 20     # number of prior user/assistant turn-pairs resent for context
+
+[routing]
+enabled = true         # auto-route each message to a category-matched free model
+max_fallbacks = 2      # extra candidates sent after the primary via the models array
+cooldown_seconds = 300
+failure_threshold = 3  # consecutive failures before a model enters cooldown
 '''
 
 
@@ -54,9 +60,27 @@ class AppConfig:
 
 
 @dataclass
+class RoutingModelEntry:
+    id: str
+    categories: list[str] = field(default_factory=lambda: ["chat"])
+    priority: int = 50
+    context_window: int = 32768
+
+
+@dataclass
+class RoutingConfig:
+    enabled: bool = True
+    max_fallbacks: int = 2
+    cooldown_seconds: float = 300.0
+    failure_threshold: int = 3
+    models: list[RoutingModelEntry] = field(default_factory=list)
+
+
+@dataclass
 class Config:
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     app: AppConfig = field(default_factory=AppConfig)
+    routing: RoutingConfig = field(default_factory=RoutingConfig)
 
 
 def _platform_config_path() -> Path:
@@ -87,6 +111,18 @@ def load_config(path: Path | None = None) -> Config:
 
     or_raw = raw.get("openrouter", {})
     app_raw = raw.get("app", {})
+    routing_raw = raw.get("routing", {})
+
+    entries = [
+        RoutingModelEntry(
+            id=str(entry.get("id", "")),
+            categories=[str(c) for c in entry.get("categories", ["chat"])],
+            priority=int(entry.get("priority", 50)),
+            context_window=int(entry.get("context_window", 32768)),
+        )
+        for entry in routing_raw.get("models", [])
+        if entry.get("id")
+    ]
 
     return Config(
         openrouter=OpenRouterConfig(
@@ -99,6 +135,13 @@ def load_config(path: Path | None = None) -> Config:
         app=AppConfig(
             stream=app_raw.get("stream", True),
             history_turns=app_raw.get("history_turns", 20),
+        ),
+        routing=RoutingConfig(
+            enabled=bool(routing_raw.get("enabled", True)),
+            max_fallbacks=int(routing_raw.get("max_fallbacks", 2)),
+            cooldown_seconds=float(routing_raw.get("cooldown_seconds", 300.0)),
+            failure_threshold=int(routing_raw.get("failure_threshold", 3)),
+            models=entries,
         ),
     )
 
