@@ -5,6 +5,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed (Post Phase 1-2 Audit)
+- Refactored `cli.py` to extract execution, routing, and history management logic into a new `AgentSession` class in `session.py`, paving the way for Phase 3.
+- Scoped CI's `pip-audit` check with `--local` to prevent false positive vulnerability alerts from pre-installed runner packages.
+- Config parser now safely catches type coercion errors (e.g. malformed integers) and raises a clear `ConfigError` instead of an unhandled traceback.
+- Corrected `--model` help text to reflect that forcing a model explicitly bypasses task-based routing entirely.
+- Modernized `pyproject.toml` to use PEP 621 `license = "MIT"` string format instead of the deprecated setuptools table format.
+
 ### Added — Phase 2: Multi-Model Routing
 - Task-based auto-routing: each chat message is classified (code / reasoning
   / chat) by a zero-I/O heuristic classifier and routed to the best

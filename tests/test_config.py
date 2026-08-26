@@ -38,6 +38,15 @@ def test_load_config_reads_overrides(tmp_path):
     assert cfg.app.history_turns == 5
 
 
+def test_load_config_invalid_type_raises_config_error(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[routing]\nmax_fallbacks = "two"\n')
+    from agentcli.config import ConfigError
+    import pytest
+    with pytest.raises(ConfigError, match="Invalid value for 'max_fallbacks'"):
+        load_config(path)
+
+
 def test_api_key_reads_from_env(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test123")
     cfg = Config()

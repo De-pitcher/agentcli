@@ -101,6 +101,28 @@ def find_config_path() -> Path:
     return _platform_config_path()
 
 
+class ConfigError(Exception):
+    pass
+
+
+def _parse_int(val: object, key: str, default: int) -> int:
+    if val is None:
+        return default
+    try:
+        return int(val) # type: ignore
+    except (ValueError, TypeError):
+        raise ConfigError(f"Invalid value for '{key}': expected an integer, got '{val}'")
+
+
+def _parse_float(val: object, key: str, default: float) -> float:
+    if val is None:
+        return default
+    try:
+        return float(val) # type: ignore
+    except (ValueError, TypeError):
+        raise ConfigError(f"Invalid value for '{key}': expected a number, got '{val}'")
+
+
 def load_config(path: Path | None = None) -> Config:
     path = path or find_config_path()
     if not path.exists():
@@ -117,8 +139,8 @@ def load_config(path: Path | None = None) -> Config:
         RoutingModelEntry(
             id=str(entry.get("id", "")),
             categories=[str(c) for c in entry.get("categories", ["chat"])],
-            priority=int(entry.get("priority", 50)),
-            context_window=int(entry.get("context_window", 32768)),
+            priority=_parse_int(entry.get("priority"), "priority", 50),
+            context_window=_parse_int(entry.get("context_window"), "context_window", 32768),
         )
         for entry in routing_raw.get("models", [])
         if entry.get("id")
@@ -126,21 +148,21 @@ def load_config(path: Path | None = None) -> Config:
 
     return Config(
         openrouter=OpenRouterConfig(
-            api_key_env=or_raw.get("api_key_env", "OPENROUTER_API_KEY"),
-            default_model=or_raw.get("default_model", DEFAULT_MODEL),
-            timeout_seconds=or_raw.get("timeout_seconds", 30.0),
-            max_retries=or_raw.get("max_retries", 3),
-            base_url=or_raw.get("base_url", "https://openrouter.ai/api/v1"),
+            api_key_env=str(or_raw.get("api_key_env", "OPENROUTER_API_KEY")),
+            default_model=str(or_raw.get("default_model", DEFAULT_MODEL)),
+            timeout_seconds=_parse_float(or_raw.get("timeout_seconds"), "timeout_seconds", 30.0),
+            max_retries=_parse_int(or_raw.get("max_retries"), "max_retries", 3),
+            base_url=str(or_raw.get("base_url", "https://openrouter.ai/api/v1")),
         ),
         app=AppConfig(
-            stream=app_raw.get("stream", True),
-            history_turns=app_raw.get("history_turns", 20),
+            stream=bool(app_raw.get("stream", True)),
+            history_turns=_parse_int(app_raw.get("history_turns"), "history_turns", 20),
         ),
         routing=RoutingConfig(
             enabled=bool(routing_raw.get("enabled", True)),
-            max_fallbacks=int(routing_raw.get("max_fallbacks", 2)),
-            cooldown_seconds=float(routing_raw.get("cooldown_seconds", 300.0)),
-            failure_threshold=int(routing_raw.get("failure_threshold", 3)),
+            max_fallbacks=_parse_int(routing_raw.get("max_fallbacks"), "max_fallbacks", 2),
+            cooldown_seconds=_parse_float(routing_raw.get("cooldown_seconds"), "cooldown_seconds", 300.0),
+            failure_threshold=_parse_int(routing_raw.get("failure_threshold"), "failure_threshold", 3),
             models=entries,
         ),
     )
