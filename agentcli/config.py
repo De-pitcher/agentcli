@@ -17,7 +17,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DEFAULT_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+DEFAULT_MODEL = "google/gemma-4-31b-it:free"
 
 DEFAULT_CONFIG_TOML = f'''# agentcli configuration
 

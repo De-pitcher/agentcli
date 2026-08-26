@@ -246,3 +246,35 @@ async def test_run_chat_keyboard_interrupt_mid_stream(monkeypatch):
     monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
+
+
+def test_main_keyboard_interrupt_returns_user_interrupt(monkeypatch):
+    def raise_ki(*args, **kwargs):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr("agentcli.cli.asyncio.run", raise_ki)
+    assert main(["chat"]) == ExitCode.USER_INTERRUPT
+
+
+@pytest.mark.asyncio
+async def test_run_chat_survives_aclose_failure(monkeypatch):
+    args = argparse.Namespace(model="test", file=[])
+    config = Config()
+
+    inputs = ["hi", "/exit"]
+
+    def fake_input(prompt):
+        return inputs.pop(0)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    monkeypatch.setattr("builtins.print", lambda *a, **k: None)
+
+    class FakeClient:
+        async def aclose(self):
+            raise KeyboardInterrupt()
+
+        async def chat_stream(self, messages, model):
+            yield "ok"
+
+    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: FakeClient())
+    assert await run_chat(args, config) == ExitCode.SUCCESS
