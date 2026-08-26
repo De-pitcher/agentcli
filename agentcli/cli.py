@@ -150,8 +150,11 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
 
 def run_config(args: argparse.Namespace, config: Config) -> int:
     if args.config_command == "init":
-        path = init_config()
-        print(f"Wrote default config to {path}")
+        path, written = init_config()
+        if written:
+            print(f"Wrote default config to {path}")
+        else:
+            print(f"Config file already exists at {path} — leaving it untouched.")
         return ExitCode.SUCCESS
     if args.config_command == "show":
         print(f"openrouter.api_key_env  = {config.openrouter.api_key_env}")

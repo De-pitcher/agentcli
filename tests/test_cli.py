@@ -191,6 +191,21 @@ def test_run_config_init_and_show(tmp_path, monkeypatch, capsys):
     assert "app.stream" in out
 
 
+def test_run_config_init_existing_file_reports_and_preserves(tmp_path, monkeypatch, capsys):
+    cfg_path = tmp_path / "agentcli.toml"
+    monkeypatch.setattr("agentcli.config.find_config_path", lambda: cfg_path)
+    args = argparse.Namespace(config_command="init")
+    config = Config()
+
+    assert run_config(args, config) == ExitCode.SUCCESS
+    cfg_path.write_text("# custom config")
+
+    assert run_config(args, config) == ExitCode.SUCCESS
+    out, _ = capsys.readouterr()
+    assert "already exists" in out
+    assert cfg_path.read_text() == "# custom config"
+
+
 def test_main_chat(monkeypatch):
     monkeypatch.setattr("agentcli.cli.run_chat", AsyncMock(return_value=ExitCode.SUCCESS))
     assert main(["chat"]) == ExitCode.SUCCESS

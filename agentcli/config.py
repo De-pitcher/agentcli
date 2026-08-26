@@ -103,10 +103,14 @@ def load_config(path: Path | None = None) -> Config:
     )
 
 
-def init_config(path: Path | None = None, overwrite: bool = False) -> Path:
+def init_config(path: Path | None = None, overwrite: bool = False) -> tuple[Path, bool]:
+    """
+    Writes the default config unless a file already exists (and overwrite is
+    False). Returns (path, written) so callers can report honestly.
+    """
     path = path or find_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not overwrite:
-        return path
+        return path, False
     path.write_text(DEFAULT_CONFIG_TOML, encoding="utf-8")
-    return path
+    return path, True
