@@ -21,3 +21,4 @@ jobs:
       - run: ruff check .
       - run: mypy .
       - run: pytest -v
+      - run: pip-audit

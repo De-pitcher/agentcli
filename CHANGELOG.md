@@ -5,6 +5,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed - post-hardening verification pass
+- `openrouter_client.py`: `__aexit__` now has fully typed parameters
+  (`exc_type`, `exc_val`, `exc_tb`) instead of an untyped `*exc` - closes the
+  one real source-level gap `mypy --disallow-untyped-defs` caught.
+- `pyproject.toml` now has a `[tool.mypy]` section
+  (`disallow_untyped_defs = true` for source, relaxed for `tests/`) so
+  "mypy passes" is a meaningful claim rather than default-leniency passing.
+- Added `.github/dependabot.yml` (pip + GitHub Actions, weekly).
+- Added `pip-audit` to CI as a dependency-vulnerability check.
+- `tests/__init__.py` added so mypy's per-module override can target the
+  `tests` package cleanly.
+
 ### Added — Phase 1: Foundation
 - Interactive chat REPL (`agentcli chat`) against any OpenRouter model.
 - `@path/to/file` inline context injection, plus `--file` for session preload.
@@ -15,8 +27,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - Open-source scaffolding: MIT license, CONTRIBUTING guide, GitHub Actions
   CI (Ubuntu + Windows, Python 3.11/3.12), issue template.
 - Startup-time benchmark script.
-- Hardened Phase 1 to a professional MVP standard with:
-  - Test coverage for cli.py and openrouter_client.py (85% floor enforced).
-  - Static typing enforcement with mypy and a py.typed marker.
-  - Release hygiene updates: classifiers in pyproject.toml, CODE_OF_CONDUCT.md, SECURITY.md, and .pre-commit-config.yaml.
-  - UX improvements: --version, --verbose for logging, python -m agentcli support, and mid-stream interrupt handling.
+
+### Added - hardening pass
+- `pytest-cov` with an 85% coverage floor enforced in CI; full test coverage
+  for `cli.py` and `openrouter_client.py` (previously untested), including
+  mocked-transport streaming/retry/failure tests.
+- `mypy` in CI, `py.typed` marker for downstream type-checking support.
+- `CODE_OF_CONDUCT.md`, `SECURITY.md`, `.pre-commit-config.yaml`.
+- `--version` flag, `python -m agentcli` support, `--verbose`/DEBUG logging.
+- Interrupted chat streams now preserve the partial reply (marked
+  `[interrupted]`) instead of discarding it silently.
