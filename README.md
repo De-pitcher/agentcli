@@ -33,6 +33,16 @@ also preload files for the whole session:
 agentcli chat --file src/main.py --file src/utils.py
 ```
 
+### Multi-line Input
+
+End any line with a trailing backslash `\` to continue input across multiple lines:
+
+```
+you> Here is a multi-line snippet:\
+... def hello():\
+...     return "world"
+```
+
 ## Configuration
 
 `agentcli config init` writes a TOML config to your platform's config
@@ -94,6 +104,15 @@ pytest                  # runs with --cov (requires 85% coverage)
 ruff check .
 mypy .
 ```
+
+## Exit Codes
+
+| Code | Meaning | Description |
+| :--- | :--- | :--- |
+| `0` | `SUCCESS` | Clean execution or normal `/exit` / `EOF` termination |
+| `1` | `GENERAL_ERROR` | General or unexpected error |
+| `2` | `CONFIG_ERROR` | Configuration error (e.g. missing API key, unreadable `--file`) |
+| `3` | `USER_INTERRUPT` | User pressed Ctrl+C at the top-level prompt |
 
 ## Roadmap
 
