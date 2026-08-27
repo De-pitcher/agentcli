@@ -5,16 +5,29 @@ replace built-ins by id or append new ones. Health tracking is in-memory
 per session: consecutive failures trigger a cooldown; a 429 cools down
 immediately. No persistence — that belongs to a later phase.
 """
+
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
 
-from ..config import RoutingConfig
+from ..config import ConfigError, RoutingConfig
 
 CODE = "code"
 REASONING = "reasoning"
 CHAT = "chat"
+
+VALID_CATEGORIES = frozenset([CODE, REASONING, CHAT])
+
+
+def _validate_categories(categories: list[str], model_id: str) -> tuple[str, ...]:
+    for cat in categories:
+        if cat not in VALID_CATEGORIES:
+            raise ConfigError(
+                f"Model '{model_id}' has invalid category '{cat}'. Valid categories: {', '.join(VALID_CATEGORIES)}"
+            )
+    return tuple(categories)
+
 
 @dataclass(frozen=True)
 class ModelRecord:
@@ -25,20 +38,66 @@ class ModelRecord:
 
 
 _BUILTIN_MODELS: tuple[ModelRecord, ...] = (
-    ModelRecord(id="google/gemma-4-31b-it:free", categories=(CHAT,), priority=10, context_window=128000),
-    ModelRecord(id="cohere/north-mini-code:free", categories=(CODE,), priority=10, context_window=32768),
-    ModelRecord(id="z-ai/glm-5.2:free", categories=(CODE, REASONING), priority=20, context_window=128000),
-    ModelRecord(id="nvidia/nemotron-3-super-120b-a12b:free", categories=(REASONING,), priority=20, context_window=128000),
-    ModelRecord(id="minimax/minimax-m2.7:free", categories=(CHAT,), priority=20, context_window=128000),
-    ModelRecord(id="poolside/laguna-s-2.1:free", categories=(CODE,), priority=30, context_window=64000),
-    ModelRecord(id="nvidia/nemotron-3-ultra-550b-a55b:free", categories=(REASONING,), priority=30, context_window=128000),
-    ModelRecord(id="minimax/minimax-m3:free", categories=(CHAT,), priority=30, context_window=128000),
-    ModelRecord(id="thinkingmachines/inkling-small:free", categories=(CHAT,), priority=40, context_window=64000),
-    ModelRecord(id="google/gemma-4-26b-a4b-it:free", categories=(CHAT,), priority=40, context_window=128000),
-    ModelRecord(id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", categories=(REASONING,), priority=40, context_window=64000),
-    ModelRecord(id="dots-studio/dots-3-note-preview:free", categories=(CHAT,), priority=50, context_window=32768),
-    ModelRecord(id="nvidia/nemotron-3.5-lightning:free", categories=(CHAT,), priority=50, context_window=64000),
-    ModelRecord(id="liquid/lfm-2.5-2.6b:free", categories=(CHAT,), priority=60, context_window=32768),
+    ModelRecord(
+        id="google/gemma-4-31b-it:free", categories=(CHAT,), priority=10, context_window=128000
+    ),
+    ModelRecord(
+        id="cohere/north-mini-code:free", categories=(CODE,), priority=10, context_window=32768
+    ),
+    ModelRecord(
+        id="z-ai/glm-5.2:free", categories=(CODE, REASONING), priority=20, context_window=128000
+    ),
+    ModelRecord(
+        id="nvidia/nemotron-3-super-120b-a12b:free",
+        categories=(REASONING,),
+        priority=20,
+        context_window=128000,
+    ),
+    ModelRecord(
+        id="minimax/minimax-m2.7:free", categories=(CHAT,), priority=20, context_window=128000
+    ),
+    ModelRecord(
+        id="poolside/laguna-s-2.1:free", categories=(CODE,), priority=30, context_window=64000
+    ),
+    ModelRecord(
+        id="nvidia/nemotron-3-ultra-550b-a55b:free",
+        categories=(REASONING,),
+        priority=30,
+        context_window=128000,
+    ),
+    ModelRecord(
+        id="minimax/minimax-m3:free", categories=(CHAT,), priority=30, context_window=128000
+    ),
+    ModelRecord(
+        id="thinkingmachines/inkling-small:free",
+        categories=(CHAT,),
+        priority=40,
+        context_window=64000,
+    ),
+    ModelRecord(
+        id="google/gemma-4-26b-a4b-it:free", categories=(CHAT,), priority=40, context_window=128000
+    ),
+    ModelRecord(
+        id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        categories=(REASONING,),
+        priority=40,
+        context_window=64000,
+    ),
+    ModelRecord(
+        id="dots-studio/dots-3-note-preview:free",
+        categories=(CHAT,),
+        priority=50,
+        context_window=32768,
+    ),
+    ModelRecord(
+        id="nvidia/nemotron-3.5-lightning:free",
+        categories=(CHAT,),
+        priority=50,
+        context_window=64000,
+    ),
+    ModelRecord(
+        id="liquid/lfm-2.5-2.6b:free", categories=(CHAT,), priority=60, context_window=32768
+    ),
 )
 
 
@@ -63,9 +122,10 @@ class ModelRegistry:
         for record in _BUILTIN_MODELS:
             self._state.models[record.id] = record
         for entry in config.models:
+            validated_categories = _validate_categories(entry.categories, entry.id)
             self._state.models[entry.id] = ModelRecord(
                 id=entry.id,
-                categories=tuple(entry.categories),
+                categories=validated_categories,
                 priority=entry.priority,
                 context_window=entry.context_window,
             )
@@ -85,7 +145,17 @@ class ModelRegistry:
         self._state.health[model_id] = _Health()
 
     def mark_failure(self, model_id: str, rate_limited: bool = False) -> None:
+        now = time.monotonic()
         health = self._state.health.setdefault(model_id, _Health())
+
+        # Time-windowed failure counting: only count failures within the cooldown window
+        if (
+            health.cooldown_until > 0
+            and now - health.cooldown_until > self._config.cooldown_seconds
+        ):
+            # Previous cooldown expired, reset streak
+            health.consecutive_failures = 0
+
         health.consecutive_failures += 1
         if rate_limited or health.consecutive_failures >= self._config.failure_threshold:
             health.cooldown_until = time.monotonic() + self._config.cooldown_seconds

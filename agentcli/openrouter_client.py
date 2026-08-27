@@ -1,4 +1,5 @@
 """Minimal async OpenRouter client: streaming, retries/backoff, connection pooling."""
+
 from __future__ import annotations
 
 import asyncio
@@ -108,7 +109,11 @@ class OpenRouterClient:
                     "POST", "/chat/completions", json=payload
                 ) as response:
                     if response.status_code == 429:
-                        last_error = RateLimitedError(f"Rate limited on model '{model}'")
+                        # Use first model from models array, or the single model
+                        display_model = (
+                            models[0] if models else model
+                        ) or self._config.default_model
+                        last_error = RateLimitedError(f"Rate limited on model '{display_model}'")
                         await self._backoff(attempt)
                         continue
                     if response.status_code >= 500:
@@ -127,7 +132,7 @@ class OpenRouterClient:
                     async for line in response.aiter_lines():
                         if not line or not line.startswith("data: "):
                             continue
-                        data = line[len("data: "):]
+                        data = line[len("data: ") :]
                         if data.strip() == "[DONE]":
                             return
                         try:
@@ -144,11 +149,15 @@ class OpenRouterClient:
                                 f"{error.get('message', 'mid-stream failure')}"
                             )
                         choices = chunk.get("choices")
-                        choice = choices[0] if isinstance(choices, list) and choices else {}
+                        if not isinstance(choices, list) or not choices:
+                            continue
+                        choice = choices[0]
                         if isinstance(choice, dict) and choice.get("finish_reason") == "error":
+                            error = chunk.get("error", {})
                             raise OpenRouterError(
-                                "OpenRouter stream error: mid-stream failure "
-                                "with no error detail"
+                                f"OpenRouter stream error "
+                                f"{error.get('code', 'unknown')}: "
+                                f"{error.get('message', 'mid-stream failure')}"
                             )
                         served = chunk.get("model")
                         if isinstance(served, str) and served:
@@ -170,4 +179,4 @@ class OpenRouterClient:
         raise last_error or OpenRouterError("Exhausted retries with unknown error")
 
     async def _backoff(self, attempt: int) -> None:
-        await asyncio.sleep(min(2 ** attempt * 0.5, 8.0))
+        await asyncio.sleep(min(2**attempt * 0.5, 8.0))

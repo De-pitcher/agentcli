@@ -3,6 +3,7 @@
 Pure regex/keyword rules — no I/O, no network, microsecond-scale. Categories
 match the registry tags: "code", "reasoning", "chat" (default).
 """
+
 from __future__ import annotations
 
 import re

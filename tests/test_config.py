@@ -30,12 +30,22 @@ def test_init_config_no_overwrite_by_default(tmp_path):
 def test_load_config_reads_overrides(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text(
-        '[openrouter]\ndefault_model = "some/other-model:free"\n'
-        "[app]\nhistory_turns = 5\n"
+        '[openrouter]\ndefault_model = "some/other-model:free"\n[app]\nhistory_turns = 5\n'
     )
     cfg = load_config(path)
     assert cfg.openrouter.default_model == "some/other-model:free"
     assert cfg.app.history_turns == 5
+
+
+def test_load_config_invalid_type_raises_config_error(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[routing]\nmax_fallbacks = "two"\n')
+    import pytest
+
+    from agentcli.config import ConfigError
+
+    with pytest.raises(ConfigError, match="Invalid value for 'max_fallbacks'"):
+        load_config(path)
 
 
 def test_api_key_reads_from_env(monkeypatch):

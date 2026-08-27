@@ -40,7 +40,7 @@ async def test_run_chat_preload_survives_trimming(monkeypatch, tmp_path):
             yield "Response"
 
     fake_client = FakeClient()
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
     assert len(fake_client.last_history) == 4
@@ -73,7 +73,7 @@ async def test_run_chat_multiline_input(monkeypatch):
             yield "Got code"
 
     fake_client = FakeClient()
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
     assert len(fake_client.last_history) == 1
@@ -100,7 +100,7 @@ async def test_run_chat_empty_model_response(monkeypatch, capsys):
             yield "   "  # whitespace only
 
     fake_client = FakeClient()
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
     out, _ = capsys.readouterr()
@@ -115,7 +115,7 @@ async def test_run_chat_exit_codes_missing_api_key(monkeypatch):
     def raise_init(*a, **k):
         raise OpenRouterError("No API key")
 
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", raise_init)
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", raise_init)
     assert await run_chat(args, config) == ExitCode.CONFIG_ERROR
 
 
@@ -128,7 +128,7 @@ async def test_run_chat_exit_codes_missing_preload_file(monkeypatch):
         async def aclose(self):
             pass
 
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: FakeClient())
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: FakeClient())
     assert await run_chat(args, config) == ExitCode.CONFIG_ERROR
 
 
@@ -146,7 +146,7 @@ async def test_run_chat_top_level_interrupt(monkeypatch):
         async def aclose(self):
             pass
 
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: FakeClient())
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: FakeClient())
     assert await run_chat(args, config) == ExitCode.USER_INTERRUPT
 
 
@@ -172,7 +172,7 @@ async def test_run_chat_failed_turn_not_polluting(monkeypatch):
             yield "never"
 
     fake_client = FakeClient()
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
 
@@ -243,7 +243,7 @@ async def test_run_chat_keyboard_interrupt_mid_stream(monkeypatch):
             raise KeyboardInterrupt()
 
     fake_client = FakeClient()
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
 
@@ -252,7 +252,7 @@ def test_main_keyboard_interrupt_returns_user_interrupt(monkeypatch):
     def raise_ki(*args, **kwargs):
         raise KeyboardInterrupt()
 
-    monkeypatch.setattr("agentcli.cli.asyncio.run", raise_ki)
+    monkeypatch.setattr("agentcli.cli.run_chat", raise_ki)
     assert main(["chat"]) == ExitCode.USER_INTERRUPT
 
 
@@ -276,7 +276,7 @@ async def test_run_chat_survives_aclose_failure(monkeypatch):
         async def chat_stream(self, messages, model):
             yield "ok"
 
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: FakeClient())
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: FakeClient())
     assert await run_chat(args, config) == ExitCode.SUCCESS
 
 
@@ -307,7 +307,7 @@ async def test_run_chat_auto_routes_by_task(monkeypatch):
     monkeypatch.setattr("builtins.print", lambda *a, **k: None)
 
     fake_client = RecordingClient()
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
     assert fake_client.calls[0]["model"] is None
@@ -331,7 +331,7 @@ async def test_run_chat_model_flag_bypasses_routing(monkeypatch):
     monkeypatch.setattr("builtins.print", lambda *a, **k: None)
 
     fake_client = RecordingClient()
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
     assert fake_client.calls[0] == {"model": "forced/model:free", "models": None}
@@ -352,7 +352,7 @@ async def test_run_chat_routing_disabled_uses_default_model(monkeypatch):
     monkeypatch.setattr("builtins.print", lambda *a, **k: None)
 
     fake_client = RecordingClient()
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
     assert fake_client.calls[0]["model"] == config.openrouter.default_model
@@ -372,7 +372,7 @@ async def test_run_chat_show_model_reports_routed_model(monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", fake_input)
 
     fake_client = RecordingClient()
-    monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: fake_client)
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
     out, _ = capsys.readouterr()

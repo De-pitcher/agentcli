@@ -5,6 +5,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed (Post Phase 1-2 Audit)
+- Refactored `cli.py` to extract execution, routing, and history management logic into a new `AgentSession` class in `session.py`, paving the way for Phase 3.
+- Scoped CI's `pip-audit` check with `--local` to prevent false positive vulnerability alerts from pre-installed runner packages.
+- Config parser now safely catches type coercion errors (e.g. malformed integers) and raises a clear `ConfigError` instead of an unhandled traceback.
+- Corrected `--model` help text to reflect that forcing a model explicitly bypasses task-based routing entirely.
+- Modernized `pyproject.toml` to use PEP 621 `license = "MIT"` string format instead of the deprecated setuptools table format.
+
 ### Added — Phase 2: Multi-Model Routing
 - Task-based auto-routing: each chat message is classified (code / reasoning
   / chat) by a zero-I/O heuristic classifier and routed to the best
@@ -36,6 +43,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   cleanup: `run_chat` closes the HTTP client best-effort, and `main` maps any
   real SIGINT reaching `asyncio.run` to exit code 3 (USER_INTERRUPT).
 - httpx per-request INFO log lines no longer pollute the chat REPL.
+
+### Fixed (Post Phase 1-2 Audit)
+- Fixed mid-stream SSE error handling: errors with `finish_reason: "error"` or inline `error` objects now raise `OpenRouterError` instead of silently truncating.
+- Fixed 429 error message when using `models` array: now shows the first model in the array instead of `None`.
+- Fixed `KeyboardInterrupt` handling: `requested_primary` is now determined before the try block, avoiding `UnboundLocalError` on interrupt during streaming.
+- Fixed health tracking: failure streak now resets after cooldown expires, preventing stale streaks from triggering premature cooldowns.
+- Added validation for custom model registry entries: invalid categories now raise `ConfigError` with a clear message.
+- Config parser now logs a warning when `routing.models` entries are skipped due to missing `id` field.
+- Router now logs a warning when no healthy models are available for a category.
+- SSE parser now safely handles missing or empty `choices` arrays.
+- Fixed type hints: `AgentSession.mark_failure` now explicitly accepts `rate_limited` parameter.
+- Removed unused `RateLimitedError` import from `session.py`.
 
 ### Changed
 - Project metadata and API attribution headers now point at the real repository
