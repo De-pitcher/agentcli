@@ -1,4 +1,5 @@
 """File reading tool: injects file contents into the prompt context via @path tokens."""
+
 from __future__ import annotations
 
 from pathlib import Path

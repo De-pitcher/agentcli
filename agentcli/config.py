@@ -9,8 +9,10 @@ Config file resolution order (first found wins):
 If nothing is found, in-memory defaults are used (no error) so `agentcli chat`
 works immediately as long as the API key env var is set.
 """
+
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import tomllib
@@ -18,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_MODEL = "google/gemma-4-31b-it:free"
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_TOML = f'''# agentcli configuration
 
@@ -109,7 +113,7 @@ def _parse_int(val: object, key: str, default: int) -> int:
     if val is None:
         return default
     try:
-        return int(val) # type: ignore
+        return int(val)  # type: ignore
     except (ValueError, TypeError):
         raise ConfigError(f"Invalid value for '{key}': expected an integer, got '{val}'")
 
@@ -118,7 +122,7 @@ def _parse_float(val: object, key: str, default: float) -> float:
     if val is None:
         return default
     try:
-        return float(val) # type: ignore
+        return float(val)  # type: ignore
     except (ValueError, TypeError):
         raise ConfigError(f"Invalid value for '{key}': expected a number, got '{val}'")
 
@@ -135,16 +139,19 @@ def load_config(path: Path | None = None) -> Config:
     app_raw = raw.get("app", {})
     routing_raw = raw.get("routing", {})
 
-    entries = [
-        RoutingModelEntry(
-            id=str(entry.get("id", "")),
-            categories=[str(c) for c in entry.get("categories", ["chat"])],
-            priority=_parse_int(entry.get("priority"), "priority", 50),
-            context_window=_parse_int(entry.get("context_window"), "context_window", 32768),
+    entries = []
+    for entry in routing_raw.get("models", []):
+        if not entry.get("id"):
+            logger.warning("Skipping routing.models entry without 'id' field: %s", entry)
+            continue
+        entries.append(
+            RoutingModelEntry(
+                id=str(entry["id"]),
+                categories=[str(c) for c in entry.get("categories", ["chat"])],
+                priority=_parse_int(entry.get("priority"), "priority", 50),
+                context_window=_parse_int(entry.get("context_window"), "context_window", 32768),
+            )
         )
-        for entry in routing_raw.get("models", [])
-        if entry.get("id")
-    ]
 
     return Config(
         openrouter=OpenRouterConfig(
@@ -161,8 +168,12 @@ def load_config(path: Path | None = None) -> Config:
         routing=RoutingConfig(
             enabled=bool(routing_raw.get("enabled", True)),
             max_fallbacks=_parse_int(routing_raw.get("max_fallbacks"), "max_fallbacks", 2),
-            cooldown_seconds=_parse_float(routing_raw.get("cooldown_seconds"), "cooldown_seconds", 300.0),
-            failure_threshold=_parse_int(routing_raw.get("failure_threshold"), "failure_threshold", 3),
+            cooldown_seconds=_parse_float(
+                routing_raw.get("cooldown_seconds"), "cooldown_seconds", 300.0
+            ),
+            failure_threshold=_parse_int(
+                routing_raw.get("failure_threshold"), "failure_threshold", 3
+            ),
             models=entries,
         ),
     )

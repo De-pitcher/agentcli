@@ -1,4 +1,5 @@
 """agentcli command-line entry point."""
+
 from __future__ import annotations
 
 import argparse
@@ -15,7 +16,9 @@ from .files import FileReadError, expand_file_references
 from .openrouter_client import (
     ChatMessage,
     OpenRouterError,
+    RateLimitedError,
 )
+from .routing.classifier import classify
 from .session import AgentSession
 
 logger = logging.getLogger(__name__)
@@ -26,19 +29,17 @@ def build_parser() -> argparse.ArgumentParser:
         prog="agentcli",
         description="Budget-conscious, model-agnostic AI agent CLI (OpenRouter-backed).",
     )
-    parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {__version__}"
-    )
-    parser.add_argument(
-        "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
-    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
 
     sub = parser.add_subparsers(dest="command", required=True)
 
     chat_p = sub.add_parser("chat", help="Start an interactive chat session")
     chat_p.add_argument("--model", help="Force a specific model, bypassing automatic routing")
     chat_p.add_argument(
-        "--file", action="append", default=[],
+        "--file",
+        action="append",
+        default=[],
         help="Include a file's contents as context (repeatable)",
     )
     chat_p.add_argument(
@@ -70,10 +71,12 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         except FileReadError as exc:
             logger.error("%s", exc)
             return ExitCode.CONFIG_ERROR
-        history.append(ChatMessage(
-            role="system",
-            content=f"The user has shared the following file(s) for context:\n\n{preloaded}",
-        ))
+        history.append(
+            ChatMessage(
+                role="system",
+                content=f"The user has shared the following file(s) for context:\n\n{preloaded}",
+            )
+        )
         print(f"Loaded {len(args.file)} file(s) into context.")
 
     try:
@@ -89,8 +92,10 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         )
     else:
         actual_model = forced_model or config.openrouter.default_model
-        print(f"agentcli — model: {actual_model}  "
-              "(Ctrl+C or /exit to quit, end line with \\ for multi-line)")
+        print(
+            f"agentcli — model: {actual_model}  "
+            "(Ctrl+C or /exit to quit, end line with \\ for multi-line)"
+        )
 
     interrupted = False
     try:
@@ -132,11 +137,21 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
 
             print("assistant> ", end="", flush=True)
             reply_parts: list[str] = []
-            
+
+            # Determine routing decision before try block so it's available for error handling
+            decision = None
+            trimmed = session._trim_history()
+            if session.router is not None:
+                decision = session.router.decide(classify(expanded))
+            requested_primary = decision.primary if decision is not None else None
+
             try:
-                reply = await session.send(expanded)
-                
-                async for delta in reply.stream:
+                stream = (
+                    session.client.chat_stream(trimmed, models=decision.models)
+                    if decision is not None
+                    else session.client.chat_stream(trimmed, model=forced_model)
+                )
+                async for delta in stream:
                     print(delta, end="", flush=True)
                     reply_parts.append(delta)
 
@@ -145,19 +160,17 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print("(model returned an empty response)")
                 else:
                     print()
-                    
                 if show_model and session.last_served_model:
-                    if reply.requested_primary and session.last_served_model != reply.requested_primary:
+                    if requested_primary and session.last_served_model != requested_primary:
                         print(
                             f"[model: {session.last_served_model} — "
-                            f"routed from {reply.requested_primary}]"
+                            f"routed from {requested_primary}]"
                         )
                     else:
                         print(f"[model: {session.last_served_model}]")
-                        
                 session.add_assistant_message(full_reply)
-                session.mark_success(reply.requested_primary)
-                
+                session.mark_success(requested_primary)
+
             except KeyboardInterrupt:
                 print("\n[interrupted]")
                 partial = "".join(reply_parts)
@@ -168,7 +181,12 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 continue
             except OpenRouterError as exc:
                 logger.error("%s", exc)
-                session.mark_failure(reply.requested_primary, exc)
+                if requested_primary is not None:
+                    session.mark_failure(
+                        session.client.last_served_model or requested_primary,
+                        exc,
+                        rate_limited=isinstance(exc, RateLimitedError),
+                    )
                 session.pop_last_message()  # don't poison history with a failed turn
                 continue
 
@@ -209,8 +227,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s"
+        level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s: %(message)s"
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
 

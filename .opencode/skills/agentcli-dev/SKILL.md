@@ -118,11 +118,13 @@ If any fails — stop and fix before committing. mypy runs strict
 def handler(request):
     async def stream():
         yield b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n'
-        yield b'data: [DONE]\n\n'
+        yield b"data: [DONE]\n\n"
+
     return httpx.Response(200, content=stream())
 
+
 transport = httpx.MockTransport(handler)
-config = OpenRouterConfig(api_key_env="DUMMY")   # monkeypatch.setenv first
+config = OpenRouterConfig(api_key_env="DUMMY")  # monkeypatch.setenv first
 client = OpenRouterClient(config)
 client._client = httpx.AsyncClient(transport=transport, base_url=config.base_url)
 ```
@@ -134,7 +136,7 @@ subclass (`RateLimitedError` vs `OpenRouterError`).
 ### 2. REPL tests — FakeClient + monkeypatched builtins
 
 ```python
-monkeypatch.setattr("builtins.input", fake_input)      # pops from a list
+monkeypatch.setattr("builtins.input", fake_input)  # pops from a list
 monkeypatch.setattr("builtins.print", lambda *a, **k: None)
 monkeypatch.setattr("agentcli.cli.OpenRouterClient", lambda _: FakeClient())
 ```

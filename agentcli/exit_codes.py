@@ -1,4 +1,5 @@
 """Process exit codes for agentcli."""
+
 from enum import IntEnum
 
 

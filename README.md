@@ -5,10 +5,10 @@ through [OpenRouter](https://openrouter.ai), with a bias toward free-tier
 models, and is designed to run comfortably alongside other CLI agents
 (Codex, Aider, OpenCode, Antigravity, etc.) on modest hardware.
 
-This is **Phase 1** of a 7-phase roadmap: single-model chat + file context,
-on an open-source-ready foundation. Multi-model routing, parallel sub-agents,
-a custom plan/act/reflect agent loop, memory, and packaging land in later
-phases.
+This is **Phase 2** of a 7-phase roadmap: single-model chat + file context +
+auto-routing, on an open-source-ready foundation. Sub-agent system, a custom
+plan/act/reflect agent loop, memory, optimization, and packaging land in
+later phases.
 
 ## Quickstart
 
@@ -109,14 +109,11 @@ Run `agentcli config show` to see the resolved configuration.
 
 ## Performance
 
-Measured on this Phase 1 baseline (see `scripts/bench_startup.py`):
+Measured on this Phase 2 baseline (see `scripts/bench_startup.py`):
 
-- Cold-import + argument-parser build: sub-100ms on Linux; Windows and
-  editable dev installs run higher (the `asyncio` import chain dominates —
-  a lazy-import optimization is planned for the optimization phase)
-  (excludes network I/O, which dominates actual `chat` latency)
+- Cold-import + argument-parser build: ~600ms on Windows (the `asyncio` import chain dominates — a lazy-import optimization is planned for the optimization phase)
 - Idle process memory: well under the 200MB budget set for the full
-  7-phase project, since Phase 1 has no sub-agent or routing overhead yet
+  7-phase project
 
 Run the benchmark yourself:
 

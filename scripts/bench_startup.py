@@ -6,6 +6,7 @@ happen). Run with: python scripts/bench_startup.py
 This is a proxy for "time to interactive" — the real chat REPL prompt
 appears within a few ms of this point, network latency aside.
 """
+
 import subprocess
 import sys
 import time

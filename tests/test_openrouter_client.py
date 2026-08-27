@@ -24,7 +24,7 @@ async def test_chat_stream_success(monkeypatch):
         async def stream():
             yield b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n'
             yield b'data: {"choices": [{"delta": {"content": " World"}}]}\n\n'
-            yield b'data: [DONE]\n\n'
+            yield b"data: [DONE]\n\n"
 
         return httpx.Response(200, content=stream())
 
@@ -57,7 +57,7 @@ async def test_chat_stream_429_then_success(monkeypatch):
 
         async def stream():
             yield b'data: {"choices": [{"delta": {"content": "Success"}}]}\n\n'
-            yield b'data: [DONE]\n\n'
+            yield b"data: [DONE]\n\n"
 
         return httpx.Response(200, content=stream())
 
@@ -123,7 +123,7 @@ async def test_chat_stream_malformed_sse(monkeypatch):
         async def stream():
             yield b'data: {"broken JSON\n\n'
             yield b'data: {"choices": [{"delta": {"content": "OK"}}]}\n\n'
-            yield b'data: [DONE]\n\n'
+            yield b"data: [DONE]\n\n"
 
         return httpx.Response(200, content=stream())
 
@@ -214,7 +214,7 @@ async def test_chat_stream_transport_error_then_success(monkeypatch):
 
         async def stream():
             yield b'data: {"choices": [{"delta": {"content": "Back online"}}]}\n\n'
-            yield b'data: [DONE]\n\n'
+            yield b"data: [DONE]\n\n"
 
         return httpx.Response(200, content=stream())
 
@@ -284,10 +284,9 @@ async def test_chat_stream_models_array_payload(monkeypatch):
 
         async def stream():
             yield (
-                b'data: {"model":"z-ai/glm-5.2:free",'
-                b'"choices": [{"delta": {"content": "Hi"}}]}\n\n'
+                b'data: {"model":"z-ai/glm-5.2:free","choices": [{"delta": {"content": "Hi"}}]}\n\n'
             )
-            yield b'data: [DONE]\n\n'
+            yield b"data: [DONE]\n\n"
 
         return httpx.Response(200, content=stream())
 
@@ -322,7 +321,7 @@ async def test_chat_stream_single_model_keeps_model_key(monkeypatch):
         captured["body"] = json.loads(request.content)
 
         async def stream():
-            yield b'data: [DONE]\n\n'
+            yield b"data: [DONE]\n\n"
 
         return httpx.Response(200, content=stream())
 
