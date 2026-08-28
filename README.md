@@ -5,10 +5,11 @@ through [OpenRouter](https://openrouter.ai), with a bias toward free-tier
 models, and is designed to run comfortably alongside other CLI agents
 (Codex, Aider, OpenCode, Antigravity, etc.) on modest hardware.
 
-This is **Phase 2** of a 7-phase roadmap: single-model chat + file context +
-auto-routing, on an open-source-ready foundation. Sub-agent system, a custom
-plan/act/reflect agent loop, memory, optimization, and packaging land in
-later phases.
+This is **Phase 4** of a 7-phase roadmap: single-model chat, file context,
+multi-model auto-routing, a modular sub-agent system, and an in-process
+Plan → Act → Reflect agent core on an open-source-ready foundation. Memory &
+context persistence, optimization, and packaging land in upcoming phases.
+
 
 ## Quickstart
 
@@ -142,10 +143,11 @@ mypy .
 
 ## Roadmap
 
-This repo will grow through 7 phases: foundation ✅ → multi-model routing ✅
-→ sub-agent system → custom agent core → memory & context → optimization →
-ecosystem integration & release. See project issues/milestones for current
-status.
+This repo grows through 7 phases: foundation ✅ → multi-model routing ✅
+→ sub-agent system ✅ → custom agent core ✅ → memory & context (active) →
+optimization → ecosystem integration & release. See `.workspace/` and
+project milestones for detailed phase context.
+
 
 ## License
 
