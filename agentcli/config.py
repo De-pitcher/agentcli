@@ -41,6 +41,13 @@ enabled = true         # auto-route each message to a category-matched free mode
 max_fallbacks = 2      # extra candidates sent after the primary via the models array
 cooldown_seconds = 300
 failure_threshold = 3  # consecutive failures before a model enters cooldown
+
+[subagents]
+enabled = true         # enable sub-agent system
+max_concurrent = 5     # max concurrent sub-agents per type
+idle_timeout_seconds = 300
+default_timeout_seconds = 30
+max_output_bytes = 1048576  # 1MB
 '''
 
 
@@ -81,10 +88,30 @@ class RoutingConfig:
 
 
 @dataclass
+class SubAgentModelEntry:
+    id: str
+    command: str
+    args: list[str] = field(default_factory=list)
+    timeout_seconds: float = 30.0
+    env: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class SubAgentsConfig:
+    enabled: bool = True
+    max_concurrent: int = 5
+    idle_timeout_seconds: float = 300.0
+    default_timeout_seconds: float = 30.0
+    max_output_bytes: int = 1024 * 1024  # 1MB
+    models: list[SubAgentModelEntry] = field(default_factory=list)
+
+
+@dataclass
 class Config:
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     app: AppConfig = field(default_factory=AppConfig)
     routing: RoutingConfig = field(default_factory=RoutingConfig)
+    subagents: SubAgentsConfig = field(default_factory=SubAgentsConfig)
 
 
 def _platform_config_path() -> Path:
@@ -138,6 +165,7 @@ def load_config(path: Path | None = None) -> Config:
     or_raw = raw.get("openrouter", {})
     app_raw = raw.get("app", {})
     routing_raw = raw.get("routing", {})
+    subagents_raw = raw.get("subagents", {})
 
     entries = []
     for entry in routing_raw.get("models", []):
@@ -150,6 +178,21 @@ def load_config(path: Path | None = None) -> Config:
                 categories=[str(c) for c in entry.get("categories", ["chat"])],
                 priority=_parse_int(entry.get("priority"), "priority", 50),
                 context_window=_parse_int(entry.get("context_window"), "context_window", 32768),
+            )
+        )
+
+    subagent_entries = []
+    for entry in subagents_raw.get("models", []):
+        if not entry.get("id"):
+            logger.warning("Skipping subagents.models entry without 'id' field: %s", entry)
+            continue
+        subagent_entries.append(
+            SubAgentModelEntry(
+                id=str(entry["id"]),
+                command=str(entry.get("command", "")),
+                args=[str(a) for a in entry.get("args", [])],
+                timeout_seconds=_parse_float(entry.get("timeout_seconds"), "timeout_seconds", 30.0),
+                env={str(k): str(v) for k, v in entry.get("env", {}).items()},
             )
         )
 
@@ -175,6 +218,20 @@ def load_config(path: Path | None = None) -> Config:
                 routing_raw.get("failure_threshold"), "failure_threshold", 3
             ),
             models=entries,
+        ),
+        subagents=SubAgentsConfig(
+            enabled=bool(subagents_raw.get("enabled", True)),
+            max_concurrent=_parse_int(subagents_raw.get("max_concurrent"), "max_concurrent", 5),
+            idle_timeout_seconds=_parse_float(
+                subagents_raw.get("idle_timeout_seconds"), "idle_timeout_seconds", 300.0
+            ),
+            default_timeout_seconds=_parse_float(
+                subagents_raw.get("default_timeout_seconds"), "default_timeout_seconds", 30.0
+            ),
+            max_output_bytes=_parse_int(
+                subagents_raw.get("max_output_bytes"), "max_output_bytes", 1024 * 1024
+            ),
+            models=subagent_entries,
         ),
     )
 

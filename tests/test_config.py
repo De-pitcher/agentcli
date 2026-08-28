@@ -58,3 +58,45 @@ def test_api_key_none_when_unset(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     cfg = Config()
     assert cfg.openrouter.api_key is None
+
+
+def test_load_config_subagents_defaults(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text("")
+    cfg = load_config(path)
+    assert cfg.subagents.enabled is True
+    assert cfg.subagents.max_concurrent == 5
+    assert cfg.subagents.idle_timeout_seconds == 300.0
+
+
+def test_load_config_subagents_custom_and_models(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        """
+[subagents]
+enabled = false
+max_concurrent = 2
+idle_timeout_seconds = 60.0
+default_timeout_seconds = 15.0
+max_output_bytes = 500000
+
+[[subagents.models]]
+id = "custom-agent"
+command = "python"
+args = ["-m", "custom"]
+timeout_seconds = 20.0
+env = { FOO = "bar" }
+
+[[subagents.models]]
+command = "missing_id"
+"""
+    )
+    cfg = load_config(path)
+    assert cfg.subagents.enabled is False
+    assert cfg.subagents.max_concurrent == 2
+    assert cfg.subagents.idle_timeout_seconds == 60.0
+    assert cfg.subagents.default_timeout_seconds == 15.0
+    assert cfg.subagents.max_output_bytes == 500000
+    assert len(cfg.subagents.models) == 1
+    assert cfg.subagents.models[0].id == "custom-agent"
+    assert cfg.subagents.models[0].env == {"FOO": "bar"}
