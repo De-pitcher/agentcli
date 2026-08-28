@@ -56,6 +56,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the model that actually served each reply",
     )
+    chat_p.add_argument(
+        "--resume",
+        metavar="SESSION_ID",
+        help="Resume a prior conversation session by its ID",
+    )
+
+    sessions_p = sub.add_parser("sessions", help="Manage persisted conversation sessions")
+    sessions_sub = sessions_p.add_subparsers(dest="sessions_command", required=True)
+
+    list_p = sessions_sub.add_parser("list", help="List recent conversation sessions")
+    list_p.add_argument(
+        "--limit", type=int, default=20, help="Maximum sessions to list (default: 20)"
+    )
+
+    show_p = sessions_sub.add_parser("show", help="Show message history for a session")
+    show_p.add_argument("session_id", help="Session ID to inspect")
+
+    clear_p = sessions_sub.add_parser("clear", help="Clear all stored conversation sessions")
+    clear_p.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
 
     config_p = sub.add_parser("config", help="Manage agentcli configuration")
     config_sub = config_p.add_subparsers(dest="config_command", required=True)
@@ -89,17 +108,28 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         )
         print(f"Loaded {len(args.file)} file(s) into context.")
 
+    resume_id = getattr(args, "resume", None)
+
     try:
-        session = AgentSession(config, forced_model=forced_model, initial_history=history)
+        session = AgentSession(
+            config,
+            forced_model=forced_model,
+            initial_history=history if not resume_id else None,
+            session_id=resume_id,
+        )
     except OpenRouterError as exc:
         logger.error("%s", exc)
         return ExitCode.CONFIG_ERROR
+
+    if resume_id:
+        print(f"Resumed session: {session.session_id} ({len(session.history)} messages loaded)")
 
     if session.router is not None:
         print(
             "agentcli — model: auto (task-based routing)  "
             "(Ctrl+C or /exit to quit, end line with \\ for multi-line)"
         )
+
     else:
         actual_model = forced_model or config.openrouter.default_model
         print(
@@ -263,6 +293,70 @@ def _render_loop_event(event: object, *, verbose: bool) -> None:
         print(f"\n[loop-error] {event.error}")
 
 
+def run_sessions(args: argparse.Namespace, config: Config) -> int:
+    from .memory.store import MemoryStore
+
+    if not config.memory.enabled:
+        print("Memory persistence is disabled in config ([memory] enabled = false).")
+        return ExitCode.SUCCESS
+
+    store = MemoryStore(config.memory.db_path or None)
+    try:
+        if args.sessions_command == "list":
+            sessions = store.list_sessions(limit=args.limit)
+            if not sessions:
+                print("No saved sessions found.")
+                return ExitCode.SUCCESS
+            print(f"{'SESSION ID':<14} {'UPDATED':<22} {'MESSAGES':<10} {'TITLE'}")
+            print("-" * 75)
+            for s in sessions:
+                msg_count = len(store.get_messages(s.id))
+                updated_dt = s.updated_at[:19].replace("T", " ")
+                print(f"{s.id:<14} {updated_dt:<22} {msg_count:<10} {s.title[:28]}")
+            return ExitCode.SUCCESS
+
+        if args.sessions_command == "show":
+            session = store.get_session(args.session_id)
+            if not session:
+                logger.error("Session '%s' not found.", args.session_id)
+                return ExitCode.GENERAL_ERROR
+            print(f"Session ID: {session.id}")
+            print(f"Title:      {session.title}")
+            print(f"Created:    {session.created_at[:19].replace('T', ' ')}")
+            print(f"Updated:    {session.updated_at[:19].replace('T', ' ')}")
+            print("-" * 75)
+            messages = store.get_messages(args.session_id)
+            if not messages:
+                print("(No messages in session)")
+            for msg in messages:
+                role_label = msg.role.upper()
+                time_label = msg.created_at[:19].replace("T", " ")
+                print(f"\n[{role_label}] ({time_label})")
+                print(msg.content)
+            return ExitCode.SUCCESS
+
+        if args.sessions_command == "clear":
+            if not args.yes:
+                try:
+                    confirm = (
+                        input("Are you sure you want to delete all saved sessions? [y/N]: ")
+                        .strip()
+                        .lower()
+                    )
+                except (EOFError, KeyboardInterrupt):
+                    print("\nAborted.")
+                    return ExitCode.SUCCESS
+                if confirm not in ("y", "yes"):
+                    print("Aborted.")
+                    return ExitCode.SUCCESS
+            count = store.clear_all_sessions()
+            print(f"Cleared {count} stored session(s).")
+            return ExitCode.SUCCESS
+    finally:
+        store.close()
+    return ExitCode.GENERAL_ERROR
+
+
 def run_config(args: argparse.Namespace, config: Config) -> int:
     if args.config_command == "init":
         path, written = init_config()
@@ -279,6 +373,11 @@ def run_config(args: argparse.Namespace, config: Config) -> int:
         print(f"openrouter.base_url     = {config.openrouter.base_url}")
         print(f"app.stream              = {config.app.stream}")
         print(f"app.history_turns       = {config.app.history_turns}")
+        print(f"memory.enabled          = {config.memory.enabled}")
+        print(f"memory.db_path          = {config.memory.db_path or '(default platform path)'}")
+        print(f"memory.retention_days   = {config.memory.retention_days}")
+        print(f"memory.cache_enabled    = {config.memory.cache_enabled}")
+        print(f"memory.max_shared_bytes = {config.memory.max_shared_context_bytes}")
         return ExitCode.SUCCESS
     return ExitCode.GENERAL_ERROR
 
@@ -305,6 +404,8 @@ def main(argv: list[str] | None = None) -> int:
             # Real SIGINT can surface here (e.g. delivered during async cleanup
             # on Windows) after the REPL already handled the first press.
             return ExitCode.USER_INTERRUPT
+    if args.command == "sessions":
+        return run_sessions(args, config)
     if args.command == "config":
         return run_config(args, config)
 

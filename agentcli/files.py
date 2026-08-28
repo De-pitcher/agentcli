@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .memory.cache import ContextCache, get_default_context_cache
+
 MAX_FILE_BYTES = 200_000  # keeps a single file injection within a safe token budget
 
 
@@ -11,12 +13,8 @@ class FileReadError(Exception):
     pass
 
 
-def read_file_for_context(path: str | Path) -> str:
-    """
-    Reads a file and returns a fenced, labeled block suitable for injection
-    into a chat message. Raises FileReadError for missing/binary/oversized files.
-    """
-    p = Path(path)
+def _read_file_uncached(p: Path) -> str:
+    """Internal reader that reads and formats a file block without checking cache."""
     if not p.exists():
         raise FileReadError(f"File not found: {p}")
     if not p.is_file():
@@ -36,7 +34,20 @@ def read_file_for_context(path: str | Path) -> str:
     return f"### File: {p}\n```{lang}\n{content}\n```"
 
 
-def expand_file_references(text: str) -> str:
+def read_file_for_context(path: str | Path, cache: ContextCache | None = None) -> str:
+    """
+    Reads a file and returns a fenced, labeled block suitable for injection
+    into a chat message. Uses ContextCache if available to avoid redundant disk I/O.
+    Raises FileReadError for missing/binary/oversized files.
+    """
+    active_cache = cache if cache is not None else get_default_context_cache()
+    if active_cache is not None and active_cache.enabled:
+        content, _ = active_cache.get_or_read(path, _read_file_uncached)
+        return content
+    return _read_file_uncached(Path(path))
+
+
+def expand_file_references(text: str, cache: ContextCache | None = None) -> str:
     """
     Expands @path/to/file tokens in user input into fenced file content blocks
     appended after the message text. Minimal v1: any whitespace-delimited
@@ -59,7 +70,7 @@ def expand_file_references(text: str) -> str:
         for tok in tokens:
             if tok.startswith("@") and len(tok) > 1:
                 clean_tok = tok.rstrip(".,;:?!)]}\"'")
-                file_blocks.append(read_file_for_context(clean_tok[1:]))
+                file_blocks.append(read_file_for_context(clean_tok[1:], cache=cache))
                 has_file_ref = True
             else:
                 line_parts.append(tok)
