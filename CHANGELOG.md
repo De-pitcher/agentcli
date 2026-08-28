@@ -5,6 +5,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added — Phase 3: Sub-Agent System
+- Multi-agent coordination framework (`agentcli.subagents`):
+  - `SubAgent` base class with asynchronous lifecycle hooks (`on_start`, `on_complete`, `on_failure`, `on_idle`, `kill`) and timezone-aware timestamps.
+  - `MessageBus`: In-memory async pub/sub bus supporting broadcast, targeted message routing, request-response pairing with timeout protection, and automatic handler cleanup.
+  - `SubAgentPool` & `SubAgentSpawner`: Pool management with per-type concurrency limits, global concurrency enforcement via active pool registry, and idle timeout garbage collection.
+  - `CodeAnalyzerAgent`: Static code analysis and security inspection agent reusing `@file` reference loading.
+  - `FileOpsAgent`: Safe filesystem CRUD operations with strict directory containment and path traversal protection.
+  - `ShellExecutionAgent`: Subprocess runner using direct `asyncio.create_subprocess_exec` binary execution (preventing shell injection), command allowlist/denylist validation, dangerous environment variable sanitization, and output byte bounding.
+  - `PlannerAgent`: Heuristic task decomposition and planning with strict subtask validation and fallback against `available_agents`.
+  - `WebSearchAgent`: Web search agent stub returning graceful unavailable responses.
+  - Configuration support: `[subagents]` TOML section with `enabled`, `max_concurrent`, `idle_timeout_seconds`, `default_timeout_seconds`, `max_output_bytes`, and custom `[[subagents.models]]` definitions.
+
 ### Fixed (Post Phase 1-2 Audit)
 - Refactored `cli.py` to extract execution, routing, and history management logic into a new `AgentSession` class in `session.py`, paving the way for Phase 3.
 - Scoped CI's `pip-audit` check with `--local` to prevent false positive vulnerability alerts from pre-installed runner packages.

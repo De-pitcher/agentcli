@@ -1,0 +1,210 @@
+"""Shell Execution sub-agent.
+
+Provides direct process execution with allowlist/denylist filtering,
+output bounding, timeout enforcement, and environment variable sanitization.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import shlex
+import shutil
+from typing import TYPE_CHECKING, Any
+
+from .base import SubAgent, SubAgentResult, SubAgentTask, SubAgentType
+
+if TYPE_CHECKING:
+    from .bus import MessageBus
+
+# Environment variables that could be used for code injection or privilege escalation
+DANGEROUS_ENV_VARS = frozenset(
+    {
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "NODE_OPTIONS",
+        "BASH_ENV",
+        "ENV",
+        "PERL5OPT",
+        "RUBYOPT",
+    }
+)
+
+
+class ShellExecutionAgent(SubAgent):
+    """Sub-agent for executing commands safely without a shell.
+
+    Implements security checks through:
+    - Direct binary execution (create_subprocess_exec, no shell=True)
+    - Command allowlist/denylist
+    - Dangerous environment variable rejection
+    - Output size bounding
+    - Command timeout enforcement
+    """
+
+    def __init__(
+        self,
+        config: dict[str, Any] | None = None,
+        message_bus: MessageBus | None = None,
+    ) -> None:
+        super().__init__(SubAgentType.SHELL_EXECUTION, config, message_bus)
+
+        # Security configuration
+        self.allowlist: list[str] = self.config.get("allowlist", [])
+        self.denylist: list[str] = self.config.get("denylist", [])
+        self.max_output_bytes: int = self.config.get("max_output_bytes", 1024 * 1024)  # 1MB
+        self.command_timeout: float = self.config.get("command_timeout", 30.0)
+        self.working_dir: str = self.config.get("working_dir", os.getcwd())
+
+        # Security mode: "allowlist" or "denylist"
+        self.security_mode: str = self.config.get("security_mode", "denylist")
+
+    def _validate_command(self, command: str) -> tuple[bool, str, list[str]]:
+        """Validate a command against allowlist/denylist and parse parts.
+
+        Returns:
+            Tuple of (is_allowed, reason, parts)
+        """
+        try:
+            parts = shlex.split(command)
+        except ValueError as e:
+            return False, f"Invalid command syntax: {e}", []
+
+        if not parts:
+            return False, "Empty command", []
+
+        base_command = os.path.basename(parts[0]).lower()
+        # Strip Windows executable extensions if present for matching
+        if base_command.endswith((".exe", ".cmd", ".bat")):
+            base_name_no_ext = os.path.splitext(base_command)[0]
+        else:
+            base_name_no_ext = base_command
+
+        if self.security_mode == "allowlist":
+            allowed = any(
+                base_command == allowed.lower() or base_name_no_ext == allowed.lower()
+                for allowed in self.allowlist
+            )
+            if not allowed:
+                return False, f"Command '{base_command}' not in allowlist", parts
+            return True, "Allowed by allowlist", parts
+        else:
+            denied = any(
+                base_command == denied.lower() or base_name_no_ext == denied.lower()
+                for denied in self.denylist
+            )
+            if denied:
+                return False, f"Command '{base_command}' is denied", parts
+            return True, "Not in denylist", parts
+
+    async def run(self, task: SubAgentTask) -> SubAgentResult:
+        """Execute a command directly without shell interpolation.
+
+        Expected payload:
+            - command: command string to execute
+            - timeout: optional per-command timeout override
+            - working_dir: optional working directory override
+            - env: optional environment variables dict
+        """
+        payload = task.payload
+        command = payload.get("command", "").strip()
+
+        if not command:
+            return SubAgentResult(
+                task_id=task.id,
+                agent_type=self.agent_type,
+                success=False,
+                error="No command specified",
+            )
+
+        # Validate command
+        allowed, reason, parts = self._validate_command(command)
+        if not allowed:
+            return SubAgentResult(
+                task_id=task.id,
+                agent_type=self.agent_type,
+                success=False,
+                error=f"Command rejected: {reason}",
+            )
+
+        # Validate environment variables
+        env = os.environ.copy()
+        user_env = payload.get("env")
+        if user_env:
+            for k in user_env:
+                if k.upper() in DANGEROUS_ENV_VARS:
+                    return SubAgentResult(
+                        task_id=task.id,
+                        agent_type=self.agent_type,
+                        success=False,
+                        error=f"Dangerous environment variable override rejected: {k}",
+                    )
+            env.update(user_env)
+
+        # Prepare execution parameters
+        timeout = payload.get("timeout", self.command_timeout)
+        working_dir = payload.get("working_dir", self.working_dir)
+
+        # Find executable path
+        executable = shutil.which(parts[0]) or parts[0]
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                executable,
+                *parts[1:],
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=working_dir,
+                env=env,
+            )
+
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=timeout,
+                )
+            except TimeoutError:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                return SubAgentResult(
+                    task_id=task.id,
+                    agent_type=self.agent_type,
+                    success=False,
+                    error=f"Command timed out after {timeout}s",
+                )
+
+            # Decode output with size bounding
+            stdout_bytes = stdout[: self.max_output_bytes]
+            stderr_bytes = stderr[: self.max_output_bytes]
+
+            stdout_text = stdout_bytes.decode("utf-8", errors="replace")
+            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+
+            truncated = len(stdout) > self.max_output_bytes or len(stderr) > self.max_output_bytes
+
+            return SubAgentResult(
+                task_id=task.id,
+                agent_type=self.agent_type,
+                success=process.returncode == 0,
+                output={
+                    "stdout": stdout_text,
+                    "stderr": stderr_text,
+                    "returncode": process.returncode,
+                    "truncated": truncated,
+                },
+                error=stderr_text if process.returncode != 0 else None,
+            )
+
+        except (OSError, ValueError) as e:
+            return SubAgentResult(
+                task_id=task.id,
+                agent_type=self.agent_type,
+                success=False,
+                error=f"Execution failed: {e}",
+            )
