@@ -130,7 +130,7 @@ class SharedContextPool:
         if initial_bytes <= target_bytes:
             return 0
 
-        # Phase 1: Evict unreferenced items (ref_count == 0) starting from oldest accessed
+        # Evict unreferenced items (ref_count == 0) starting from oldest accessed
         unreferenced = [item for item in self._items.values() if item.ref_count == 0]
         unreferenced.sort(key=lambda x: x.last_accessed)
 
@@ -139,23 +139,16 @@ class SharedContextPool:
                 break
             del self._items[item.key]
 
-        # Phase 2: If still over capacity, compact oversized referenced items
+        # If still over capacity, in-use items (ref_count > 0) are strictly preserved intact
+        # to prevent corrupting data actively relied on by running sub-agents.
         if self.current_bytes > target_bytes:
-            referenced = [
-                item
-                for item in self._items.values()
-                if not item.is_compacted and item.size_bytes > 500
-            ]
-            referenced.sort(key=lambda x: x.last_accessed)
-
-            for item in referenced:
-                if self.current_bytes <= target_bytes:
-                    break
-                # Truncate content with a summary notice
-                preview = item.content[:200]
-                orig_len = len(item.content)
-                item.content = f"{preview}...\n[Compacted {orig_len} bytes by SharedContextPool]"
-                item.is_compacted = True
+            in_use_count = sum(1 for item in self._items.values() if item.ref_count > 0)
+            logger.warning(
+                "SharedContextPool over capacity (%d > %d bytes); %d in-use item(s) preserved intact without truncation.",
+                self.current_bytes,
+                target_bytes,
+                in_use_count,
+            )
 
         freed = initial_bytes - self.current_bytes
         logger.debug(

@@ -122,7 +122,10 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         return ExitCode.CONFIG_ERROR
 
     if resume_id:
-        print(f"Resumed session: {session.session_id} ({len(session.history)} messages loaded)")
+        if session.is_resumed:
+            print(f"Resumed session: {session.session_id} ({len(session.history)} messages loaded)")
+        else:
+            print(f"No session found with ID '{resume_id}'. Starting a new session instead.")
 
     if session.router is not None:
         print(
