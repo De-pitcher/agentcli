@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import logging
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Any
 
 from .agent.events import LoopEvent
 from .agent.loop import AgentLoop, is_agentic_task
@@ -44,7 +47,6 @@ class AgentSession:
         self.session_id = session_id or uuid.uuid4().hex[:12]
         self.is_resumed: bool = False
 
-
         self.memory_store: MemoryStore | None = None
         if config.memory.enabled:
             try:
@@ -69,7 +71,6 @@ class AgentSession:
         else:
             if initial_history is not None:
                 self.history = list(initial_history)
-
 
         self.registry: ModelRegistry | None = None
         self.router: Router | None = None
@@ -112,9 +113,10 @@ class AgentSession:
             self.history,
             max_context_tokens=target_window,
             max_turns=self.config.app.history_turns,
+            budget_ratio=self.config.memory.budget_ratio,
         )
 
-    def add_user_message(self, content: str) -> None:
+    def add_user_message(self, content: str, token_count: int | None = None) -> None:
         self.history.append(ChatMessage(role="user", content=content))
         if self.memory_store is not None:
             try:
@@ -122,12 +124,29 @@ class AgentSession:
                     session_id=self.session_id,
                     role="user",
                     content=content,
-                    token_count=estimate_tokens(content),
+                    token_count=token_count
+                    if token_count is not None
+                    else estimate_tokens(content),
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Failed to persist user message: %s", exc)
 
-    def add_assistant_message(self, content: str) -> None:
+    async def async_add_user_message(self, content: str, token_count: int | None = None) -> None:
+        self.history.append(ChatMessage(role="user", content=content))
+        if self.memory_store is not None:
+            try:
+                await self.memory_store.aappend_message(
+                    session_id=self.session_id,
+                    role="user",
+                    content=content,
+                    token_count=token_count
+                    if token_count is not None
+                    else estimate_tokens(content),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to persist user message asynchronously: %s", exc)
+
+    def add_assistant_message(self, content: str, token_count: int | None = None) -> None:
         self.history.append(ChatMessage(role="assistant", content=content))
         if self.memory_store is not None:
             try:
@@ -135,10 +154,44 @@ class AgentSession:
                     session_id=self.session_id,
                     role="assistant",
                     content=content,
-                    token_count=estimate_tokens(content),
+                    token_count=token_count
+                    if token_count is not None
+                    else estimate_tokens(content),
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Failed to persist assistant message: %s", exc)
+
+    async def async_add_assistant_message(
+        self, content: str, token_count: int | None = None
+    ) -> None:
+        self.history.append(ChatMessage(role="assistant", content=content))
+        if self.memory_store is not None:
+            try:
+                await self.memory_store.aappend_message(
+                    session_id=self.session_id,
+                    role="assistant",
+                    content=content,
+                    token_count=token_count
+                    if token_count is not None
+                    else estimate_tokens(content),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to persist assistant message asynchronously: %s", exc)
+
+    async def get_session_stats(self) -> dict[str, Any]:
+        """Return message and token stats for this session."""
+        if self.memory_store is not None:
+            return await self.memory_store.aget_session_stats(self.session_id)
+        return {
+            "message_count": len(self.history),
+            "total_tokens": sum(estimate_tokens(m.content) for m in self.history),
+            "user_tokens": sum(
+                estimate_tokens(m.content) for m in self.history if m.role == "user"
+            ),
+            "assistant_tokens": sum(
+                estimate_tokens(m.content) for m in self.history if m.role == "assistant"
+            ),
+        }
 
     def pop_last_message(self) -> None:
         if self.history:

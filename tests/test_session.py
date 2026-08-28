@@ -56,3 +56,40 @@ def test_session_pop_last_message():
     session.pop_last_message()
     assert len(session.history) == 0
     session.pop_last_message()  # should not raise
+
+
+@pytest.mark.asyncio
+async def test_session_async_add_messages_and_stats(tmp_path):
+    config = Config()
+    config.memory.db_path = str(tmp_path / "sess_test.db")
+    session = AgentSession(config)
+
+    await session.async_add_user_message("User query", token_count=10)
+    await session.async_add_assistant_message("Assistant reply", token_count=15)
+
+    stats = await session.get_session_stats()
+    assert stats["message_count"] == 2
+    assert stats["total_tokens"] == 25
+    assert stats["user_tokens"] == 10
+    assert stats["assistant_tokens"] == 15
+
+    await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_session_history_trimming_honors_budget_ratio():
+    config = Config()
+    config.memory.budget_ratio = 0.5  # 50% of 1000 = 500 token budget
+
+    session = AgentSession(config)
+    session.add_user_message("A" * 800)  # ~210 tokens
+    session.add_assistant_message("B" * 800)  # ~210 tokens
+    session.add_user_message("C" * 800)  # ~210 tokens
+
+    # With max_context_tokens = 1000 and budget_ratio = 0.5, budget is 500 tokens
+    trimmed = session._trim_history(max_context_tokens=1000)
+    # The last 2 messages fit (~420 tokens), 3 messages (~630 tokens) exceeds 500
+    assert len(trimmed) == 2
+    assert trimmed[0].content == "B" * 800
+    assert trimmed[1].content == "C" * 800
+    await session.aclose()

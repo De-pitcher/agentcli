@@ -7,8 +7,6 @@ import asyncio
 import logging
 import sys
 
-import httpx
-
 from . import __version__
 from .agent.events import (
     FinishEvent,
@@ -22,12 +20,14 @@ from .agent.loop import LoopIterationLimitError
 from .config import Config, ConfigError, init_config, load_config
 from .exit_codes import ExitCode
 from .files import FileReadError, expand_file_references
+from .memory.budget import estimate_tokens
 from .openrouter_client import (
     ChatMessage,
     OpenRouterError,
     RateLimitedError,
 )
 from .routing.classifier import classify
+from .routing.router import NoAvailableModelError
 from .session import AgentSession
 
 logger = logging.getLogger(__name__)
@@ -178,7 +178,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
 
             # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
             if session.should_use_loop(expanded):
-                session.add_user_message(expanded)
+                await session.async_add_user_message(expanded)
                 if verbose:
                     print("[agent-loop] Multi-step task detected — running Plan→Act→Reflect loop")
                 try:
@@ -190,7 +190,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                             loop_summary = event.summary
                         elif isinstance(event, LoopErrorEvent):
                             loop_summary = f"[loop error] {event.error}"
-                    session.add_assistant_message(loop_summary or "(loop completed)")
+                    await session.async_add_assistant_message(loop_summary or "(loop completed)")
                 except LoopIterationLimitError as exc:
                     print(f"\n[agent-loop] Iteration limit reached: {exc}")
                     session.pop_last_message()
@@ -200,7 +200,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 continue
 
             # ── SIMPLE SINGLE-TURN CHAT PATH (unchanged from Phase 1/2) ─
-            session.add_user_message(expanded)
+            await session.async_add_user_message(expanded)
 
             print("assistant> ", end="", flush=True)
             reply_parts: list[str] = []
@@ -208,8 +208,14 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
             # Determine routing decision before try block so it's available for error handling
             decision = None
             trimmed = session._trim_history()
-            if session.router is not None:
-                decision = session.router.decide(classify(expanded))
+            try:
+                if session.router is not None:
+                    decision = session.router.decide(classify(expanded))
+            except NoAvailableModelError as exc:
+                print(f"\n[routing error] {exc}")
+                session.pop_last_message()
+                continue
+
             requested_primary = decision.primary if decision is not None else None
 
             try:
@@ -235,14 +241,33 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                         )
                     else:
                         print(f"[model: {session.last_served_model}]")
-                session.add_assistant_message(full_reply)
+
+                usage = getattr(session.client, "last_usage", {})
+                out_tokens = (
+                    usage.get("completion_tokens") if usage else estimate_tokens(full_reply)
+                )
+                if verbose:
+                    if usage:
+                        print(
+                            f"[tokens: prompt={usage.get('prompt_tokens', 0)}, "
+                            f"completion={usage.get('completion_tokens', 0)}, "
+                            f"total={usage.get('total_tokens', 0)}]"
+                        )
+                    else:
+                        in_tok = estimate_tokens(expanded)
+                        out_tok_est = int(out_tokens or 0)
+                        print(
+                            f"[tokens: prompt~{in_tok}, completion~{out_tok_est}, total~{in_tok + out_tok_est}]"
+                        )
+
+                await session.async_add_assistant_message(full_reply, token_count=out_tokens)
                 session.mark_success(requested_primary)
 
             except KeyboardInterrupt:
                 print("\n[interrupted]")
                 partial = "".join(reply_parts)
                 if partial:
-                    session.add_assistant_message(partial + "\n[interrupted]")
+                    await session.async_add_assistant_message(partial + "\n[interrupted]")
                 else:
                     session.pop_last_message()  # don't poison history with empty turn
                 continue
@@ -260,9 +285,8 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
     finally:
         try:
             await session.aclose()
-        except (asyncio.CancelledError, KeyboardInterrupt, httpx.HTTPError) as exc:
-            logger.debug("Client close skipped: %s", exc)
-        print("\n(exiting)")
+        except (Exception, asyncio.CancelledError, KeyboardInterrupt) as exc:  # noqa: BLE001
+            logger.debug("Error closing session: %s", exc)
 
     if interrupted:
         return ExitCode.USER_INTERRUPT
@@ -310,12 +334,14 @@ def run_sessions(args: argparse.Namespace, config: Config) -> int:
             if not sessions:
                 print("No saved sessions found.")
                 return ExitCode.SUCCESS
-            print(f"{'SESSION ID':<14} {'UPDATED':<22} {'MESSAGES':<10} {'TITLE'}")
+            print(f"{'SESSION ID':<14} {'UPDATED':<20} {'MSGS':<6} {'TOKENS':<8} {'TITLE'}")
             print("-" * 75)
             for s in sessions:
-                msg_count = len(store.get_messages(s.id))
+                stats = store.get_session_stats(s.id)
+                msg_count = stats["message_count"]
+                tokens = stats["total_tokens"]
                 updated_dt = s.updated_at[:19].replace("T", " ")
-                print(f"{s.id:<14} {updated_dt:<22} {msg_count:<10} {s.title[:28]}")
+                print(f"{s.id:<14} {updated_dt:<20} {msg_count:<6} {tokens:<8} {s.title[:24]}")
             return ExitCode.SUCCESS
 
         if args.sessions_command == "show":
@@ -323,10 +349,17 @@ def run_sessions(args: argparse.Namespace, config: Config) -> int:
             if not session:
                 logger.error("Session '%s' not found.", args.session_id)
                 return ExitCode.GENERAL_ERROR
+            stats = store.get_session_stats(args.session_id)
             print(f"Session ID: {session.id}")
             print(f"Title:      {session.title}")
             print(f"Created:    {session.created_at[:19].replace('T', ' ')}")
             print(f"Updated:    {session.updated_at[:19].replace('T', ' ')}")
+            print(f"Messages:   {stats['message_count']}")
+            print(
+                f"Token Usage: {stats['total_tokens']} total "
+                f"({stats['user_tokens']} prompt, {stats['assistant_tokens']} completion)"
+            )
+            print("Est. Cost:    $0.0000 (free tier models)")
             print("-" * 75)
             messages = store.get_messages(args.session_id)
             if not messages:
@@ -334,7 +367,8 @@ def run_sessions(args: argparse.Namespace, config: Config) -> int:
             for msg in messages:
                 role_label = msg.role.upper()
                 time_label = msg.created_at[:19].replace("T", " ")
-                print(f"\n[{role_label}] ({time_label})")
+                tok_info = f" [{msg.token_count} tokens]" if msg.token_count is not None else ""
+                print(f"\n[{role_label}] ({time_label}){tok_info}")
                 print(msg.content)
             return ExitCode.SUCCESS
 
@@ -381,6 +415,9 @@ def run_config(args: argparse.Namespace, config: Config) -> int:
         print(f"memory.retention_days   = {config.memory.retention_days}")
         print(f"memory.cache_enabled    = {config.memory.cache_enabled}")
         print(f"memory.max_shared_bytes = {config.memory.max_shared_context_bytes}")
+        print(f"memory.budget_ratio     = {config.memory.budget_ratio}")
+        print(f"memory.max_cache_entries = {config.memory.max_cache_entries}")
+        print(f"memory.max_cache_bytes  = {config.memory.max_cache_bytes}")
         return ExitCode.SUCCESS
     return ExitCode.GENERAL_ERROR
 

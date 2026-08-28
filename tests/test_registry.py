@@ -66,3 +66,39 @@ def test_minimax_is_second_chat_candidate():
     registry = ModelRegistry(RoutingConfig())
     chat_ids = [record.id for record in registry.candidates(CHAT)]
     assert MINIMAX == chat_ids[1]
+
+
+def test_adaptive_rate_limit_exponential_backoff():
+    base_cooldown = 100.0
+    registry = ModelRegistry(RoutingConfig(cooldown_seconds=base_cooldown))
+
+    import time
+
+    t0 = time.monotonic()
+    # 1st 429 -> multiplier = 1 (100s)
+    registry.mark_failure(GEMMA, rate_limited=True)
+    c1 = registry._state.health[GEMMA].cooldown_until - t0
+    assert 99.0 <= c1 <= 101.0
+
+    # 2nd 429 -> multiplier = 2 (200s)
+    registry.mark_failure(GEMMA, rate_limited=True)
+    c2 = registry._state.health[GEMMA].cooldown_until - t0
+    assert 198.0 <= c2 <= 202.0
+
+    # 3rd 429 -> multiplier = 4 (400s)
+    registry.mark_failure(GEMMA, rate_limited=True)
+    c3 = registry._state.health[GEMMA].cooldown_until - t0
+    assert 396.0 <= c3 <= 404.0
+
+    # Success resets consecutive_rate_limits
+    registry.mark_success(GEMMA)
+    assert registry._state.health[GEMMA].consecutive_rate_limits == 0
+    assert not registry.is_cooling(GEMMA)
+
+
+def test_independent_model_cooldowns():
+    registry = ModelRegistry(RoutingConfig())
+    registry.mark_failure(GEMMA, rate_limited=True)
+    assert registry.is_cooling(GEMMA)
+    assert not registry.is_cooling(MINIMAX)
+    assert not registry.is_cooling(COHERE)

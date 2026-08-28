@@ -141,7 +141,7 @@ class AgentLoopConfig:
 
 @dataclass
 class MemoryConfig:
-    """Configuration for session persistence, caching, and context pooling (Phase 5).
+    """Configuration for session persistence, caching, and context pooling (Phase 5 & 6).
 
     Fields:
         enabled:                 Persist conversation sessions to SQLite.
@@ -149,6 +149,9 @@ class MemoryConfig:
         retention_days:          Auto-prune sessions older than N days (0 to disable).
         cache_enabled:           Cache unchanged file references to save tokens and disk I/O.
         max_shared_context_bytes: Maximum byte budget for sub-agent shared context pool.
+        budget_ratio:            Fraction of model context window allocated to history (0.1–1.0).
+        max_cache_entries:       Maximum number of files cached in context cache.
+        max_cache_bytes:         Maximum byte budget for cached file contexts.
     """
 
     enabled: bool = True
@@ -156,6 +159,9 @@ class MemoryConfig:
     retention_days: int = 30
     cache_enabled: bool = True
     max_shared_context_bytes: int = 524288  # 512KB
+    budget_ratio: float = 0.75
+    max_cache_entries: int = 256
+    max_cache_bytes: int = 10485760  # 10MB
 
 
 @dataclass
@@ -274,6 +280,28 @@ def load_config(path: Path | None = None) -> Config:
             f"Invalid value for 'memory.max_shared_context_bytes': must be >= 1024, got {max_shared_bytes}"
         )
 
+    budget_ratio = _parse_float(memory_raw.get("budget_ratio"), "memory.budget_ratio", 0.75)
+    if not (0.1 <= budget_ratio <= 1.0):
+        raise ConfigError(
+            f"Invalid value for 'memory.budget_ratio': must be between 0.1 and 1.0, got {budget_ratio}"
+        )
+
+    max_cache_entries = _parse_int(
+        memory_raw.get("max_cache_entries"), "memory.max_cache_entries", 256
+    )
+    if max_cache_entries < 1:
+        raise ConfigError(
+            f"Invalid value for 'memory.max_cache_entries': must be >= 1, got {max_cache_entries}"
+        )
+
+    max_cache_bytes = _parse_int(
+        memory_raw.get("max_cache_bytes"), "memory.max_cache_bytes", 10485760
+    )
+    if max_cache_bytes < 1024:
+        raise ConfigError(
+            f"Invalid value for 'memory.max_cache_bytes': must be >= 1024, got {max_cache_bytes}"
+        )
+
     return Config(
         openrouter=OpenRouterConfig(
             api_key_env=str(or_raw.get("api_key_env", "OPENROUTER_API_KEY")),
@@ -324,6 +352,9 @@ def load_config(path: Path | None = None) -> Config:
             retention_days=retention_days,
             cache_enabled=bool(memory_raw.get("cache_enabled", True)),
             max_shared_context_bytes=max_shared_bytes,
+            budget_ratio=budget_ratio,
+            max_cache_entries=max_cache_entries,
+            max_cache_bytes=max_cache_bytes,
         ),
     )
 

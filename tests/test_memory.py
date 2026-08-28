@@ -350,7 +350,6 @@ class TestSessionMemoryIntegration:
             assert s_ghost.session_id == "ghost_session_id"
             assert len(s_ghost.history) == 0
 
-
             # Case 2: Real-but-empty session ID
             s_empty = AgentSession(cfg, session_id="empty_session_id")
             assert s_empty.is_resumed is True
@@ -589,3 +588,138 @@ class TestMemoryEdgeCases:
             out_cfg = capsys.readouterr().out
             assert "memory.enabled" in out_cfg
             assert "memory.retention_days" in out_cfg
+            assert "memory.budget_ratio" in out_cfg
+            assert "memory.max_cache_entries" in out_cfg
+            assert "memory.max_cache_bytes" in out_cfg
+
+
+# ---------------------------------------------------------------------------
+# 9. Phase 6 LRU Cache & Async Store Concurrency Tests
+# ---------------------------------------------------------------------------
+
+
+class TestPhase6Optimizations:
+    def test_lru_cache_evicts_oldest_on_entry_limit(self, tmp_path: Path) -> None:
+        cache = ContextCache(enabled=True, max_entries=3, max_bytes=1024 * 1024)
+        files = []
+        for i in range(5):
+            p = tmp_path / f"file_{i}.txt"
+            p.write_text(f"Content {i}", encoding="utf-8")
+            files.append(p)
+
+        def reader(p: Path) -> str:
+            return p.read_text(encoding="utf-8")
+
+        # Read files 0, 1, 2 (all cached)
+        cache.get_or_read(files[0], reader)
+        cache.get_or_read(files[1], reader)
+        cache.get_or_read(files[2], reader)
+        assert cache.stats()["cached_entries"] == 3
+
+        # Access file 0 to make it MRU (order now: 1 [oldest], 2, 0 [newest])
+        _, hit0 = cache.get_or_read(files[0], reader)
+        assert hit0 is True
+
+        # Read file 3 -> should evict file 1 (the oldest unaccessed)
+        cache.get_or_read(files[3], reader)
+        assert cache.stats()["cached_entries"] == 3
+
+        # File 1 is evicted (cache miss)
+        _, hit1 = cache.get_or_read(files[1], reader)
+        assert hit1 is False
+
+        # File 0 was preserved (cache hit)
+        _, hit0_again = cache.get_or_read(files[0], reader)
+        assert hit0_again is True
+
+    def test_lru_cache_evicts_on_byte_budget_pressure(self, tmp_path: Path) -> None:
+        # 1000-byte max capacity
+        cache = ContextCache(enabled=True, max_entries=100, max_bytes=1024)
+        files = []
+        for i in range(4):
+            p = tmp_path / f"large_{i}.txt"
+            p.write_text("X" * 400, encoding="utf-8")
+            files.append(p)
+
+        def reader(p: Path) -> str:
+            return p.read_text(encoding="utf-8")
+
+        # 400 bytes
+        cache.get_or_read(files[0], reader)
+        # 800 bytes
+        cache.get_or_read(files[1], reader)
+        assert cache.current_bytes == 800
+
+        # Adding 400 bytes more (total 1200 > 1024) -> evicts file 0
+        cache.get_or_read(files[2], reader)
+        assert cache.current_bytes <= 1024
+        assert cache.stats()["cached_entries"] == 2
+
+    @pytest.mark.asyncio
+    async def test_async_store_methods_and_stats(self, tmp_path: Path) -> None:
+        db_file = tmp_path / "async_store.db"
+        store = MemoryStore(db_file)
+
+        # Async session creation
+        s = await store.acreate_session("sess_async", title="Async Session", model="m1")
+        assert s.id == "sess_async"
+
+        # Async append with tokens
+        msg1 = await store.aappend_message("sess_async", "user", "What is 2+2?", token_count=12)
+        msg2 = await store.aappend_message("sess_async", "assistant", "4", token_count=4)
+        assert msg1.token_count == 12
+        assert msg2.token_count == 4
+
+        # Async get messages
+        msgs = await store.aget_messages("sess_async")
+        assert len(msgs) == 2
+
+        # Async get stats
+        stats = await store.aget_session_stats("sess_async")
+        assert stats["message_count"] == 2
+        assert stats["total_tokens"] == 16
+        assert stats["user_tokens"] == 12
+        assert stats["assistant_tokens"] == 4
+
+        # Async list and update
+        await store.aupdate_session("sess_async", title="Updated Async")
+        sessions = await store.alist_sessions()
+        assert len(sessions) == 1
+        assert sessions[0].title == "Updated Async"
+
+        # Async delete and clear
+        assert await store.adelete_session("sess_async") is True
+        assert await store.aclear_all_sessions() == 0
+
+        store.close()
+
+    @pytest.mark.asyncio
+    async def test_async_sqlite_concurrent_event_loop_progress(self, tmp_path: Path) -> None:
+        db_file = tmp_path / "nonblocking.db"
+        store = MemoryStore(db_file)
+
+        events_order: list[str] = []
+
+        async def fast_task() -> None:
+            for i in range(5):
+                events_order.append(f"fast_{i}")
+                await asyncio.sleep(0.001)
+
+        async def slow_db_write() -> None:
+            # Execute multiple writes in background thread
+            for j in range(5):
+                await store.aappend_message(
+                    session_id="s_test",
+                    role="user",
+                    content=f"Slow write msg {j}",
+                    token_count=10,
+                )
+                events_order.append(f"db_{j}")
+
+        await asyncio.gather(fast_task(), slow_db_write())
+        store.close()
+
+        # Both fast async task and db writes interleaved without blocking
+        assert "fast_0" in events_order
+        assert "db_0" in events_order
+        assert len(events_order) == 10
