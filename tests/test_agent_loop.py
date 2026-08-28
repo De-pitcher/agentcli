@@ -598,3 +598,48 @@ class TestSessionShouldUseLoop:
     def test_returns_true_for_agentic_task_when_enabled(self) -> None:
         session = self._make_session(loop_enabled=True)
         assert session.should_use_loop("First list the files, then analyze each one") is True
+
+
+class TestToolRegistryPlugins:
+    @pytest.mark.asyncio
+    async def test_register_callable_sync_and_async(self) -> None:
+        registry = ToolRegistry()
+
+        def add_sync(a: int, b: int) -> int:
+            return a + b
+
+        async def add_async(a: int, b: int) -> dict[str, int]:
+            return {"sum": a + b}
+
+        registry.register_callable("add_sync", add_sync)
+        registry.register_callable("add_async", add_async)
+
+        res_sync = await registry.execute("add_sync", {"a": 10, "b": 20})
+        assert res_sync.success is True
+        assert res_sync.output == {"output": "30"}
+
+        res_async = await registry.execute("add_async", {"a": 15, "b": 25})
+        assert res_async.success is True
+        assert res_async.output == {"sum": 40}
+
+    @pytest.mark.asyncio
+    async def test_load_plugin_file(self, tmp_path: Any) -> None:
+        plugin_file = tmp_path / "custom_tool.py"
+        plugin_file.write_text(
+            """
+def multiply(x, y):
+    return x * y
+
+def register_tools(registry):
+    registry.register_callable("multiplier", multiply)
+""",
+            encoding="utf-8",
+        )
+
+        registry = ToolRegistry()
+        registry.load_plugin_file(plugin_file)
+        assert "multiplier" in registry.registered_types()
+
+        result = await registry.execute("multiplier", {"x": 5, "y": 6})
+        assert result.success is True
+        assert result.output == {"output": "30"}

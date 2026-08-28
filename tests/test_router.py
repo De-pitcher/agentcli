@@ -35,6 +35,9 @@ def test_cross_category_fallback_when_category_exhausted():
     # Asking for CODE should fall back to REASONING/CHAT models rather than crashing
     decision = router.decide(CODE)
     assert decision is not None
+    assert decision.is_fallback is True
+    assert decision.requested_category == CODE
+    assert decision.served_category in ("reasoning", "chat", "global")
     assert decision.primary in [r.id for r in registry.healthy_models()]
 
 

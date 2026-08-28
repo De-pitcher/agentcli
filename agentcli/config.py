@@ -18,6 +18,7 @@ import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 DEFAULT_MODEL = "google/gemma-4-31b-it:free"
 
@@ -82,6 +83,28 @@ class OpenRouterConfig:
 class AppConfig:
     stream: bool = True
     history_turns: int = 20
+    load_agents_md: bool = True
+    plugins: list[str] = field(default_factory=list)
+
+
+PRESETS: dict[str, dict[str, Any]] = {
+    "coding": {
+        "agent_loop": {"enabled": True, "max_iterations": 8},
+        "app": {"history_turns": 30},
+        "routing": {"enabled": True},
+    },
+    "chat": {
+        "agent_loop": {"enabled": False},
+        "app": {"history_turns": 15},
+        "routing": {"enabled": True},
+    },
+    "minimal": {
+        "agent_loop": {"enabled": False},
+        "app": {"history_turns": 10},
+        "memory": {"enabled": False},
+        "routing": {"enabled": False},
+    },
+}
 
 
 @dataclass
@@ -214,13 +237,30 @@ def _parse_float(val: object, key: str, default: float) -> float:
         raise ConfigError(f"Invalid value for '{key}': expected a number, got '{val}'")
 
 
-def load_config(path: Path | None = None) -> Config:
-    path = path or find_config_path()
-    if not path.exists():
-        return Config()
+def _merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge override dictionary into base."""
+    merged = dict(base)
+    for k, v in override.items():
+        if k in merged and isinstance(merged[k], dict) and isinstance(v, dict):
+            merged[k] = _merge_dict(merged[k], v)
+        else:
+            merged[k] = v
+    return merged
 
-    with open(path, "rb") as f:
-        raw = tomllib.load(f)
+
+def load_config(path: Path | None = None, preset: str | None = None) -> Config:
+    path = path or find_config_path()
+    raw: dict[str, Any] = {}
+    if path.exists():
+        with open(path, "rb") as f:
+            raw = tomllib.load(f)
+
+    if preset is not None:
+        if preset not in PRESETS:
+            raise ConfigError(
+                f"Unknown preset '{preset}'. Available presets: {', '.join(PRESETS.keys())}"
+            )
+        raw = _merge_dict(raw, PRESETS[preset])
 
     or_raw = raw.get("openrouter", {})
     app_raw = raw.get("app", {})
@@ -313,6 +353,8 @@ def load_config(path: Path | None = None) -> Config:
         app=AppConfig(
             stream=bool(app_raw.get("stream", True)),
             history_turns=_parse_int(app_raw.get("history_turns"), "history_turns", 20),
+            load_agents_md=bool(app_raw.get("load_agents_md", True)),
+            plugins=[str(p) for p in app_raw.get("plugins", [])],
         ),
         routing=RoutingConfig(
             enabled=bool(routing_raw.get("enabled", True)),

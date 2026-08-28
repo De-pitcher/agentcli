@@ -474,3 +474,9 @@ def test_sessions_show_and_list_displays_tokens(tmp_path: Path, capsys: Any):
         assert "$0.0000" in out_show
         assert "[8 tokens]" in out_show
         assert "[12 tokens]" in out_show
+
+
+def test_cli_preset_and_mcp_command(monkeypatch):
+    monkeypatch.setattr("agentcli.mcp.run_mcp", lambda **kwargs: ExitCode.SUCCESS)
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-dummy"}):
+        assert main(["--preset", "coding", "mcp"]) == ExitCode.SUCCESS

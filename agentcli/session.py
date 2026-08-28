@@ -11,6 +11,7 @@ from .agent.loop import AgentLoop, is_agentic_task
 from .agent.reflector import DefaultReflector
 from .agent.registry import ToolRegistry
 from .config import Config
+from .files import load_agents_md
 from .memory.budget import DEFAULT_CONTEXT_WINDOW, estimate_tokens, trim_history_to_budget
 from .memory.store import MemoryStore
 from .openrouter_client import (
@@ -71,6 +72,13 @@ class AgentSession:
         else:
             if initial_history is not None:
                 self.history = list(initial_history)
+
+        if not self.is_resumed and config.app.load_agents_md:
+            has_system = any(m.role == "system" for m in self.history)
+            if not has_system:
+                agents_context = load_agents_md()
+                if agents_context:
+                    self.history.insert(0, ChatMessage(role="system", content=agents_context))
 
         self.registry: ModelRegistry | None = None
         self.router: Router | None = None

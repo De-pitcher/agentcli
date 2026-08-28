@@ -1,6 +1,6 @@
 [project]
 name = "agentcli"
-version = "0.1.0"
+version = "1.0.0"
 description = "Budget-conscious, model-agnostic AI agent CLI built on OpenRouter"
 readme = "README.md"
 license = "MIT"

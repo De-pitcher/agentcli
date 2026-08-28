@@ -40,6 +40,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--preset",
+        choices=["coding", "chat", "minimal"],
+        help="Apply a workflow preset (e.g. coding, chat, minimal)",
+    )
+    parser.add_argument(
+        "--plugin",
+        action="append",
+        default=[],
+        help="Load a custom tool plugin Python file (repeatable)",
+    )
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -52,6 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include a file's contents as context (repeatable)",
     )
     chat_p.add_argument(
+        "--no-agents-md",
+        action="store_true",
+        help="Disable automatic loading of project AGENTS.md instructions",
+    )
+    chat_p.add_argument(
         "--show-model",
         action="store_true",
         help="Print the model that actually served each reply",
@@ -60,6 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--resume",
         metavar="SESSION_ID",
         help="Resume a prior conversation session by its ID",
+    )
+
+    sub.add_parser(
+        "mcp", help="Run agentcli as a Model Context Protocol (MCP) stdio JSON-RPC server"
     )
 
     sessions_p = sub.add_parser("sessions", help="Manage persisted conversation sessions")
@@ -233,13 +253,18 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print("(model returned an empty response)")
                 else:
                     print()
-                if show_model and session.last_served_model:
-                    if requested_primary and session.last_served_model != requested_primary:
+                if (show_model or verbose) and session.last_served_model:
+                    if decision is not None and decision.is_fallback:
+                        print(
+                            f"[model: {session.last_served_model} — "
+                            f"fallback from category {decision.requested_category} to {decision.served_category}]"
+                        )
+                    elif requested_primary and session.last_served_model != requested_primary:
                         print(
                             f"[model: {session.last_served_model} — "
                             f"routed from {requested_primary}]"
                         )
-                    else:
+                    elif show_model:
                         print(f"[model: {session.last_served_model}]")
 
                 usage = getattr(session.client, "last_usage", {})
@@ -432,10 +457,25 @@ def main(argv: list[str] | None = None) -> int:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     try:
-        config = load_config()
+        config = load_config(preset=getattr(args, "preset", None))
     except ConfigError as exc:
         logger.error(str(exc))
         return ExitCode.CONFIG_ERROR
+
+    if getattr(args, "plugin", None):
+        config.app.plugins.extend(args.plugin)
+
+    if getattr(args, "no_agents_md", False):
+        config.app.load_agents_md = False
+
+    if args.command == "mcp":
+        from .agent.registry import ToolRegistry
+        from .mcp import run_mcp
+
+        reg = ToolRegistry()
+        for p in config.app.plugins:
+            reg.load_plugin_file(p)
+        return run_mcp(registry=reg)
 
     if args.command == "chat":
         try:

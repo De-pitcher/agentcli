@@ -93,3 +93,19 @@ async def test_session_history_trimming_honors_budget_ratio():
     assert trimmed[0].content == "B" * 800
     assert trimmed[1].content == "C" * 800
     await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_session_loads_agents_md(tmp_path, monkeypatch):
+    agents_file = tmp_path / "AGENTS.md"
+    agents_file.write_text("Project instructions: always write unit tests.")
+    monkeypatch.chdir(tmp_path)
+
+    config = Config()
+    config.app.load_agents_md = True
+    session = AgentSession(config)
+
+    assert len(session.history) == 1
+    assert session.history[0].role == "system"
+    assert "Project instructions: always write unit tests." in session.history[0].content
+    await session.aclose()

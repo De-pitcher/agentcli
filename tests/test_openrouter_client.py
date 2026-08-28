@@ -306,6 +306,7 @@ async def test_chat_stream_models_array_payload(monkeypatch):
     body = captured["body"]
     assert isinstance(body, dict)
     assert body["models"] == ["a/b:free", "c/d:free"]
+    assert body["stream_options"] == {"include_usage": True}
     assert "model" not in body
     assert "".join(parts) == "Hi"
     assert client.last_served_model == "z-ai/glm-5.2:free"
@@ -337,6 +338,7 @@ async def test_chat_stream_single_model_keeps_model_key(monkeypatch):
     body = captured["body"]
     assert isinstance(body, dict)
     assert body["model"] == "single/model:free"
+    assert body["stream_options"] == {"include_usage": True}
     assert "models" not in body
     await client.aclose()
 
