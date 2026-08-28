@@ -42,6 +42,8 @@ class AgentSession:
         self.client = OpenRouterClient(config.openrouter)
         self.forced_model = forced_model
         self.session_id = session_id or uuid.uuid4().hex[:12]
+        self.is_resumed: bool = False
+
 
         self.memory_store: MemoryStore | None = None
         if config.memory.enabled:
@@ -54,12 +56,20 @@ class AgentSession:
                 self.memory_store = None
 
         self.history: list[ChatMessage] = []
-        if initial_history is not None:
-            self.history = list(initial_history)
-        elif self.memory_store and session_id:
-            # Resuming an existing session from SQLite
-            saved_msgs = self.memory_store.get_messages(session_id)
-            self.history = [ChatMessage(role=m.role, content=m.content) for m in saved_msgs]
+        if session_id and self.memory_store is not None:
+            existing = self.memory_store.get_session(session_id)
+            if existing is not None:
+                self.is_resumed = True
+                saved_msgs = self.memory_store.get_messages(session_id)
+                self.history = [ChatMessage(role=m.role, content=m.content) for m in saved_msgs]
+            else:
+                self.is_resumed = False
+                if initial_history is not None:
+                    self.history = list(initial_history)
+        else:
+            if initial_history is not None:
+                self.history = list(initial_history)
+
 
         self.registry: ModelRegistry | None = None
         self.router: Router | None = None

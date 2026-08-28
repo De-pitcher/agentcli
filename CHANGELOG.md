@@ -5,7 +5,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed — Phase 5 Audit Corrections
+
+- **In-Use Context Preservation (`agentcli.memory.context_pool`)**:
+  - Compaction never mutates or truncates actively referenced items (`ref_count > 0`). In-use context chunks are preserved intact even when the pool temporarily exceeds target capacity, eliminating risk of downstream sub-agents operating on truncated text.
+- **Session Resumption Validation (`agentcli.session`, `agentcli.cli`)**:
+  - `agentcli chat --resume <id>` now verifies whether the session ID exists in the database. Genuinely nonexistent IDs trigger an explicit message (`No session found with ID '<id>'. Starting a new session instead.`) and generate a fresh session ID, while real-but-empty sessions correctly load with 0 messages.
+
 ### Added — Phase 5: Memory & Context Persistence
+
 
 - **Persistence Layer (`agentcli.memory.store`)**:
   - Zero-dependency local SQLite storage using Python standard library `sqlite3`.

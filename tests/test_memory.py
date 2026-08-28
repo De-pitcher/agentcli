@@ -336,6 +336,27 @@ class TestSessionMemoryIntegration:
             s2.add_user_message("Is it dynamically typed?")
             assert len(store.get_messages("test_session_1")) == 3
 
+    def test_session_resume_nonexistent_vs_empty(self, tmp_path: Path) -> None:
+        cfg = self._make_config(tmp_path)
+        store = MemoryStore(cfg.memory.db_path)
+        # Create a real session that has 0 messages
+        store.create_session("empty_session_id", title="Empty Session")
+        store.close()
+
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-dummy"}):
+            # Case 1: Nonexistent session ID
+            s_ghost = AgentSession(cfg, session_id="ghost_session_id")
+            assert s_ghost.is_resumed is False
+            assert s_ghost.session_id == "ghost_session_id"
+            assert len(s_ghost.history) == 0
+
+
+            # Case 2: Real-but-empty session ID
+            s_empty = AgentSession(cfg, session_id="empty_session_id")
+            assert s_empty.is_resumed is True
+            assert s_empty.session_id == "empty_session_id"
+            assert len(s_empty.history) == 0
+
 
 # ---------------------------------------------------------------------------
 # 6. CLI Subcommands Integration (`agentcli sessions ...`)
@@ -378,6 +399,43 @@ class TestCliSessions:
             assert ret_clear == ExitCode.SUCCESS
             out_clear = capsys.readouterr().out
             assert "Cleared 1 stored session(s)" in out_clear
+
+    def test_chat_resume_cli_output(self, tmp_path: Path, capsys: Any, monkeypatch: Any) -> None:
+        db_file = tmp_path / "cli_resume.db"
+        cfg_file = tmp_path / "agentcli.toml"
+        cfg_file.write_text(
+            f"[openrouter]\napi_key_env = 'K'\n[memory]\nenabled = true\ndb_path = '{db_file.as_posix()}'\n",
+            encoding="utf-8",
+        )
+
+        store = MemoryStore(db_file)
+        store.create_session("empty_sess", title="Empty Session")
+        store.create_session("active_sess", title="Active Session")
+        store.append_message("active_sess", "user", "Hi")
+        store.append_message("active_sess", "assistant", "Hello")
+        store.close()
+
+        # Mock input to exit chat loop immediately
+        monkeypatch.setattr("builtins.input", lambda prompt="": "/exit")
+
+        with patch.dict(os.environ, {"K": "sk-test", "AGENTCLI_CONFIG": str(cfg_file)}):
+            # 1. Nonexistent session ID
+            main(["chat", "--resume", "ghost_sess"])
+            out_ghost = capsys.readouterr().out
+            assert (
+                "No session found with ID 'ghost_sess'. Starting a new session instead."
+                in out_ghost
+            )
+
+            # 2. Real-but-empty session ID
+            main(["chat", "--resume", "empty_sess"])
+            out_empty = capsys.readouterr().out
+            assert "Resumed session: empty_sess (0 messages loaded)" in out_empty
+
+            # 3. Real session with messages
+            main(["chat", "--resume", "active_sess"])
+            out_active = capsys.readouterr().out
+            assert "Resumed session: active_sess (2 messages loaded)" in out_active
 
 
 # ---------------------------------------------------------------------------
@@ -438,18 +496,29 @@ class TestMemoryConfigParsing:
 
 class TestMemoryEdgeCases:
     @pytest.mark.asyncio
-    async def test_context_pool_phase2_compaction(self) -> None:
-        # Small capacity pool
+    async def test_context_pool_in_use_items_preserved_during_compaction(self) -> None:
+        # Small capacity pool (1024 bytes)
         pool = SharedContextPool(max_bytes=1024)
-        # Put 2 referenced large items that exceed 1024 bytes
-        await pool.put("k1", "X" * 800, initial_consumer="c1")
-        await pool.put("k2", "Y" * 800, initial_consumer="c2")
+        # Put 1 unreferenced item (500 bytes)
+        await pool.put("unref", "U" * 500)
+        # Put 2 actively referenced items (600 bytes each)
+        await pool.put("k1", "X" * 600, initial_consumer="c1")
+        await pool.put("k2", "Y" * 600, initial_consumer="c2")
 
-        assert pool.current_bytes <= 1024
+        # Unreferenced item should be evicted
+        assert await pool.get("unref") is None
 
+        # In-use items must NEVER be truncated or corrupted
         content1 = await pool.get("k1")
-        assert content1 is not None
-        assert "[Compacted" in content1
+        content2 = await pool.get("k2")
+        assert content1 == "X" * 600
+        assert content2 == "Y" * 600
+
+        # Release ref on k1 and trigger compaction -> k1 should now be evicted cleanly
+        await pool.release_ref("k1", "c1")
+        await pool.compact()
+        assert await pool.get("k1") is None
+        assert await pool.get("k2") == "Y" * 600
 
     @pytest.mark.asyncio
     async def test_context_pool_missing_keys_and_clear(self) -> None:
