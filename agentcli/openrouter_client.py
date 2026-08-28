@@ -93,6 +93,7 @@ class OpenRouterClient:
         OpenRouterError too.
         """
         self.last_served_model = None
+        self.last_usage: dict[str, int] = {}
         payload: dict[str, object] = {
             "messages": [m.to_dict() for m in messages],
             "stream": True,
@@ -148,6 +149,13 @@ class OpenRouterClient:
                                 f"{error.get('code', 'unknown')}: "
                                 f"{error.get('message', 'mid-stream failure')}"
                             )
+                        usage = chunk.get("usage")
+                        if isinstance(usage, dict):
+                            self.last_usage = {
+                                "prompt_tokens": int(usage.get("prompt_tokens", 0)),
+                                "completion_tokens": int(usage.get("completion_tokens", 0)),
+                                "total_tokens": int(usage.get("total_tokens", 0)),
+                            }
                         choices = chunk.get("choices")
                         if not isinstance(choices, list) or not choices:
                             continue

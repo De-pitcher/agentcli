@@ -104,6 +104,7 @@ _BUILTIN_MODELS: tuple[ModelRecord, ...] = (
 @dataclass
 class _Health:
     consecutive_failures: int = 0
+    consecutive_rate_limits: int = 0
     cooldown_until: float = 0.0
 
 
@@ -130,6 +131,19 @@ class ModelRegistry:
                 context_window=entry.context_window,
             )
 
+    def all_models(self) -> list[ModelRecord]:
+        """Return all registered model records."""
+        return list(self._state.models.values())
+
+    def healthy_models(self) -> list[ModelRecord]:
+        """Return all currently non-cooling model records sorted by priority."""
+        now = time.monotonic()
+        usable = [
+            record for record in self._state.models.values() if not self._is_cooling(record.id, now)
+        ]
+        usable.sort(key=lambda record: (record.priority, record.id))
+        return usable
+
     def candidates(self, category: str) -> list[ModelRecord]:
         """Healthy models serving `category`, best-first."""
         now = time.monotonic()
@@ -155,10 +169,18 @@ class ModelRegistry:
         ):
             # Previous cooldown expired, reset streak
             health.consecutive_failures = 0
+            health.consecutive_rate_limits = 0
 
-        health.consecutive_failures += 1
-        if rate_limited or health.consecutive_failures >= self._config.failure_threshold:
-            health.cooldown_until = time.monotonic() + self._config.cooldown_seconds
+        if rate_limited:
+            # Adaptive exponential backoff per model: 1x, 2x, 4x, 8x, 16x base cooldown (max 1 hour)
+            health.consecutive_rate_limits += 1
+            multiplier = min(2 ** (health.consecutive_rate_limits - 1), 16)
+            cooldown_dur = min(self._config.cooldown_seconds * multiplier, 3600.0)
+            health.cooldown_until = now + cooldown_dur
+        else:
+            health.consecutive_failures += 1
+            if health.consecutive_failures >= self._config.failure_threshold:
+                health.cooldown_until = now + self._config.cooldown_seconds
 
     def is_cooling(self, model_id: str) -> bool:
         return self._is_cooling(model_id, time.monotonic())

@@ -100,3 +100,48 @@ command = "missing_id"
     assert len(cfg.subagents.models) == 1
     assert cfg.subagents.models[0].id == "custom-agent"
     assert cfg.subagents.models[0].env == {"FOO": "bar"}
+
+
+def test_load_config_memory_phase6_defaults_and_validation(tmp_path):
+    import pytest
+
+    from agentcli.config import ConfigError
+
+    # Test defaults
+    cfg = load_config(tmp_path / "empty.toml")
+    assert cfg.memory.budget_ratio == 0.75
+    assert cfg.memory.max_cache_entries == 256
+    assert cfg.memory.max_cache_bytes == 10485760
+
+    # Test custom valid overrides
+    path = tmp_path / "valid_mem.toml"
+    path.write_text(
+        """
+[memory]
+budget_ratio = 0.5
+max_cache_entries = 100
+max_cache_bytes = 5242880
+"""
+    )
+    custom_cfg = load_config(path)
+    assert custom_cfg.memory.budget_ratio == 0.5
+    assert custom_cfg.memory.max_cache_entries == 100
+    assert custom_cfg.memory.max_cache_bytes == 5242880
+
+    # Test invalid budget_ratio (< 0.1)
+    bad_ratio = tmp_path / "bad_ratio.toml"
+    bad_ratio.write_text("[memory]\nbudget_ratio = 0.05\n")
+    with pytest.raises(ConfigError, match="memory.budget_ratio.*must be between 0.1 and 1.0"):
+        load_config(bad_ratio)
+
+    # Test invalid max_cache_entries (< 1)
+    bad_entries = tmp_path / "bad_entries.toml"
+    bad_entries.write_text("[memory]\nmax_cache_entries = 0\n")
+    with pytest.raises(ConfigError, match="memory.max_cache_entries.*must be >= 1"):
+        load_config(bad_entries)
+
+    # Test invalid max_cache_bytes (< 1024)
+    bad_bytes = tmp_path / "bad_bytes.toml"
+    bad_bytes.write_text("[memory]\nmax_cache_bytes = 500\n")
+    with pytest.raises(ConfigError, match="memory.max_cache_bytes.*must be >= 1024"):
+        load_config(bad_bytes)

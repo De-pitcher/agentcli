@@ -391,3 +391,34 @@ async def test_chat_stream_mid_stream_error_without_detail(monkeypatch):
         async for _ in client.chat_stream([ChatMessage(role="user", content="hi")]):
             pass
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_captures_usage(monkeypatch):
+    monkeypatch.setenv("DUMMY", "sk-123")
+
+    def handler(request):
+        async def stream():
+            yield b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n'
+            yield b'data: {"choices": [], "usage": {"prompt_tokens": 12, "completion_tokens": 5, "total_tokens": 17}}\n\n'
+            yield b"data: [DONE]\n\n"
+
+        return httpx.Response(200, content=stream())
+
+    transport = httpx.MockTransport(handler)
+    config = OpenRouterConfig(api_key_env="DUMMY")
+
+    client = OpenRouterClient(config)
+    client._client = httpx.AsyncClient(transport=transport, base_url=config.base_url)
+
+    chunks = []
+    async for chunk in client.chat_stream([ChatMessage(role="user", content="hi")]):
+        chunks.append(chunk)
+
+    assert "".join(chunks) == "Hello"
+    assert client.last_usage == {
+        "prompt_tokens": 12,
+        "completion_tokens": 5,
+        "total_tokens": 17,
+    }
+    await client.aclose()

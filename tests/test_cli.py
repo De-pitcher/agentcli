@@ -1,5 +1,8 @@
 import argparse
-from unittest.mock import AsyncMock
+import os
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -7,6 +10,12 @@ from agentcli.cli import main, run_chat, run_config
 from agentcli.config import Config
 from agentcli.exit_codes import ExitCode
 from agentcli.openrouter_client import OpenRouterError
+from agentcli.session import AgentSession
+
+
+@pytest.fixture(autouse=True)
+def set_cli_test_env(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-dummy-key")
 
 
 @pytest.mark.asyncio
@@ -373,8 +382,95 @@ async def test_run_chat_show_model_reports_routed_model(monkeypatch, capsys):
 
     fake_client = RecordingClient()
     monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
-
     assert await run_chat(args, config) == ExitCode.SUCCESS
     out, _ = capsys.readouterr()
     assert "[model: served/model:free" in out
     assert "routed from" in out
+
+
+@pytest.mark.asyncio
+async def test_run_chat_verbose_token_reporting(monkeypatch, capsys):
+    args = argparse.Namespace(model=None, file=[], show_model=False, verbose=True)
+    config = Config()
+
+    inputs = ["hello world", "/exit"]
+
+    def fake_input(prompt):
+        return inputs.pop(0)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    class UsageClient(RecordingClient):
+        def __init__(self):
+            super().__init__()
+            self.last_usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+    fake_client = UsageClient()
+    monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
+
+    assert await run_chat(args, config) == ExitCode.SUCCESS
+    out, _ = capsys.readouterr()
+    assert "[tokens: prompt=10, completion=5, total=15]" in out
+
+
+@pytest.mark.asyncio
+async def test_run_chat_handles_no_available_model_error(monkeypatch, capsys):
+    from agentcli.routing.router import NoAvailableModelError
+
+    args = argparse.Namespace(model=None, file=[], show_model=False)
+    config = Config()
+
+    inputs = ["test message", "/exit"]
+
+    def fake_input(prompt):
+        return inputs.pop(0)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    class DummyRouter:
+        def decide(self, category):
+            raise NoAvailableModelError("All models cooling down")
+
+    def make_session(cfg, **kwargs):
+        s = AgentSession(cfg, **kwargs)
+        s.router = DummyRouter()
+        return s
+
+    monkeypatch.setattr("agentcli.cli.AgentSession", make_session)
+
+    assert await run_chat(args, config) == ExitCode.SUCCESS
+    out, _ = capsys.readouterr()
+    assert "[routing error] All models cooling down" in out
+
+
+def test_sessions_show_and_list_displays_tokens(tmp_path: Path, capsys: Any):
+    from agentcli.memory.store import MemoryStore
+
+    db_file = tmp_path / "cli_tokens.db"
+    cfg_file = tmp_path / "agentcli.toml"
+    cfg_file.write_text(
+        f"[openrouter]\napi_key_env = 'K'\n[memory]\nenabled = true\ndb_path = '{db_file.as_posix()}'\n",
+        encoding="utf-8",
+    )
+
+    store = MemoryStore(db_file)
+    store.create_session("sess_tok", title="Token Session")
+    store.append_message("sess_tok", "user", "Hello", token_count=8)
+    store.append_message("sess_tok", "assistant", "Hi there!", token_count=12)
+    store.close()
+
+    with patch.dict(os.environ, {"K": "sk-test", "AGENTCLI_CONFIG": str(cfg_file)}):
+        # List command displays TOKENS header
+        assert main(["sessions", "list"]) == ExitCode.SUCCESS
+        out_list = capsys.readouterr().out
+        assert "TOKENS" in out_list
+        assert "20" in out_list
+
+        # Show command displays Token Usage summary
+        assert main(["sessions", "show", "sess_tok"]) == ExitCode.SUCCESS
+        out_show = capsys.readouterr().out
+        assert "Token Usage: 20 total (8 prompt, 12 completion)" in out_show
+        assert "Est. Cost:" in out_show
+        assert "$0.0000" in out_show
+        assert "[8 tokens]" in out_show
+        assert "[12 tokens]" in out_show
