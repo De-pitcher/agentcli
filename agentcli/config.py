@@ -55,6 +55,13 @@ max_iterations = 5     # hard ceiling on plan/act/reflect cycles (prevents runaw
 reflection_enabled = true
 # plan_model_override = ""    # optional: force a specific model for the planning step
 # reflect_model_override = "" # optional: force a specific model for the reflection step
+
+[memory]
+enabled = true         # persist chat sessions to local SQLite database
+# db_path = ""         # optional: custom path to SQLite database
+retention_days = 30    # auto-prune sessions older than N days (0 to disable)
+cache_enabled = true   # cache unchanged file context to save tokens and disk I/O
+max_shared_context_bytes = 524288  # 512KB capacity for shared sub-agent context pool
 '''
 
 
@@ -133,12 +140,32 @@ class AgentLoopConfig:
 
 
 @dataclass
+class MemoryConfig:
+    """Configuration for session persistence, caching, and context pooling (Phase 5).
+
+    Fields:
+        enabled:                 Persist conversation sessions to SQLite.
+        db_path:                 Custom path override for the SQLite database.
+        retention_days:          Auto-prune sessions older than N days (0 to disable).
+        cache_enabled:           Cache unchanged file references to save tokens and disk I/O.
+        max_shared_context_bytes: Maximum byte budget for sub-agent shared context pool.
+    """
+
+    enabled: bool = True
+    db_path: str = ""
+    retention_days: int = 30
+    cache_enabled: bool = True
+    max_shared_context_bytes: int = 524288  # 512KB
+
+
+@dataclass
 class Config:
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     app: AppConfig = field(default_factory=AppConfig)
     routing: RoutingConfig = field(default_factory=RoutingConfig)
     subagents: SubAgentsConfig = field(default_factory=SubAgentsConfig)
     agent_loop: AgentLoopConfig = field(default_factory=AgentLoopConfig)
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
 
 
 def _platform_config_path() -> Path:
@@ -230,6 +257,23 @@ def load_config(path: Path | None = None) -> Config:
             f"Invalid value for 'agent_loop.max_iterations': must be >= 1, got {loop_max_iter}"
         )
 
+    memory_raw = raw.get("memory", {})
+    retention_days = _parse_int(memory_raw.get("retention_days"), "memory.retention_days", 30)
+    if retention_days < 0:
+        raise ConfigError(
+            f"Invalid value for 'memory.retention_days': must be >= 0, got {retention_days}"
+        )
+
+    max_shared_bytes = _parse_int(
+        memory_raw.get("max_shared_context_bytes"),
+        "memory.max_shared_context_bytes",
+        524288,
+    )
+    if max_shared_bytes < 1024:
+        raise ConfigError(
+            f"Invalid value for 'memory.max_shared_context_bytes': must be >= 1024, got {max_shared_bytes}"
+        )
+
     return Config(
         openrouter=OpenRouterConfig(
             api_key_env=str(or_raw.get("api_key_env", "OPENROUTER_API_KEY")),
@@ -273,6 +317,13 @@ def load_config(path: Path | None = None) -> Config:
             reflection_enabled=bool(loop_raw.get("reflection_enabled", True)),
             plan_model_override=str(loop_raw.get("plan_model_override", "")),
             reflect_model_override=str(loop_raw.get("reflect_model_override", "")),
+        ),
+        memory=MemoryConfig(
+            enabled=bool(memory_raw.get("enabled", True)),
+            db_path=str(memory_raw.get("db_path", "")),
+            retention_days=retention_days,
+            cache_enabled=bool(memory_raw.get("cache_enabled", True)),
+            max_shared_context_bytes=max_shared_bytes,
         ),
     )
 

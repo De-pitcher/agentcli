@@ -163,6 +163,10 @@ class ModelRegistry:
     def is_cooling(self, model_id: str) -> bool:
         return self._is_cooling(model_id, time.monotonic())
 
+    def get_model(self, model_id: str) -> ModelRecord | None:
+        """Retrieve a ModelRecord by ID from the registry."""
+        return self._state.models.get(model_id)
+
     def _is_cooling(self, model_id: str, now: float) -> bool:
         health = self._state.health.get(model_id)
         return bool(health and health.cooldown_until > now)

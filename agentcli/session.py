@@ -1,4 +1,5 @@
 import logging
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
@@ -7,6 +8,8 @@ from .agent.loop import AgentLoop, is_agentic_task
 from .agent.reflector import DefaultReflector
 from .agent.registry import ToolRegistry
 from .config import Config
+from .memory.budget import DEFAULT_CONTEXT_WINDOW, estimate_tokens, trim_history_to_budget
+from .memory.store import MemoryStore
 from .openrouter_client import (
     ChatMessage,
     OpenRouterClient,
@@ -26,19 +29,38 @@ class SessionReply:
 
 
 class AgentSession:
-    """Manages chat state, routing, and openrouter client interactions."""
+    """Manages chat state, persistence, routing, and openrouter client interactions."""
 
     def __init__(
         self,
         config: Config,
         forced_model: str | None = None,
         initial_history: list[ChatMessage] | None = None,
+        session_id: str | None = None,
     ):
         self.config = config
         self.client = OpenRouterClient(config.openrouter)
         self.forced_model = forced_model
+        self.session_id = session_id or uuid.uuid4().hex[:12]
 
-        self.history = initial_history or []
+        self.memory_store: MemoryStore | None = None
+        if config.memory.enabled:
+            try:
+                self.memory_store = MemoryStore(config.memory.db_path or None)
+                if config.memory.retention_days > 0:
+                    self.memory_store.prune_older_than(config.memory.retention_days)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to initialize memory store: %s", exc)
+                self.memory_store = None
+
+        self.history: list[ChatMessage] = []
+        if initial_history is not None:
+            self.history = list(initial_history)
+        elif self.memory_store and session_id:
+            # Resuming an existing session from SQLite
+            saved_msgs = self.memory_store.get_messages(session_id)
+            self.history = [ChatMessage(role=m.role, content=m.content) for m in saved_msgs]
+
         self.registry: ModelRegistry | None = None
         self.router: Router | None = None
 
@@ -46,20 +68,68 @@ class AgentSession:
             self.registry = ModelRegistry(config.routing)
             self.router = Router(self.registry, config.routing.max_fallbacks)
 
+    def close(self) -> None:
+        store = getattr(self, "memory_store", None)
+        if store is not None:
+            store.close()
+            self.memory_store = None
+
+
     async def aclose(self) -> None:
         await self.client.aclose()
+        self.close()
 
-    def _trim_history(self) -> list[ChatMessage]:
-        if self.history and self.history[0].role == "system":
-            # Preserve system message, trim the rest to (turns * 2) previous messages + 1 current message
-            return [self.history[0]] + self.history[1:][-(self.config.app.history_turns * 2 + 1) :]
-        return self.history[-(self.config.app.history_turns * 2 + 1) :]
+    def __del__(self) -> None:
+        self.close()
+
+    def _resolve_context_window(self, model_id: str | None) -> int:
+        """Look up context window size from registry if known, or fallback to default."""
+        if not model_id:
+            return DEFAULT_CONTEXT_WINDOW
+        if self.registry is not None:
+            rec = self.registry.get_model(model_id)
+            if rec is not None:
+                return rec.context_window
+        return DEFAULT_CONTEXT_WINDOW
+
+    def _trim_history(self, max_context_tokens: int | None = None) -> list[ChatMessage]:
+        """Trim conversation history using dynamic token budget bounded by history_turns."""
+        target_window = (
+            max_context_tokens
+            if max_context_tokens is not None
+            else self._resolve_context_window(self.forced_model)
+        )
+        return trim_history_to_budget(
+            self.history,
+            max_context_tokens=target_window,
+            max_turns=self.config.app.history_turns,
+        )
 
     def add_user_message(self, content: str) -> None:
         self.history.append(ChatMessage(role="user", content=content))
+        if self.memory_store is not None:
+            try:
+                self.memory_store.append_message(
+                    session_id=self.session_id,
+                    role="user",
+                    content=content,
+                    token_count=estimate_tokens(content),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to persist user message: %s", exc)
 
     def add_assistant_message(self, content: str) -> None:
         self.history.append(ChatMessage(role="assistant", content=content))
+        if self.memory_store is not None:
+            try:
+                self.memory_store.append_message(
+                    session_id=self.session_id,
+                    role="assistant",
+                    content=content,
+                    token_count=estimate_tokens(content),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to persist assistant message: %s", exc)
 
     def pop_last_message(self) -> None:
         if self.history:
@@ -83,12 +153,13 @@ class AgentSession:
             )
 
     async def send(self, text_for_classification: str) -> SessionReply:
-        trimmed = self._trim_history()
         decision = None
         if self.router is not None:
             decision = self.router.decide(classify(text_for_classification))
 
-        requested_primary = decision.primary if decision is not None else None
+        requested_primary = decision.primary if decision is not None else self.forced_model
+        context_window = self._resolve_context_window(requested_primary)
+        trimmed = self._trim_history(max_context_tokens=context_window)
 
         if decision is not None:
             stream = self.client.chat_stream(trimmed, models=decision.models)
