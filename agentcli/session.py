@@ -74,7 +74,6 @@ class AgentSession:
             store.close()
             self.memory_store = None
 
-
     async def aclose(self) -> None:
         await self.client.aclose()
         self.close()
