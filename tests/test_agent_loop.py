@@ -270,6 +270,38 @@ class TestAgentLoopReplanPath:
         assert plan_events[1].is_replan is True
 
 
+class TestAgentLoopRetryPath:
+    @pytest.mark.asyncio
+    async def test_retry_preserves_plan_and_does_not_reinvoke_planner(self) -> None:
+        """On RETRY, the loop re-executes the current plan without calling planner again."""
+        call_count = 0
+        reflector_responses = [
+            ReflectOutcome(ReflectDecision.RETRY, "transient 429"),
+            ReflectOutcome(ReflectDecision.FINISH, "done on retry"),
+        ]
+
+        def reflect_side(*_: Any) -> ReflectOutcome:
+            nonlocal call_count
+            resp = reflector_responses[min(call_count, len(reflector_responses) - 1)]
+            call_count += 1
+            return resp
+
+        loop, mock_planner, mock_registry, mock_reflector = _make_loop(max_iterations=3)
+        mock_reflector.reflect = MagicMock(side_effect=reflect_side)
+
+        events = await _collect(loop)
+
+        # Planner should only have been called once on iteration 1
+        assert mock_planner.run.await_count == 1
+        # Step execution ran twice (iteration 1 failed, iteration 2 retried)
+        assert mock_registry.execute.await_count == 2
+        # Only 1 PlanEvent should have been emitted
+        plan_events = [e for e in events if isinstance(e, PlanEvent)]
+        assert len(plan_events) == 1
+        # FinishEvent should have been reached
+        assert any(isinstance(e, FinishEvent) for e in events)
+
+
 class TestAgentLoopIterationCeiling:
     @pytest.mark.asyncio
     async def test_raises_limit_error_on_ceiling(self) -> None:
@@ -295,9 +327,7 @@ class TestAgentLoopMidLoopError:
         from agentcli.openrouter_client import RateLimitedError
 
         loop, _, mock_registry, mock_reflector = _make_loop()
-        mock_registry.execute = AsyncMock(
-            side_effect=RateLimitedError("rate limited")
-        )
+        mock_registry.execute = AsyncMock(side_effect=RateLimitedError("rate limited"))
         # After the failed step, reflector says fail so loop terminates cleanly
         mock_reflector.reflect = MagicMock(
             return_value=ReflectOutcome(ReflectDecision.FAIL, "unrecoverable")
@@ -389,6 +419,62 @@ class TestLoopIntegration:
 
 
 # ---------------------------------------------------------------------------
+# Router integration & Model overrides tests
+# ---------------------------------------------------------------------------
+
+
+class TestAgentLoopRouterAndOverrides:
+    @pytest.mark.asyncio
+    async def test_planner_receives_plan_model_override(self) -> None:
+        loop, mock_planner, _, _ = _make_loop()
+        loop.plan_model = "custom-planner-model"
+        await _collect(loop)
+
+        mock_planner.run.assert_awaited_once()
+        task = mock_planner.run.await_args[0][0]
+        assert task.payload.get("model") == "custom-planner-model"
+
+    @pytest.mark.asyncio
+    async def test_planner_receives_router_candidates(self) -> None:
+        from agentcli.routing.router import Router, RoutingDecision
+
+        mock_router = MagicMock(spec=Router)
+        mock_router.decide.return_value = RoutingDecision(
+            primary="model-primary", fallbacks=("model-fb1", "model-fb2")
+        )
+
+        loop, mock_planner, _, _ = _make_loop()
+        loop.router = mock_router
+        await _collect(loop)
+
+        mock_planner.run.assert_awaited_once()
+        task = mock_planner.run.await_args[0][0]
+        assert task.payload.get("model") == "model-primary"
+        assert task.payload.get("models") == ["model-primary", "model-fb1", "model-fb2"]
+
+    @pytest.mark.asyncio
+    async def test_execute_step_receives_router_fallback(self) -> None:
+        from agentcli.routing.router import Router, RoutingDecision
+
+        mock_router = MagicMock(spec=Router)
+        mock_router.decide.return_value = RoutingDecision(
+            primary="code-primary", fallbacks=("code-fb",)
+        )
+
+        loop, _, mock_registry, _ = _make_loop(
+            plan=[{"agent_type": "code_analyzer", "payload": {}}]
+        )
+        loop.router = mock_router
+        await _collect(loop)
+
+        mock_registry.execute.assert_awaited_once()
+        agent_type, payload = mock_registry.execute.await_args[0]
+        assert agent_type == "code_analyzer"
+        assert payload.get("model") == "code-primary"
+        assert payload.get("models") == ["code-primary", "code-fb"]
+
+
+# ---------------------------------------------------------------------------
 # is_agentic_task regression tests — simple chat must NOT match
 # ---------------------------------------------------------------------------
 
@@ -403,17 +489,29 @@ class TestIsAgenticTask:
     def test_write_hello_world_returns_false(self) -> None:
         assert is_agentic_task("write hello world in python") is False
 
+    def test_please_do_simple_request_returns_false(self) -> None:
+        assert is_agentic_task("Please do a quick check on this text") is False
+
     def test_multi_step_with_then_returns_true(self) -> None:
         assert is_agentic_task("Read the file and then summarize it") is True
 
     def test_multi_step_first_then_returns_true(self) -> None:
         assert is_agentic_task("First, list the files, then analyze each one") is True
 
+    def test_multi_step_without_comma_first_then_returns_true(self) -> None:
+        assert is_agentic_task("first check the file then run tests") is True
+
     def test_execute_keyword_returns_true(self) -> None:
         assert is_agentic_task("execute the test suite and report results") is True
 
     def test_step_keywords_return_true(self) -> None:
         assert is_agentic_task("step 1: read config, step 2: validate") is True
+
+    def test_numbered_list_returns_true(self) -> None:
+        assert is_agentic_task("1. check files 2. run analyzer") is True
+
+    def test_also_read_returns_true(self) -> None:
+        assert is_agentic_task("Can you list the files in src? Also read main.py") is True
 
 
 # ---------------------------------------------------------------------------

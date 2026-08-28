@@ -45,6 +45,9 @@ class ExecutorProtocol(Protocol):
         ...
 
 
+from .reflector import ReflectDecision, ReflectOutcome
+
+
 @runtime_checkable
 class ReflectorProtocol(Protocol):
     """Critiques completed step results and decides the next loop action."""
@@ -54,17 +57,15 @@ class ReflectorProtocol(Protocol):
         goal: str,
         plan: list[dict[str, Any]],
         results: list[SubAgentResult],
-    ) -> ReflectDecision:
-        """Return a ReflectDecision describing what the loop should do next."""
+    ) -> ReflectOutcome:
+        """Return a ReflectOutcome describing what the loop should do next."""
         ...
 
-
-# Import here to avoid circular reference in the Protocol definition.
-from .reflector import ReflectDecision
 
 __all__ = [
     "ExecutorProtocol",
     "PlannerProtocol",
     "ReflectDecision",
+    "ReflectOutcome",
     "ReflectorProtocol",
 ]

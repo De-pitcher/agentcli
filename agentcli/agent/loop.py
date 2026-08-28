@@ -7,21 +7,21 @@ Relationship to Phase 3:
   a step fails or the reflector signals REPLAN.
 
 Design principles:
-  - Every stage (planner, executor, reflector) is injected — swappable
-    without touching this file.
+  - Every stage (planner, executor, reflector) is injected via Protocols —
+    swappable without touching this file.
   - The loop yields LoopEvent objects; callers consume them for display.
   - Simple single-turn chat NEVER passes through this loop (guarded in
     session.py and cli.py).
   - A hard max_iterations ceiling prevents runaway cycles.
-  - Mid-loop OpenRouterError is delegated back to the router's existing
-    fallback chain; if that is exhausted the loop surfaces LoopErrorEvent
-    and stops cleanly, preserving all prior step results.
+  - Model selection and overrides integrate with the Phase 2 router for
+    fallback candidate chains.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -38,6 +38,7 @@ from .events import (
     StepResultEvent,
     StepStartEvent,
 )
+from .protocols import ExecutorProtocol, PlannerProtocol, ReflectorProtocol
 from .reflector import DefaultReflector, ReflectDecision
 from .registry import ToolRegistry
 
@@ -53,9 +54,9 @@ class AgentLoop:
 
     Args:
         goal:           The user's multi-step goal string.
-        registry:       ToolRegistry providing access to Phase 3 tools.
-        planner:        PlannerAgent (or any PlannerProtocol-compatible object).
-        reflector:      DefaultReflector (or any ReflectorProtocol-compatible object).
+        registry:       ExecutorProtocol providing access to tools (default: ToolRegistry).
+        planner:        PlannerProtocol decomposing tasks (default: PlannerAgent).
+        reflector:      ReflectorProtocol evaluating outcomes (default: DefaultReflector).
         router:         Optional Phase 2 Router for model-selection overrides.
         max_iterations: Hard ceiling on plan/act/reflect cycles.
         plan_model:     Optional model ID override for the planning step.
@@ -65,18 +66,20 @@ class AgentLoop:
     def __init__(
         self,
         goal: str,
-        registry: ToolRegistry | None = None,
-        planner: PlannerAgent | None = None,
-        reflector: DefaultReflector | None = None,
+        registry: ExecutorProtocol | None = None,
+        planner: PlannerProtocol | None = None,
+        reflector: ReflectorProtocol | None = None,
         router: Router | None = None,
         max_iterations: int = 5,
         plan_model: str | None = None,
         reflect_model: str | None = None,
     ) -> None:
         self.goal = goal
-        self.registry = registry or ToolRegistry()
-        self.planner = planner or PlannerAgent()
-        self.reflector = reflector or DefaultReflector()
+        self.registry: ExecutorProtocol = registry if registry is not None else ToolRegistry()
+        self.planner: PlannerProtocol = planner if planner is not None else PlannerAgent()
+        self.reflector: ReflectorProtocol = (
+            reflector if reflector is not None else DefaultReflector()
+        )
         self.router = router
         self.max_iterations = max_iterations
         self.plan_model = plan_model
@@ -99,40 +102,43 @@ class AgentLoop:
     async def _run_impl(self) -> AsyncIterator[LoopEvent]:
         """Internal generator-based implementation."""
         current_plan: list[dict[str, Any]] = []
+        needs_plan = True
         is_replan = False
+        outcome = None
 
         try:
             for iteration in range(1, self.max_iterations + 1):
                 logger.debug("AgentLoop: iteration %d / %d", iteration, self.max_iterations)
 
                 # ── PLAN ────────────────────────────────────────────────
-                try:
-                    current_plan = await self._plan(current_plan if is_replan else None)
-                except Exception as exc:  # noqa: BLE001
-                    yield LoopErrorEvent(
-                        iteration=iteration,
-                        error=f"Planning failed: {exc}",
-                    )
-                    return
+                if needs_plan:
+                    try:
+                        current_plan = await self._plan(current_plan if is_replan else None)
+                    except Exception as exc:  # noqa: BLE001
+                        yield LoopErrorEvent(
+                            iteration=iteration,
+                            error=f"Planning failed: {exc}",
+                        )
+                        return
 
-                yield PlanEvent(
-                    iteration=iteration,
-                    plan=current_plan,
-                    is_replan=is_replan,
-                )
-
-                if not current_plan:
-                    yield LoopErrorEvent(
+                    yield PlanEvent(
                         iteration=iteration,
-                        error="Planner returned an empty plan.",
+                        plan=current_plan,
+                        is_replan=is_replan,
                     )
-                    return
+
+                    if not current_plan:
+                        yield LoopErrorEvent(
+                            iteration=iteration,
+                            error="Planner returned an empty plan.",
+                        )
+                        return
 
                 # ── ACT ─────────────────────────────────────────────────
                 step_results: list[SubAgentResult] = []
                 for step_index, step in enumerate(current_plan):
                     agent_type = step.get("agent_type", SubAgentType.CODE_ANALYZER.value)
-                    payload = step.get("payload", {})
+                    payload = dict(step.get("payload", {}))
 
                     yield StepStartEvent(
                         iteration=iteration,
@@ -173,12 +179,18 @@ class AgentLoop:
                     return
 
                 # RETRY or REPLAN — loop again.
-                is_replan = outcome.decision == ReflectDecision.REPLAN
+                if outcome.decision == ReflectDecision.REPLAN:
+                    needs_plan = True
+                    is_replan = True
+                elif outcome.decision == ReflectDecision.RETRY:
+                    needs_plan = False
+                    is_replan = False
 
             # Exhausted max_iterations without finishing.
+            last_reason = outcome.reason if outcome else "No reflection outcome"
             raise LoopIterationLimitError(
                 f"AgentLoop reached max_iterations={self.max_iterations} "
-                f"without finishing. Last reflect reason: {outcome.reason}"
+                f"without finishing. Last reflect reason: {last_reason}"
             )
 
         finally:
@@ -189,8 +201,17 @@ class AgentLoop:
     # ------------------------------------------------------------------
 
     async def _plan(self, previous_plan: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-        """Invoke PlannerAgent and return the plan step list."""
+        """Invoke Planner and return the plan step list."""
         payload: dict[str, Any] = {"query": self.goal}
+
+        if self.plan_model:
+            payload["model"] = self.plan_model
+        elif self.router is not None:
+            decision = self.router.decide("reasoning") or self.router.decide("chat")
+            if decision is not None:
+                payload["model"] = decision.primary
+                payload["models"] = decision.models
+
         if previous_plan:
             # Give the planner context about what was already tried.
             payload["context"] = (
@@ -215,16 +236,26 @@ class AgentLoop:
         payload: dict[str, Any],
         iteration: int,
     ) -> SubAgentResult:
-        """Execute a single step via the ToolRegistry.
+        """Execute a single step via the Executor registry.
 
-        Handles OpenRouterError by logging; the error surfaces in the result.
+        Passes routing fallback decision if payload does not have an explicit model.
+        Handles OpenRouterError or task exceptions cleanly.
         """
+        if "model" not in payload and self.router is not None:
+            decision = self.router.decide("code") or self.router.decide("chat")
+            if decision is not None:
+                payload["model"] = decision.primary
+                payload["models"] = decision.models
+
         try:
             coro = self.registry.execute(agent_type, payload)
             task: asyncio.Task[SubAgentResult] = asyncio.ensure_future(coro)
             self._running_tasks.append(task)
-            result = await task
-            self._running_tasks.remove(task)
+            try:
+                result = await task
+            finally:
+                if task in self._running_tasks:
+                    self._running_tasks.remove(task)
             return result
         except (OpenRouterError, RateLimitedError) as exc:
             logger.warning(
@@ -235,7 +266,7 @@ class AgentLoop:
             )
             return SubAgentResult(
                 task_id="loop-error",
-                agent_type=ToolRegistry._safe_type(agent_type),
+                agent_type=self._safe_subagent_type(agent_type),
                 success=False,
                 error=f"Model error: {exc}",
             )
@@ -244,7 +275,7 @@ class AgentLoop:
         except Exception as exc:  # noqa: BLE001
             return SubAgentResult(
                 task_id="loop-error",
-                agent_type=ToolRegistry._safe_type(agent_type),
+                agent_type=self._safe_subagent_type(agent_type),
                 success=False,
                 error=str(exc),
             )
@@ -263,6 +294,13 @@ class AgentLoop:
         self._running_tasks.clear()
 
     @staticmethod
+    def _safe_subagent_type(agent_type: str) -> SubAgentType:
+        try:
+            return SubAgentType(agent_type)
+        except ValueError:
+            return SubAgentType.CODE_ANALYZER
+
+    @staticmethod
     def _build_summary(results: list[SubAgentResult]) -> str:
         successes = sum(1 for r in results if r.success)
         return f"{successes}/{len(results)} step(s) completed successfully."
@@ -273,23 +311,24 @@ class AgentLoop:
 # ------------------------------------------------------------------
 
 _AGENTIC_KEYWORDS: tuple[str, ...] = (
-    "then",
     "and then",
     "after that",
     "next,",
     "first,",
+    "second,",
     "finally,",
-    "step 1",
-    "step 2",
-    "do the following",
-    "please do",
-    "execute",
     "run and",
-    "read and",
     "analyze and",
     "list and",
     "write and",
     "create and then",
+    "also read",
+    "also check",
+    "also list",
+    "also run",
+    "execute the",
+    "execute command",
+    "do the following",
 )
 
 
@@ -304,7 +343,12 @@ def is_agentic_task(text: str) -> bool:
     classifier using the session's conversation history.
     """
     lower = text.lower()
-    return any(kw in lower for kw in _AGENTIC_KEYWORDS)
+    return (
+        any(kw in lower for kw in _AGENTIC_KEYWORDS)
+        or bool(re.search(r"\bstep\s*\d+\b", lower))
+        or bool(re.search(r"\b1[.)]\s+.*?\b2[.)]\s+", lower, re.DOTALL))
+        or bool(re.search(r"\bfirst\b.*?\bthen\b", lower, re.DOTALL))
+    )
 
 
 __all__ = ["AgentLoop", "LoopIterationLimitError", "is_agentic_task"]
