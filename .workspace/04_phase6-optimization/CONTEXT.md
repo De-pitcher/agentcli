@@ -1,6 +1,7 @@
-﻿# Phase 6 — Optimization
+# Phase 6 — Optimization & Performance
 
-Status: PLANNED. Not started. Activate after Phase 5 PR merges.
+Status: ACTIVE — Phase 5 merged to main (PR #12). Ready for Phase 6 design gate.
+
 
 ## What this phase will address
 
