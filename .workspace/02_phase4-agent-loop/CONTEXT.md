@@ -1,6 +1,6 @@
 # Phase 4 — Custom Agent Core: Plan → Act → Reflect Loop
 
-## Status: COMPLETED — Pending PR review
+## Status: COMPLETED — Hardened & Merging PR #9
 
 ## Summary
 Phase 4 implements the lightweight, in-process Plan → Act → Reflect agentic loop.
@@ -8,7 +8,7 @@ Phase 4 implements the lightweight, in-process Plan → Act → Reflect agentic 
 ## PR
 - Branch: `feat/phase4-agent-loop`
 - Target: `main`
-- PR: TBD (to be opened after local gate pass)
+- PR: #9 (https://github.com/De-pitcher/agentcli/pull/9)
 
 ## Deliverables
 
@@ -31,21 +31,23 @@ Phase 4 implements the lightweight, in-process Plan → Act → Reflect agentic 
 | `agentcli/cli.py` | Added loop branch in `run_chat` + `_render_loop_event` helper |
 
 ### Tests
-- `tests/test_agent_loop.py`: 38 new tests covering all paths
+- `tests/test_agent_loop.py`: 44 tests covering all paths, retry, router fallback, and heuristic edges
 
 ## Quality Gates (verbatim)
 ```
 ruff check:    All checks passed! (0 errors)
-ruff format:   51 files already formatted (0 drift)
+ruff format:   52 files already formatted (0 drift)
 mypy:          Success: no issues found in 39 source files (0 errors)
-pytest --cov:  139 passed in 33.86s — Total coverage: 94.34%
+pytest --cov:  147 passed — Total coverage: 94.44%
 ```
 
 ## Architecture decisions
-- `is_agentic_task()` uses conservative keyword heuristics — Phase 5 may replace with LLM classifier
+- `is_agentic_task()` uses conservative keyword heuristics + regex step detection — Phase 5 may replace with LLM classifier
 - Loop is disabled by default (`enabled = false`) — zero risk for existing installations
 - `ToolRegistry` is the Phase 7 extension point — future tools register via `registry.register(name, factory)`
 - `PlannerAgent` is reused (not forked) — Phase 4 wraps it with act/reflect
+- `AgentLoop` depends on Protocols (`protocols.py`) for swappable components
 
 ## Next phase
 Phase 5: Memory & Context Persistence
+
