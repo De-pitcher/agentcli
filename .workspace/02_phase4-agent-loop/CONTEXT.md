@@ -1,33 +1,53 @@
-# Phase 4 — Custom Agent Core (Plan / Act / Reflect Loop)
+# Phase 4 — Custom Agent Core: Plan → Act → Reflect Loop
 
-Status: ACTIVE — Phase 3 merged to main (PR #7). Beginning Phase 4 design gate and architectural planning.
+## Status: COMPLETED — Hardened & Merging PR #9
 
-## What this phase will build
+## Summary
+Phase 4 implements the lightweight, in-process Plan → Act → Reflect agentic loop.
 
-A custom plan→act→reflect loop that replaces the simple REPL turn with a structured agent cycle:
+## PR
+- Branch: `feat/phase4-agent-loop`
+- Target: `main`
+- PR: #9 (https://github.com/De-pitcher/agentcli/pull/9)
 
-- **Plan**: given a user goal, produce a step list
-- **Act**: execute each step, potentially using sub-agents (Phase 3)
-- **Reflect**: evaluate the output, decide whether to retry or surface to the user
+## Deliverables
 
-## Inputs
+### New module: `agentcli/agent/`
+| File | Purpose |
+|---|---|
+| `__init__.py` | Package init with re-exports |
+| `events.py` | `LoopEvent` hierarchy for CLI display |
+| `loop.py` | `AgentLoop` — the Plan→Act→Reflect engine + `is_agentic_task()` heuristic |
+| `protocols.py` | `PlannerProtocol`, `ExecutorProtocol`, `ReflectorProtocol` for future swaps |
+| `reflector.py` | `DefaultReflector` — pure heuristic critique/decide logic |
+| `registry.py` | `ToolRegistry` — wraps Phase 3 sub-agents behind a uniform `execute()` interface |
 
-- Completed Phase 3 (sub-agent coordination must exist)
-- `_shared/architecture.md` — `AgentSession` is still the execution unit
-- `agentcli/agents/` (Phase 3 deliverable)
+### Extended modules
+| Module | Change |
+|---|---|
+| `agentcli/subagents/planner.py` | Added `goal_criterion` key to each plan step dict; extended docstring documenting Phase 3/4 relationship |
+| `agentcli/config.py` | Added `AgentLoopConfig` dataclass + `[agent_loop]` TOML parsing with `ConfigError` guard |
+| `agentcli/session.py` | Added `should_use_loop()` and `run_loop()` — simple chat path unchanged |
+| `agentcli/cli.py` | Added loop branch in `run_chat` + `_render_loop_event` helper |
 
-## Open questions for design gate
+### Tests
+- `tests/test_agent_loop.py`: 44 tests covering all paths, retry, router fallback, and heuristic edges
 
-- Where does the loop live — inside `AgentSession`, or a new `AgentLoop` class?
-- How does the user interrupt mid-loop (Ctrl+C handling with partial results)?
-- Does the plan step use a separate model/category classification, or the same classifier?
-- Reflect step: how many reflection iterations max before surfacing to user?
-- How does the loop interact with the REPL — does the user still see intermediate steps?
+## Quality Gates (verbatim)
+```
+ruff check:    All checks passed! (0 errors)
+ruff format:   52 files already formatted (0 drift)
+mypy:          Success: no issues found in 39 source files (0 errors)
+pytest --cov:  147 passed — Total coverage: 94.44%
+```
 
-## Acceptance criteria (draft)
+## Architecture decisions
+- `is_agentic_task()` uses conservative keyword heuristics + regex step detection — Phase 5 may replace with LLM classifier
+- Loop is disabled by default (`enabled = false`) — zero risk for existing installations
+- `ToolRegistry` is the Phase 7 extension point — future tools register via `registry.register(name, factory)`
+- `PlannerAgent` is reused (not forked) — Phase 4 wraps it with act/reflect
+- `AgentLoop` depends on Protocols (`protocols.py`) for swappable components
 
-- User can say "do X" and the loop runs without further prompting until done or stuck
-- User can Ctrl+C at any step and get partial results
-- Loop uses sub-agents (Phase 3) for parallel steps
-- All existing tests still pass; coverage ≥ 85%
-- No new runtime dependencies
+## Next phase
+Phase 5: Memory & Context Persistence
+

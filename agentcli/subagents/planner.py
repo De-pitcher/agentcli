@@ -19,6 +19,23 @@ class PlannerAgent(SubAgent):
 
     Analyzes a user request and breaks it down into sub-tasks
     that can be executed by other specialized agents.
+
+    Phase 3 / Phase 4 relationship:
+        Phase 3 introduced PlannerAgent as a standalone sub-agent that
+        decomposes a task into a flat list of step dicts dispatched via
+        SubAgentSpawner.
+
+        Phase 4's AgentLoop reuses this class for its "plan" stage and
+        can re-invoke it for re-planning when a step fails.  The loop
+        wraps the decomposition with an act/reflect cycle; it does NOT
+        duplicate this planning logic.
+
+        Phase 4 extension: each step dict now optionally includes a
+        ``goal_criterion`` key (str).  The DefaultReflector checks
+        whether this string appears in the step's result output to
+        verify the step actually achieved its intended outcome.
+        Callers that do not use goal_criterion can safely ignore the
+        new key — it defaults to an empty string.
     """
 
     def __init__(
@@ -109,6 +126,8 @@ class PlannerAgent(SubAgent):
                         "context": f"User requested: {query}",
                     },
                     "priority": 10,
+                    # Phase 4: goal_criterion lets the reflector verify step success.
+                    "goal_criterion": "",
                 }
             )
 
@@ -127,6 +146,7 @@ class PlannerAgent(SubAgent):
                         else "",
                     },
                     "priority": 5,
+                    "goal_criterion": "",
                 }
             )
 
@@ -145,6 +165,7 @@ class PlannerAgent(SubAgent):
                             "timeout": 30.0,
                         },
                         "priority": 5,
+                        "goal_criterion": "",
                     }
                 )
 
@@ -159,6 +180,7 @@ class PlannerAgent(SubAgent):
                         "context": f"User asked: {query}",
                     },
                     "priority": 1,
+                    "goal_criterion": "",
                 }
             )
 
@@ -182,6 +204,7 @@ class PlannerAgent(SubAgent):
                             "context": f"Fallback from {task['agent_type']} for: {query}",
                         },
                         "priority": 1,
+                        "goal_criterion": "",
                     }
                 )
 

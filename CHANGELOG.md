@@ -5,6 +5,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added — Phase 4: Custom Agent Core (Plan → Act → Reflect)
+
+- New `agentcli.agent` package — lightweight, plugin-style agentic loop built entirely in-process (no external Node.js/cross-runtime dependencies):
+  - `AgentLoop`: Orchestrates the Plan → Act → Reflect cycle over any number of iterations up to a configurable `max_iterations` hard ceiling. Yields structured `LoopEvent` dataclasses for display; cancels all in-flight tasks cleanly on exit.
+  - `ToolRegistry`: Uniform execution interface over Phase 3 sub-agents. Extensible in Phase 7 via `registry.register(name, factory)` without modifying the loop engine.
+  - `DefaultReflector`: Pure (no I/O) heuristic reflection stage. Classifies results as `FINISH | RETRY | REPLAN | FAIL` using transient/hard failure keyword heuristics and optional per-step `goal_criterion` string matching.
+  - `LoopEvent` hierarchy: `PlanEvent`, `StepStartEvent`, `StepResultEvent`, `ReflectEvent`, `FinishEvent`, `LoopErrorEvent` — displayed under existing `--verbose` flag, no new flag.
+  - `LoopIterationLimitError`: Raised when the loop hits `max_iterations` without finishing.
+  - `is_agentic_task(text)`: Conservative heuristic that detects multi-step intent (checks for sequential keywords like "then", "first,", "step 1", etc.). Simple single-turn chat never matches — zero added latency for the common case.
+  - Protocol definitions (`PlannerProtocol`, `ExecutorProtocol`, `ReflectorProtocol`) for future swappable component injection.
+- **`PlannerAgent` extended** (Phase 3 class — not forked): Each plan step dict now includes a `goal_criterion` key (empty by default; settable by callers so `DefaultReflector` can verify step-level success). Docstring documents the Phase 3 / Phase 4 relationship explicitly.
+- **`session.py`**: Added `should_use_loop(text) -> bool` (config gate + heuristic) and `run_loop(goal) -> AsyncIterator[LoopEvent]` that wires `AgentLoop`, `ToolRegistry`, and `DefaultReflector` together. Simple chat path untouched.
+- **`cli.py`**: `run_chat` now branches: if `session.should_use_loop(expanded)` → loop path with `_render_loop_event` output; else → existing single-turn streaming path unchanged.
+- **`config.py`**: New `AgentLoopConfig` dataclass (`enabled`, `max_iterations`, `reflection_enabled`, `plan_model_override`, `reflect_model_override`) and `[agent_loop]` TOML section with `ConfigError` validation. Defaults to `enabled = false` so existing installations are unaffected.
+- **Tests** (`tests/test_agent_loop.py`): 38 new tests — happy path, re-plan path, mid-loop model errors, iteration ceiling, integration with real `PlannerAgent`, `is_agentic_task` regression, config parsing, and session gating.
+
 ### Added — Phase 3: Sub-Agent System
 - Multi-agent coordination framework (`agentcli.subagents`):
   - `SubAgent` base class with asynchronous lifecycle hooks (`on_start`, `on_complete`, `on_failure`, `on_idle`, `kill`) and timezone-aware timestamps.

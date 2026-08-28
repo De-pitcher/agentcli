@@ -48,6 +48,13 @@ max_concurrent = 5     # max concurrent sub-agents per type
 idle_timeout_seconds = 300
 default_timeout_seconds = 30
 max_output_bytes = 1048576  # 1MB
+
+[agent_loop]
+enabled = false        # set to true to enable Plan→Act→Reflect for multi-step tasks
+max_iterations = 5     # hard ceiling on plan/act/reflect cycles (prevents runaway loops)
+reflection_enabled = true
+# plan_model_override = ""    # optional: force a specific model for the planning step
+# reflect_model_override = "" # optional: force a specific model for the reflection step
 '''
 
 
@@ -107,11 +114,31 @@ class SubAgentsConfig:
 
 
 @dataclass
+class AgentLoopConfig:
+    """Configuration for the Plan → Act → Reflect agent loop (Phase 4).
+
+    Fields:
+        enabled:              Enable the loop for multi-step tasks.
+        max_iterations:       Hard ceiling to prevent runaway cycles.
+        reflection_enabled:   Whether to run the reflect stage.
+        plan_model_override:  Force a specific model for the planning step.
+        reflect_model_override: Force a specific model for reflection.
+    """
+
+    enabled: bool = False
+    max_iterations: int = 5
+    reflection_enabled: bool = True
+    plan_model_override: str = ""
+    reflect_model_override: str = ""
+
+
+@dataclass
 class Config:
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     app: AppConfig = field(default_factory=AppConfig)
     routing: RoutingConfig = field(default_factory=RoutingConfig)
     subagents: SubAgentsConfig = field(default_factory=SubAgentsConfig)
+    agent_loop: AgentLoopConfig = field(default_factory=AgentLoopConfig)
 
 
 def _platform_config_path() -> Path:
@@ -166,6 +193,7 @@ def load_config(path: Path | None = None) -> Config:
     app_raw = raw.get("app", {})
     routing_raw = raw.get("routing", {})
     subagents_raw = raw.get("subagents", {})
+    loop_raw = raw.get("agent_loop", {})
 
     entries = []
     for entry in routing_raw.get("models", []):
@@ -194,6 +222,12 @@ def load_config(path: Path | None = None) -> Config:
                 timeout_seconds=_parse_float(entry.get("timeout_seconds"), "timeout_seconds", 30.0),
                 env={str(k): str(v) for k, v in entry.get("env", {}).items()},
             )
+        )
+
+    loop_max_iter = _parse_int(loop_raw.get("max_iterations"), "agent_loop.max_iterations", 5)
+    if loop_max_iter < 1:
+        raise ConfigError(
+            f"Invalid value for 'agent_loop.max_iterations': must be >= 1, got {loop_max_iter}"
         )
 
     return Config(
@@ -232,6 +266,13 @@ def load_config(path: Path | None = None) -> Config:
                 subagents_raw.get("max_output_bytes"), "max_output_bytes", 1024 * 1024
             ),
             models=subagent_entries,
+        ),
+        agent_loop=AgentLoopConfig(
+            enabled=bool(loop_raw.get("enabled", False)),
+            max_iterations=loop_max_iter,
+            reflection_enabled=bool(loop_raw.get("reflection_enabled", True)),
+            plan_model_override=str(loop_raw.get("plan_model_override", "")),
+            reflect_model_override=str(loop_raw.get("reflect_model_override", "")),
         ),
     )
 
