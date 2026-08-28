@@ -1,4 +1,4 @@
-﻿# Git & PR Workflow
+# Git & PR Workflow
 
 ## Identity
 
@@ -28,8 +28,10 @@ gh CLI path:                "C:\Program Files\GitHub CLI\gh.exe"  (call with & i
    & "C:\Program Files\GitHub CLI\gh.exe" pr create --title "..." --body "..." --base main
    ```
 5. Wait for all 8 CI checks to go green (exact-match context names required)
-6. Squash-merge — never merge commits, never rebase+force-push to main
-7. Delete the branch after merge
+6. ⛔ **NEVER auto-merge**: Present PR link and CI status to the user; wait for explicit instruction before merging.
+7. Squash-merge upon explicit user approval — never merge commits, never rebase+force-push to main
+8. Delete the branch after merge
+
 
 ## Main branch protection
 
