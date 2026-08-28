@@ -10,6 +10,15 @@ import sys
 import httpx
 
 from . import __version__
+from .agent.events import (
+    FinishEvent,
+    LoopErrorEvent,
+    PlanEvent,
+    ReflectEvent,
+    StepResultEvent,
+    StepStartEvent,
+)
+from .agent.loop import LoopIterationLimitError
 from .config import Config, ConfigError, init_config, load_config
 from .exit_codes import ExitCode
 from .files import FileReadError, expand_file_references
@@ -59,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
 async def run_chat(args: argparse.Namespace, config: Config) -> int:
     forced_model = args.model
     show_model = getattr(args, "show_model", False) or getattr(args, "verbose", False)
+    verbose = getattr(args, "verbose", False)
 
     if not config.routing.enabled and not forced_model:
         forced_model = config.openrouter.default_model
@@ -133,6 +143,30 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 logger.error("%s", exc)
                 continue
 
+            # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+            if session.should_use_loop(expanded):
+                session.add_user_message(expanded)
+                if verbose:
+                    print("[agent-loop] Multi-step task detected — running Plan→Act→Reflect loop")
+                try:
+                    event_stream = await session.run_loop(expanded)
+                    loop_summary = ""
+                    async for event in event_stream:
+                        _render_loop_event(event, verbose=verbose)
+                        if isinstance(event, FinishEvent):
+                            loop_summary = event.summary
+                        elif isinstance(event, LoopErrorEvent):
+                            loop_summary = f"[loop error] {event.error}"
+                    session.add_assistant_message(loop_summary or "(loop completed)")
+                except LoopIterationLimitError as exc:
+                    print(f"\n[agent-loop] Iteration limit reached: {exc}")
+                    session.pop_last_message()
+                except KeyboardInterrupt:
+                    print("\n[interrupted]")
+                    session.pop_last_message()
+                continue
+
+            # ── SIMPLE SINGLE-TURN CHAT PATH (unchanged from Phase 1/2) ─
             session.add_user_message(expanded)
 
             print("assistant> ", end="", flush=True)
@@ -200,6 +234,33 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
     if interrupted:
         return ExitCode.USER_INTERRUPT
     return ExitCode.SUCCESS
+
+
+def _render_loop_event(event: object, *, verbose: bool) -> None:
+    """Print a human-readable summary of a LoopEvent.
+
+    Only detailed step/reflect events are shown in verbose mode.
+    Plan and finish events are always shown so the user knows progress.
+    """
+    if isinstance(event, PlanEvent):
+        label = "[re-plan]" if event.is_replan else "[plan]"
+        print(f"\n{label} iteration {event.iteration}: {len(event.plan)} step(s) planned")
+        if verbose:
+            for i, step in enumerate(event.plan):
+                print(f"  step {i + 1}: {step.get('agent_type')} — {step.get('payload', {})}")
+    elif isinstance(event, StepStartEvent) and verbose:
+        print(f"  [step {event.step_index + 1}] running {event.agent_type}…", flush=True)
+    elif isinstance(event, StepResultEvent) and verbose:
+        r = event.result
+        status = "✓" if (r and r.success) else "✗"
+        err = f" ({r.error})" if (r and not r.success and r.error) else ""
+        print(f"  [step {event.step_index + 1}] {status}{err}")
+    elif isinstance(event, ReflectEvent) and verbose:
+        print(f"  [reflect] {event.decision} — {event.reason}")
+    elif isinstance(event, FinishEvent):
+        print(f"\n[done] {event.summary}")
+    elif isinstance(event, LoopErrorEvent):
+        print(f"\n[loop-error] {event.error}")
 
 
 def run_config(args: argparse.Namespace, config: Config) -> int:

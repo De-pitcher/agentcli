@@ -2,6 +2,10 @@ import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
+from .agent.events import LoopEvent
+from .agent.loop import AgentLoop, is_agentic_task
+from .agent.reflector import DefaultReflector
+from .agent.registry import ToolRegistry
 from .config import Config
 from .openrouter_client import (
     ChatMessage,
@@ -92,3 +96,37 @@ class AgentSession:
             stream = self.client.chat_stream(trimmed, model=self.forced_model)
 
         return SessionReply(stream=stream, requested_primary=requested_primary)
+
+    # ------------------------------------------------------------------
+    # Phase 4: agentic loop integration
+    # ------------------------------------------------------------------
+
+    def should_use_loop(self, user_text: str) -> bool:
+        """Return True if this input should be routed through the agent loop.
+
+        Conditions:
+          - agent_loop.enabled is True in config
+          - The text matches the multi-step task heuristic
+
+        Simple single-turn chat is NEVER routed here — zero added latency
+        for the simple case.
+        """
+        return self.config.agent_loop.enabled and is_agentic_task(user_text)
+
+    async def run_loop(self, goal: str) -> AsyncIterator[LoopEvent]:
+        """Drive the Plan → Act → Reflect loop for a multi-step goal.
+
+        Yields LoopEvent objects consumed by cli.py for display.
+        Raises LoopIterationLimitError if the ceiling is hit.
+        """
+        loop_cfg = self.config.agent_loop
+        loop = AgentLoop(
+            goal=goal,
+            registry=ToolRegistry(),
+            reflector=DefaultReflector(),
+            router=self.router,
+            max_iterations=loop_cfg.max_iterations,
+            plan_model=loop_cfg.plan_model_override or None,
+            reflect_model=loop_cfg.reflect_model_override or None,
+        )
+        return await loop.run()
