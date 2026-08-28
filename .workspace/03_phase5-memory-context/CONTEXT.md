@@ -1,6 +1,6 @@
-﻿# Phase 5 — Memory & Context Persistence
+# Phase 5 — Memory & Context Persistence
 
-Status: PLANNED. Not started. Activate after Phase 4 PR merges.
+Status: ACTIVE — Phase 4 merged to main (PR #9). Ready for Phase 5 design gate.
 
 ## What this phase will build
 

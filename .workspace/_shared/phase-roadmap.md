@@ -1,7 +1,7 @@
 # agentcli 7-Phase Roadmap
 
-**Current phase: Phase 4 — Custom Agent Core (Plan/Act/Reflect Loop)**
-Active workspace: `02_phase4-agent-loop/`
+**Current phase: Phase 5 — Memory & Context Persistence**
+Active workspace: `03_phase5-memory-context/`
 
 ## Phase status
 
@@ -11,10 +11,11 @@ Active workspace: `02_phase4-agent-loop/`
 | 2 | Multi-model routing (classifier, registry, router, hybrid fallback) | ✅ Merged | PR #5 |
 | 1-2 post-audit | AgentSession refactor, ConfigError, pip-audit scope, pyproject.toml | ✅ Merged | PR #6 |
 | 3 | Sub-agent system (base, bus, spawner, pool, specialized agents) | ✅ Merged | PR #7 |
-| **4** | **Custom agent core (plan/act/reflect loop)** | 🔄 Active | `02_phase4-agent-loop/` |
-| 5 | Memory & context persistence | ⬜ Planned | `03_phase5-memory-context/` |
+| 4 | Custom agent core (plan/act/reflect loop) | ✅ Merged | PR #9 |
+| **5** | **Memory & context persistence** | 🔄 Active | `03_phase5-memory-context/` |
 | 6 | Optimization (startup time, memory footprint) | ⬜ Planned | `04_phase6-optimization/` |
 | 7 | Ecosystem integration & release | ⬜ Planned | `05_phase7-ecosystem-release/` |
+
 
 ## What "done" looks like for any phase
 
