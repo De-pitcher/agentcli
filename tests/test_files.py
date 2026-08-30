@@ -54,3 +54,20 @@ def test_expand_with_punctuation(tmp_path):
     f.write_text("content")
     expanded = expand_file_references(f"look at @{f}, please.")
     assert "content" in expanded
+
+
+def test_find_and_load_agents_md(tmp_path):
+    agents_file = tmp_path / "AGENTS.md"
+    agents_file.write_text("Custom project instructions for AI agent.")
+    found = files_mod.find_agents_md(tmp_path)
+    assert found == agents_file
+    loaded = files_mod.load_agents_md(tmp_path)
+    assert loaded is not None
+    assert "### Project Instructions (AGENTS.md)" in loaded
+    assert "Custom project instructions for AI agent." in loaded
+
+
+def test_load_agents_md_missing_returns_none(tmp_path):
+    sub = tmp_path / "empty_dir"
+    sub.mkdir()
+    assert files_mod.load_agents_md(sub) is None

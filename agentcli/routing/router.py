@@ -30,6 +30,9 @@ CATEGORY_FALLBACKS: dict[str, tuple[str, ...]] = {
 class RoutingDecision:
     primary: str
     fallbacks: tuple[str, ...]
+    is_fallback: bool = False
+    requested_category: str | None = None
+    served_category: str | None = None
 
     @property
     def models(self) -> list[str]:
@@ -44,12 +47,16 @@ class Router:
     def decide(self, category: str) -> RoutingDecision:
         """Best healthy candidates with cross-category fallbacks, or raises NoAvailableModelError."""
         candidates = self._registry.candidates(category)
+        is_fallback = False
+        served_cat: str | None = category
 
         # Cross-category fallback chain if target category is fully cooling down
         if not candidates:
             for fallback_cat in CATEGORY_FALLBACKS.get(category, ()):
                 candidates = self._registry.candidates(fallback_cat)
                 if candidates:
+                    is_fallback = True
+                    served_cat = fallback_cat
                     logger.info(
                         "Category '%s' exhausted; falling back to category '%s'",
                         category,
@@ -60,6 +67,9 @@ class Router:
         # Final global fallback to any healthy model in registry
         if not candidates:
             candidates = self._registry.healthy_models()
+            if candidates:
+                is_fallback = True
+                served_cat = "global"
 
         if not candidates:
             total_models = len(self._registry.all_models())
@@ -70,4 +80,10 @@ class Router:
 
         primary = candidates[0]
         fallbacks = tuple(record.id for record in candidates[1 : 1 + self._max_fallbacks])
-        return RoutingDecision(primary=primary.id, fallbacks=fallbacks)
+        return RoutingDecision(
+            primary=primary.id,
+            fallbacks=fallbacks,
+            is_fallback=is_fallback,
+            requested_category=category,
+            served_category=served_cat,
+        )

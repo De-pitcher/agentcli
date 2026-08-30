@@ -87,3 +87,32 @@ def expand_file_references(text: str, cache: ContextCache | None = None) -> str:
         else:
             prompt = "\n\n".join(file_blocks)
     return prompt
+
+
+def find_agents_md(start_dir: str | Path | None = None) -> Path | None:
+    """Search for AGENTS.md or agents.md starting at start_dir and walking up the tree."""
+    curr = Path(start_dir).resolve() if start_dir is not None else Path.cwd().resolve()
+    for directory in [curr, *curr.parents]:
+        for candidate in ("AGENTS.md", "agents.md"):
+            target = directory / candidate
+            if target.is_file():
+                return target
+        if (directory / ".git").exists():
+            break
+    return None
+
+
+def load_agents_md(start_dir: str | Path | None = None) -> str | None:
+    """Load and format project-level AGENTS.md instructions if present."""
+    target = find_agents_md(start_dir)
+    if target is None:
+        return None
+    try:
+        if target.stat().st_size > MAX_FILE_BYTES:
+            return None
+        content = target.read_text(encoding="utf-8").strip()
+        if not content:
+            return None
+        return f"### Project Instructions ({target.name})\n{content}"
+    except Exception:  # noqa: BLE001
+        return None

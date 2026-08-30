@@ -1,0 +1,14 @@
+services:
+  agentcli:
+    build: .
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    volumes:
+      - agentcli_data:/root/.local/share/agentcli
+      - agentcli_config:/root/.config/agentcli
+    stdin_open: true
+    tty: true
+
+volumes:
+  agentcli_data:
+  agentcli_config:

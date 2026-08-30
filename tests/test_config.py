@@ -1,7 +1,10 @@
-from agentcli.config import DEFAULT_MODEL, Config, init_config, load_config
+import pytest
+
+from agentcli.config import DEFAULT_MODEL, Config, ConfigError, init_config, load_config
 
 
 def test_defaults_when_no_file(tmp_path, monkeypatch):
+
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("AGENTCLI_CONFIG", raising=False)
     cfg = load_config(tmp_path / "does_not_exist.toml")
@@ -145,3 +148,33 @@ max_cache_bytes = 5242880
     bad_bytes.write_text("[memory]\nmax_cache_bytes = 500\n")
     with pytest.raises(ConfigError, match="memory.max_cache_bytes.*must be >= 1024"):
         load_config(bad_bytes)
+
+
+def test_load_config_presets(tmp_path):
+    # Test coding preset overrides
+    cfg_coding = load_config(tmp_path / "empty.toml", preset="coding")
+    assert cfg_coding.agent_loop.enabled is True
+    assert cfg_coding.app.history_turns == 30
+
+    # Test minimal preset overrides
+    cfg_minimal = load_config(tmp_path / "empty.toml", preset="minimal")
+    assert cfg_minimal.agent_loop.enabled is False
+    assert cfg_minimal.memory.enabled is False
+
+    # Test unknown preset raises ConfigError
+    with pytest.raises(ConfigError, match="Unknown preset 'invalid_preset'"):
+        load_config(tmp_path / "empty.toml", preset="invalid_preset")
+
+
+def test_app_config_plugins_and_agents_md(tmp_path):
+    path = tmp_path / "app_plugins.toml"
+    path.write_text(
+        """
+[app]
+load_agents_md = false
+plugins = ["plugins/custom.py"]
+"""
+    )
+    cfg = load_config(path)
+    assert cfg.app.load_agents_md is False
+    assert cfg.app.plugins == ["plugins/custom.py"]

@@ -97,6 +97,7 @@ class OpenRouterClient:
         payload: dict[str, object] = {
             "messages": [m.to_dict() for m in messages],
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         if models:
             payload["models"] = models
