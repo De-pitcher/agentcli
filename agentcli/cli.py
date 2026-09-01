@@ -202,9 +202,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 if verbose:
                     print("[agent-loop] Multi-step task detected — running Plan→Act→Reflect loop")
                 try:
-                    event_stream = await session.run_loop(expanded)
-                    loop_summary = ""
-                    async for event in event_stream:
+                    async for event in session.run_loop(expanded):
                         _render_loop_event(event, verbose=verbose)
                         if isinstance(event, FinishEvent):
                             loop_summary = event.summary

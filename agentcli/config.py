@@ -83,7 +83,7 @@ class OpenRouterConfig:
 class AppConfig:
     stream: bool = True
     history_turns: int = 20
-    load_agents_md: bool = True
+    load_agents_md: bool = False
     plugins: list[str] = field(default_factory=list)
 
 
@@ -260,7 +260,7 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
             raise ConfigError(
                 f"Unknown preset '{preset}'. Available presets: {', '.join(PRESETS.keys())}"
             )
-        raw = _merge_dict(raw, PRESETS[preset])
+        raw = _merge_dict(PRESETS[preset], raw)
 
     or_raw = raw.get("openrouter", {})
     app_raw = raw.get("app", {})
@@ -353,7 +353,7 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
         app=AppConfig(
             stream=bool(app_raw.get("stream", True)),
             history_turns=_parse_int(app_raw.get("history_turns"), "history_turns", 20),
-            load_agents_md=bool(app_raw.get("load_agents_md", True)),
+            load_agents_md=bool(app_raw.get("load_agents_md", False)),
             plugins=[str(p) for p in app_raw.get("plugins", [])],
         ),
         routing=RoutingConfig(

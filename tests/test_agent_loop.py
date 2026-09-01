@@ -42,9 +42,8 @@ def _plan_step(agent_type: str = "file_ops") -> dict[str, Any]:
 
 async def _collect(loop: AgentLoop) -> list[object]:
     """Drive the loop and collect all events."""
-    stream = await loop.run()
     events: list[object] = []
-    async for ev in stream:
+    async for ev in loop.run():
         events.append(ev)
     return events
 

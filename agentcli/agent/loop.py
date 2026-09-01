@@ -73,6 +73,7 @@ class AgentLoop:
         max_iterations: int = 5,
         plan_model: str | None = None,
         reflect_model: str | None = None,
+        config: Any | None = None,
     ) -> None:
         self.goal = goal
         self.registry: ExecutorProtocol = registry if registry is not None else ToolRegistry()
@@ -84,6 +85,11 @@ class AgentLoop:
         self.max_iterations = max_iterations
         self.plan_model = plan_model
         self.reflect_model = reflect_model
+        self._config = config
+
+        # If using default PlannerAgent, pass config for LLM-based planning
+        if self._config is not None and isinstance(self.planner, PlannerAgent):
+            self.planner._set_config(self._config)
 
         self._all_results: list[SubAgentResult] = []
         self._running_tasks: list[asyncio.Task[Any]] = []
@@ -97,7 +103,8 @@ class AgentLoop:
                 if isinstance(event, FinishEvent):
                     print("Done:", event.summary)
         """
-        return self._run_impl()
+        async for event in self._run_impl():
+            yield event
 
     async def _run_impl(self) -> AsyncIterator[LoopEvent]:
         """Internal generator-based implementation."""

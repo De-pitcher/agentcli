@@ -269,5 +269,8 @@ class AgentSession:
             max_iterations=loop_cfg.max_iterations,
             plan_model=loop_cfg.plan_model_override or None,
             reflect_model=loop_cfg.reflect_model_override or None,
+            config=self.config,
         )
-        return await loop.run()
+
+        async for event in loop.run():
+            yield event
