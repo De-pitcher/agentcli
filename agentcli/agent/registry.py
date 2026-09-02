@@ -81,7 +81,9 @@ class ToolRegistry:
         result = await registry.execute("my_tool", {...})
     """
 
-    def __init__(self) -> None:
+    def __init__(self, tool_configs: dict[str, dict[str, Any]] | None = None, config: Any | None = None) -> None:
+        self._tool_configs = tool_configs or {}
+        self._config = config
         self._factories: dict[str, _ToolFactory] = {}
         self._register_defaults()
 
@@ -179,10 +181,20 @@ class ToolRegistry:
     # ------------------------------------------------------------------
 
     def _register_defaults(self) -> None:
-        self.register(SubAgentType.FILE_OPS.value, FileOpsAgent)
-        self.register(SubAgentType.SHELL_EXECUTION.value, ShellExecutionAgent)
-        self.register(SubAgentType.CODE_ANALYZER.value, CodeAnalyzerAgent)
-        self.register(SubAgentType.WEB_SEARCH.value, WebSearchAgent)
+        file_cfg = self._tool_configs.get(SubAgentType.FILE_OPS.value)
+        shell_cfg = self._tool_configs.get(SubAgentType.SHELL_EXECUTION.value)
+        code_cfg = self._tool_configs.get(SubAgentType.CODE_ANALYZER.value)
+        web_cfg = self._tool_configs.get(SubAgentType.WEB_SEARCH.value)
+
+        self.register(SubAgentType.FILE_OPS.value, lambda: FileOpsAgent(config=file_cfg))
+        self.register(
+            SubAgentType.SHELL_EXECUTION.value, lambda: ShellExecutionAgent(config=shell_cfg)
+        )
+        code_analyzer = CodeAnalyzerAgent(config=code_cfg)
+        if self._config:
+            code_analyzer._set_config(self._config)
+        self.register(SubAgentType.CODE_ANALYZER.value, lambda: code_analyzer)
+        self.register(SubAgentType.WEB_SEARCH.value, lambda: WebSearchAgent(config=web_cfg))
 
     @staticmethod
     def _safe_type(agent_type: str) -> SubAgentType:

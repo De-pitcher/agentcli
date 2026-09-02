@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..config import Config
 from ..files import FileReadError, expand_file_references
-from ..openrouter_client import OpenRouterClient
+from ..openrouter_client import ChatMessage, OpenRouterClient, OpenRouterError
 from .base import SubAgent, SubAgentResult, SubAgentTask, SubAgentType
 
 if TYPE_CHECKING:
@@ -31,6 +31,11 @@ class CodeAnalyzerAgent(SubAgent):
     ) -> None:
         super().__init__(SubAgentType.CODE_ANALYZER, config, message_bus)
         self._client: OpenRouterClient | None = None
+        self._config: Config | None = None
+
+    def _set_config(self, config: Config) -> None:
+        """Set the config for LLM-based analysis."""
+        self._config = config
 
     async def _get_client(self, config: Config) -> OpenRouterClient:
         if self._client is None:
@@ -44,11 +49,15 @@ class CodeAnalyzerAgent(SubAgent):
             - files: list of file paths to analyze
             - focus: optional focus area (e.g., "security", "performance", "style")
             - context: additional context for the analysis
+            - model: optional model ID for LLM-based analysis
+            - models: optional list of model fallbacks for LLM-based analysis
         """
         payload = task.payload
         files = payload.get("files", [])
         focus = payload.get("focus", "general")
         context = payload.get("context", "")
+        model = payload.get("model")
+        models = payload.get("models")
 
         if not files:
             return SubAgentResult(
@@ -89,6 +98,40 @@ Please provide:
 4. Any security concerns
 """
 
+        # Use LLM for analysis if model provided
+        if model and self._config:
+            try:
+                client = await self._get_client(self._config)
+                messages = [
+                    ChatMessage(role="system", content="You are a code analysis expert. Provide thorough, actionable code analysis."),
+                    ChatMessage(role="user", content=prompt),
+                ]
+                stream = client.chat_stream(messages, model=model, models=models)
+                full_response = ""
+                async for chunk in stream:
+                    full_response += chunk
+                
+                return SubAgentResult(
+                    task_id=task.id,
+                    agent_type=self.agent_type,
+                    success=True,
+                    output={
+                        "files_analyzed": files,
+                        "focus": focus,
+                        "analysis": full_response,
+                        "summary": f"Analyzed {len(files)} files with focus on {focus}",
+                    },
+                )
+            except (OpenRouterError, RuntimeError, ValueError) as exc:
+                # Fallback to prompt-only on LLM error
+                return SubAgentResult(
+                    task_id=task.id,
+                    agent_type=self.agent_type,
+                    success=False,
+                    error=f"LLM analysis failed: {exc}",
+                )
+
+        # Fallback: return prompt for manual review
         return SubAgentResult(
             task_id=task.id,
             agent_type=self.agent_type,
@@ -97,6 +140,6 @@ Please provide:
                 "files_analyzed": files,
                 "focus": focus,
                 "prompt": prompt,
-                "summary": f"Analyzed {len(files)} files with focus on {focus}",
+                "summary": f"Analyzed {len(files)} files with focus on {focus} (prompt only - no model)",
             },
         )

@@ -1,0 +1,7 @@
+fix(phase8): Windows path handling & agentic loop fixes
+
+- planner.py: fix file path regex for Windows backslashes
+- loop.py: expand agentic keywords for read...analyze patterns
+- Fixes agentic loop iteration limit (re-plan loop caused by failed planner)
+
+All 246 tests pass, 91.25% coverage
