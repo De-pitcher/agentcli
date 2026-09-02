@@ -136,12 +136,13 @@ class MCPServer:
             },
         }
 
-    async def run(self) -> None:
-        """Run the JSON-RPC message processing loop on stdio."""
-        loop = asyncio.get_running_loop()
-        reader = asyncio.StreamReader()
-        protocol = asyncio.StreamReaderProtocol(reader)
-        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+    async def run(self, reader: asyncio.StreamReader | None = None) -> None:
+        """Run the JSON-RPC message processing loop on stdio or custom reader."""
+        if reader is None:
+            loop = asyncio.get_running_loop()
+            reader = asyncio.StreamReader()
+            protocol = asyncio.StreamReaderProtocol(reader)
+            await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
         while True:
             line = await reader.readline()

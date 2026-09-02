@@ -349,7 +349,7 @@ Example output:
 
             return validated_tasks
 
-        except (json.JSONDecodeError, OpenRouterError, ValueError) as exc:
+        except (json.JSONDecodeError, OpenRouterError, ValueError, TypeError) as exc:
             # Fallback to heuristic on any error
             self._logger.warning("LLM planning failed, falling back to heuristic: %s", exc)
             return self._generate_plan(query, context, available_agents)
