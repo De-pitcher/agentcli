@@ -357,11 +357,11 @@ Example output:
     def _extract_file_paths(self, text: str) -> list[str]:
         """Extract file paths from text using simple heuristics."""
         patterns = [
-            r"@([\w./\-]+\.\w+)",  # @file.py
+            r"@([\w./\\\-]+\.\w+)",  # @file.py (supports Windows backslash)
             r"`([^`]+\.\w+)`",  # `file.py`
             r"\"([^\"]+\.\w+)\"",  # "file.py"
             r"'([^']+\.\w+)'",  # 'file.py'
-            r"\b([\w/.-]+\.(?:py|js|ts|tsx|java|go|rs|c|cpp|h|rb|php|sh|toml|yaml|yml|json|md|txt))\b",
+            r"\b([\w/\\.-]+\.(?:py|js|ts|tsx|java|go|rs|c|cpp|h|rb|php|sh|toml|yaml|yml|json|md|txt))\b",
         ]
 
         files: list[str] = []
