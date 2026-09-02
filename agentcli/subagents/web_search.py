@@ -82,40 +82,37 @@ class DuckDuckGoProvider(SearchProvider):
     @staticmethod
     def _parse_results(html: str, max_results: int = 10) -> list[SearchResult]:
         """Parse DuckDuckGo HTML results."""
-        # Pattern to match individual result containers
-        pattern = r'<div class="result[^"]*"[^>]*>.*?</div>\s*</div>'
-        containers = re.findall(pattern, html, re.DOTALL)
+        # Extract all result positions first (title links)
+        title_pattern = r'<h2 class="result__title">\s*<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>\s*</h2>'
+        title_matches = list(re.finditer(title_pattern, html, re.DOTALL))
+        
+        # Extract all snippet positions
+        snippet_pattern = r'<a class="result__snippet"[^>]*href="([^"]*)"[^>]*>(.*?)</a>'
+        snippet_matches = list(re.finditer(snippet_pattern, html, re.DOTALL))
+        
+        # Extract display URLs
+        url_pattern = r'class="result__url"[^>]*>(.*?)</a>'
+        url_matches = list(re.finditer(url_pattern, html, re.DOTALL))
         
         results = []
-        for container in containers[:max_results]:
-            # Extract title and URL from result__title
-            title_match = re.search(
-                r'<h2 class="result__title">\s*<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>\s*</h2>',
-                container, re.DOTALL
-            )
-            if not title_match:
-                continue
-            
+        for i, title_match in enumerate(title_matches[:max_results]):
             url = title_match.group(1)
             title = re.sub(r'<[^>]+>', '', title_match.group(2)).strip()
             
-            # Extract snippet from result__snippet
-            snippet_match = re.search(
-                r'class="result__snippet"[^>]*>(.*?)</a>',
-                container, re.DOTALL
-            )
+            # Find matching snippet (by URL proximity or index)
             snippet = ""
-            if snippet_match:
-                snippet = re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip()
+            if i < len(snippet_matches):
+                snippet_match = snippet_matches[i]
+                snippet_url = snippet_match.group(1)
+                snippet_text = snippet_match.group(2)
+                # Verify URL matches (or use index as fallback)
+                if snippet_url == url or i < len(snippet_matches):
+                    snippet = re.sub(r'<[^>]+>', '', snippet_text).strip()
             
-            # Extract display URL from result__url
-            url_match = re.search(
-                r'class="result__url"[^>]*>(.*?)</a>',
-                container, re.DOTALL
-            )
+            # Find matching display URL
             display_url = ""
-            if url_match:
-                display_url = re.sub(r'<[^>]+>', '', url_match.group(1)).strip()
+            if i < len(url_matches):
+                display_url = re.sub(r'<[^>]+>', '', url_matches[i].group(1)).strip()
             
             # Use the actual URL from the title link if display_url is not clean
             if not display_url or display_url.startswith('\n'):
