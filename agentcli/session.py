@@ -204,6 +204,8 @@ class AgentSession:
     def pop_last_message(self) -> None:
         if self.history:
             self.history.pop()
+        if self.memory_store is not None:
+            self.memory_store.delete_last_message(self.session_id)
 
     @property
     def last_served_model(self) -> str | None:

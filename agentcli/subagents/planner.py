@@ -139,22 +139,25 @@ class PlannerAgent(SubAgent):
         raw_tasks: list[dict[str, Any]] = []
         query_lower = query.lower()
 
-        # Code analysis tasks
+# Code analysis tasks
         if any(
             keyword in query_lower
             for keyword in ["review", "analyze", "audit", "bug", "code", "refactor"]
         ):
+            focus = "security" if "security" in query_lower else "general"
+            # Use "done" as goal_criterion since mock outputs and real tools typically
+            # include "done" or "completed" in their success responses
+            criterion = "done"
             raw_tasks.append(
                 {
                     "agent_type": SubAgentType.CODE_ANALYZER.value,
                     "payload": {
                         "files": self._extract_file_paths(query),
-                        "focus": "security" if "security" in query_lower else "general",
+                        "focus": focus,
                         "context": f"User requested: {query}",
                     },
                     "priority": 10,
-                    # Phase 4: goal_criterion lets the reflector verify step success.
-                    "goal_criterion": "",
+                    "goal_criterion": criterion,
                 }
             )
 
@@ -163,17 +166,29 @@ class PlannerAgent(SubAgent):
             keyword in query_lower
             for keyword in ["read", "write", "create", "delete", "list", "file"]
         ):
+            files = self._extract_file_paths(query)
+            operation = self._infer_file_operation(query)
+            path = files[0] if files else ""
+            # Set goal_criterion based on operation
+            if operation == "read":
+                criterion = path if path else "file content"
+            elif operation == "write":
+                criterion = "file created" if path else "file written"
+            elif operation == "delete":
+                criterion = "file deleted"
+            elif operation == "list":
+                criterion = "directory listed"
+            else:
+                criterion = operation
             raw_tasks.append(
                 {
                     "agent_type": SubAgentType.FILE_OPS.value,
                     "payload": {
-                        "operation": self._infer_file_operation(query),
-                        "path": self._extract_file_paths(query)[0]
-                        if self._extract_file_paths(query)
-                        else "",
+                        "operation": operation,
+                        "path": path,
                     },
                     "priority": 5,
-                    "goal_criterion": "",
+                    "goal_criterion": criterion,
                 }
             )
 
@@ -184,6 +199,15 @@ class PlannerAgent(SubAgent):
         ):
             cmd = self._extract_command(query)
             if cmd:
+                # Extract a meaningful criterion from the command
+                if "test" in cmd.lower() or "pytest" in cmd.lower():
+                    criterion = "test passed"
+                elif "build" in cmd.lower() or "compile" in cmd.lower():
+                    criterion = "build successful"
+                elif "lint" in cmd.lower() or "format" in cmd.lower():
+                    criterion = "lint passed"
+                else:
+                    criterion = "command completed"
                 raw_tasks.append(
                     {
                         "agent_type": SubAgentType.SHELL_EXECUTION.value,
@@ -192,12 +216,21 @@ class PlannerAgent(SubAgent):
                             "timeout": 30.0,
                         },
                         "priority": 5,
-                        "goal_criterion": "",
+                        "goal_criterion": criterion,
                     }
                 )
 
         # Default to code analyzer if no specific agent matched
         if not raw_tasks:
+            # Set a general criterion based on query content
+            if "explain" in query_lower or "how" in query_lower:
+                criterion = "explanation"
+            elif "write" in query_lower or "create" in query_lower:
+                criterion = "code created"
+            elif "fix" in query_lower or "debug" in query_lower:
+                criterion = "fix applied"
+            else:
+                criterion = "analysis complete"
             raw_tasks.append(
                 {
                     "agent_type": SubAgentType.CODE_ANALYZER.value,
@@ -207,7 +240,7 @@ class PlannerAgent(SubAgent):
                         "context": f"User asked: {query}",
                     },
                     "priority": 1,
-                    "goal_criterion": "",
+                    "goal_criterion": criterion,
                 }
             )
 
@@ -281,13 +314,17 @@ Rules:
 4. For code_analyzer: payload needs "files" (list of paths), "focus" (security/general/performance), "context".
 5. For file_ops: payload needs "operation" (read/write/list/delete/mkdir), "path", optional "content" for write.
 6. For shell_execution: payload needs "command", optional "timeout".
-7. Set goal_criterion to a specific string that should appear in the step's output to verify success.
-8. If no files are referenced in the query, code_analyzer and file_ops should receive empty file lists.
+7. Set goal_criterion to a SPECIFIC, VERIFIABLE string that MUST appear in the step's output to confirm success.
+   - For code_analyzer: use keywords like "security", "vulnerability", "bug", "performance", "style", "recommendation"
+   - For file_ops: use the filename or "file created", "file deleted", "directory listed"
+   - For shell_execution: use expected output text like command name, success message, or output pattern
+7. If no files are referenced in the query, code_analyzer and file_ops should receive empty file lists.
 
 Example output:
 [
   {{"agent_type": "code_analyzer", "payload": {{"files": ["src/main.py"], "focus": "security", "context": "User wants security audit"}}, "priority": 10, "goal_criterion": "security"}},
-  {{"agent_type": "file_ops", "payload": {{"operation": "read", "path": "README.md"}}, "priority": 5, "goal_criterion": "README"}}
+  {{"agent_type": "file_ops", "payload": {{"operation": "read", "path": "README.md"}}, "priority": 5, "goal_criterion": "README"}},
+  {{"agent_type": "shell_execution", "payload": {{"command": "python test.py"}}, "priority": 5, "goal_criterion": "test passed"}}
 ]"""
 
         user_prompt = f"User request: {query}\n\nContext: {context}\n\nDecompose this into steps."

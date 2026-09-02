@@ -413,10 +413,36 @@ class MemoryStore:
             cur = conn.execute("DELETE FROM sessions WHERE updated_at < ?", (cutoff,))
             return cur.rowcount
 
+    def delete_last_message(self, session_id: str) -> bool:
+        """Delete the most recent message from a session.
+        
+        Returns True if a message was deleted, False if no messages existed.
+        """
+        with self._lock:
+            conn = self._get_connection()
+            # First check if session exists and has messages
+            cur = conn.execute(
+                "SELECT id FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+                (session_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False
+            msg_id = row["id"]
+            with conn:
+                conn.execute("DELETE FROM messages WHERE id = ?", (msg_id,))
+                # Also update session's updated_at to now
+                conn.execute(
+                    "UPDATE sessions SET updated_at = ? WHERE id = ?",
+                    (_utc_now_iso(), session_id),
+                )
+            return True
+
     def close(self) -> None:
         """Close SQLite database connection."""
-        if self._conn is not None:
-            self._conn.close()
+        conn = getattr(self, '_conn', None)
+        if conn is not None:
+            conn.close()
             self._conn = None
 
     def __enter__(self) -> Self:
