@@ -326,6 +326,8 @@ _AGENTIC_KEYWORDS: tuple[str, ...] = (
     "finally,",
     "run and",
     "analyze and",
+    "analyze it",
+    "analyze the",
     "list and",
     "write and",
     "create and then",
@@ -336,6 +338,8 @@ _AGENTIC_KEYWORDS: tuple[str, ...] = (
     "execute the",
     "execute command",
     "do the following",
+    "read and",
+    "read then",
 )
 
 
