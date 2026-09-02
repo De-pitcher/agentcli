@@ -340,6 +340,8 @@ _AGENTIC_KEYWORDS: tuple[str, ...] = (
     "do the following",
     "read and",
     "read then",
+    "and analyze",
+    "then analyze",
 )
 
 
