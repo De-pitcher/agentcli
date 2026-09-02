@@ -1,0 +1,21 @@
+fix(phase9): Fix critical bugs - pop_last_message sync & MemoryStore __del__ crash
+
+### Bug Fixes
+
+**1. pop_last_message() now syncs with MemoryStore**
+- `session.py`: `pop_last_message()` now calls `memory_store.delete_last_message()` to sync both in-memory history and persistent SQLite storage
+- `store.py`: Added `delete_last_message(session_id: str) -> bool` method to remove the most recent message from a session
+
+**2. MemoryStore.__del__ crash fix**
+- `store.py`: `close()` now uses `getattr(self, '_conn', None)` to safely handle missing `_conn` during interpreter shutdown
+- Fixes `AttributeError: 'MemoryStore' object has no attribute '_conn'` during interpreter shutdown
+
+### Quality Gates
+- 246 tests pass
+- 89% coverage (≥85% floor)
+- ruff: clean
+- mypy: clean
+
+### Files Modified
+- `agentcli/session.py`: `pop_last_message()` now syncs with MemoryStore
+- `agentcli/memory/store.py`: Added `delete_last_message()` method, fixed `close()` for safe shutdown

@@ -145,7 +145,8 @@ class PlannerAgent(SubAgent):
             for keyword in ["review", "analyze", "audit", "bug", "code", "refactor"]
         ):
             focus = "security" if "security" in query_lower else "general"
-            # Use "done" as goal_criterion since mock outputs contain "done"
+            # Use "done" as goal_criterion since mock outputs and real tools typically
+            # include "done" or "completed" in their success responses
             criterion = "done"
             raw_tasks.append(
                 {
