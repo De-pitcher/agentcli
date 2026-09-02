@@ -1,0 +1,39 @@
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 201: U+2500 ('─') - # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+Line 205: U+2014 ('—') - print("[agent-loop] Multi-step task detected — running Plan→Act→Reflect loop")
+Line 205: U+2192 ('→') - print("[agent-loop] Multi-step task detected — running Plan→Act→Reflect loop")
+Line 205: U+2192 ('→') - print("[agent-loop] Multi-step task detected — running Plan→Act→Reflect loop")
+Line 222: U+2500 ('─') - # ── SIMPLE SINGLE-TURN CHAT PATH (unchanged from Phase 1/2) ─
+Line 222: U+2500 ('─') - # ── SIMPLE SINGLE-TURN CHAT PATH (unchanged from Phase 1/2) ─
+Line 222: U+2500 ('─') - # ── SIMPLE SINGLE-TURN CHAT PATH (unchanged from Phase 1/2) ─
+Line 259: U+2014 ('—') - f"[model: {session.last_served_model} — "
+Line 264: U+2014 ('—') - f"[model: {session.last_served_model} — "
+Line 428: U+2014 ('—') - print(f"Config file already exists at {path} — leaving it untouched.")
