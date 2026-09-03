@@ -265,7 +265,7 @@ class AgentSession:
         loop_cfg = self.config.agent_loop
         loop = AgentLoop(
             goal=goal,
-            registry=ToolRegistry(),
+            registry=ToolRegistry(config=self.config),
             reflector=DefaultReflector(),
             router=self.router,
             max_iterations=loop_cfg.max_iterations,

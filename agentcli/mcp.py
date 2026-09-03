@@ -128,27 +128,7 @@ class MCPServer:
                     },
                     "required": ["query"],
                 }
-            elif name == "file_ops":
-                desc = "Perform file operations: read, write, create, delete, list, or mkdir. Paths are constrained to the working directory."
-                input_schema = {
-                    "type": "object",
-                    "properties": {
-                        "operation": {
-                            "type": "string",
-                            "enum": ["read", "write", "create", "delete", "list", "mkdir"],
-                        },
-                        "path": {"type": "string", "description": "Path to file or directory"},
-                        "content": {
-                            "type": "string",
-                            "description": "Content to write (required for write operation)",
-                        },
-                        "encoding": {
-                            "type": "string",
-                            "description": "Text encoding (default: utf-8)",
-                        },
-                    },
-                    "required": ["operation", "path"],
-                }
+
             else:
                 input_schema = {
                     "type": "object",

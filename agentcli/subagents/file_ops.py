@@ -31,6 +31,10 @@ class FileOpsAgent(SubAgent):
         super().__init__(SubAgentType.FILE_OPS, config, message_bus)
         self.working_dir = Path(self.config.get("working_dir", os.getcwd())).resolve()
         self.allow_outside = bool(self.config.get("allow_outside_working_dir", False))
+        # Phase 10: Read-only by default unless allow_write or read_only=False is explicitly configured
+        self.read_only = bool(
+            self.config.get("read_only", not self.config.get("allow_write", False))
+        )
 
     def _resolve_path(self, path: str) -> Path:
         """Resolve and validate a file path.
@@ -94,6 +98,14 @@ class FileOpsAgent(SubAgent):
         try:
             resolved_path = self._resolve_path(path)
 
+            if self.read_only and operation in ("write", "delete", "mkdir", "create"):
+                return SubAgentResult(
+                    task_id=task.id,
+                    agent_type=self.agent_type,
+                    success=False,
+                    error=f"Operation '{operation}' is not permitted in read-only mode. Use --allow-write to enable mutations.",
+                )
+
             if operation == "read":
                 if not resolved_path.exists():
                     return SubAgentResult(
@@ -111,7 +123,7 @@ class FileOpsAgent(SubAgent):
                     output={"content": content, "path": str(resolved_path)},
                 )
 
-            elif operation == "write":
+            elif operation in ("write", "create"):
                 content = payload.get("content", "")
                 encoding = payload.get("encoding", "utf-8")
                 resolved_path.parent.mkdir(parents=True, exist_ok=True)
