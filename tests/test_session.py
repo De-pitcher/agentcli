@@ -79,6 +79,7 @@ async def test_session_pop_last_message_syncs_to_store(tmp_path):
 
     # Verify memory store is synced
     from agentcli.memory.store import MemoryStore
+
     store = MemoryStore(config.memory.db_path)
     msgs = store.get_messages(session.session_id)
     assert len(msgs) == 3

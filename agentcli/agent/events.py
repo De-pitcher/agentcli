@@ -58,6 +58,7 @@ class FinishEvent(LoopEvent):
     """Emitted when the loop terminates (success path)."""
 
     summary: str = ""
+    output: Any = None
 
 
 @dataclass

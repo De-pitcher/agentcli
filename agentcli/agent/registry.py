@@ -81,7 +81,9 @@ class ToolRegistry:
         result = await registry.execute("my_tool", {...})
     """
 
-    def __init__(self, tool_configs: dict[str, dict[str, Any]] | None = None, config: Any | None = None) -> None:
+    def __init__(
+        self, tool_configs: dict[str, dict[str, Any]] | None = None, config: Any | None = None
+    ) -> None:
         self._tool_configs = tool_configs or {}
         self._config = config
         self._factories: dict[str, _ToolFactory] = {}

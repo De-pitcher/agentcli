@@ -165,6 +165,13 @@ def test_load_config_presets(tmp_path):
     with pytest.raises(ConfigError, match="Unknown preset 'invalid_preset'"):
         load_config(tmp_path / "empty.toml", preset="invalid_preset")
 
+    # Test preset overrides existing file settings
+    custom_toml = tmp_path / "custom.toml"
+    custom_toml.write_text("[agent_loop]\nenabled = false\n[app]\nhistory_turns = 10\n")
+    cfg_override = load_config(custom_toml, preset="coding")
+    assert cfg_override.agent_loop.enabled is True
+    assert cfg_override.app.history_turns == 30
+
 
 def test_app_config_plugins_and_agents_md(tmp_path):
     path = tmp_path / "app_plugins.toml"

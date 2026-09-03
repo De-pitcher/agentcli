@@ -120,7 +120,10 @@ async def test_session_memory_store_init_exception(monkeypatch, tmp_path):
     config = Config()
     config.memory.db_path = str(tmp_path / "bad.db")
     # Make the path unwritable to trigger exception
-    monkeypatch.setattr("agentcli.memory.store.MemoryStore.__init__", lambda self, *a, **k: (_ for _ in ()).throw(Exception("init failed")))
+    monkeypatch.setattr(
+        "agentcli.memory.store.MemoryStore.__init__",
+        lambda self, *a, **k: (_ for _ in ()).throw(Exception("init failed")),
+    )
 
     session = AgentSession(config)
     # Should not raise, just log warning and continue without memory store
@@ -153,6 +156,7 @@ async def test_session_context_window_lookup_from_registry():
     # Test with unknown model (fallback to default)
     window = session._resolve_context_window("unknown/model")
     from agentcli.memory.budget import DEFAULT_CONTEXT_WINDOW
+
     assert window == DEFAULT_CONTEXT_WINDOW
 
     # Test with None model

@@ -72,6 +72,7 @@ def test_load_agents_md_missing_returns_none(tmp_path):
     # to avoid finding the project's AGENTS.md
     import tempfile
     from pathlib import Path
+
     with tempfile.TemporaryDirectory() as tmpdir:
         sub = Path(tmpdir) / "empty_dir"
         sub.mkdir()

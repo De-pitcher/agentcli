@@ -415,7 +415,7 @@ class MemoryStore:
 
     def delete_last_message(self, session_id: str) -> bool:
         """Delete the most recent message from a session.
-        
+
         Returns True if a message was deleted, False if no messages existed.
         """
         with self._lock:
@@ -440,7 +440,7 @@ class MemoryStore:
 
     def close(self) -> None:
         """Close SQLite database connection."""
-        conn = getattr(self, '_conn', None)
+        conn = getattr(self, "_conn", None)
         if conn is not None:
             conn.close()
             self._conn = None
@@ -453,7 +453,7 @@ class MemoryStore:
 
     def __del__(self) -> None:
         # Use getattr to safely handle missing _conn during interpreter shutdown
-        conn = getattr(self, '_conn', None)
+        conn = getattr(self, "_conn", None)
         if conn is not None:
             try:
                 conn.close()
