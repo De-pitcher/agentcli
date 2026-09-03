@@ -1,0 +1,30 @@
+feat(phase9/10): CapabilityConfig + MCP tool schemas + WebSearch fixes
+
+### Phase 10: CapabilityConfig + MCP Tool Schemas
+
+**CapabilityConfig (Phase 10 Policy Enforcement)**
+- `config.py`: Added `CapabilityConfig` dataclass for Phase 10 policy enforcement
+  - `read_only`: Default to read-only operations; mutations require explicit approval
+  - `workspace_only`: Restrict file operations to workspace directory
+  - `allowed_commands`: Allowlist of permitted shell commands (empty = all allowed)
+  - `approval_hooks`: Require explicit approval for mutations (write, delete, shell)
+  - `plugin_trust_boundary`: Plugins run in restricted context; no host access by default
+
+**MCP Tool Schemas (Phase 10)**
+- `mcp.py`: `_tool_definitions()` now returns full JSON Schema input schemas for all tools
+  - `file_ops`: read/write/create/delete/list/mkdir with proper constraints
+  - `shell_execution`: command with timeout/working_dir, allowlist/denylist
+  - `code_analyzer`: files[], focus (security/performance/style), context, model overrides
+  - `web_search`: query, max_results, provider (brave/duckduckgo), timeout
+
+### WebSearchAgent Fixes
+- Fixed DuckDuckGo snippet extraction (was missing snippets due to regex issues)
+- Added `timeout` parameter to search() method
+- Improved fallback logic with proper exception handling
+- Added citation URLs to results
+
+### Code Quality
+- All 247 tests pass
+- 89% coverage (≥85% floor)
+- ruff: clean
+- mypy: clean

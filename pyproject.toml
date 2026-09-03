@@ -50,10 +50,11 @@ include = ["agentcli*"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = [".pytest-temp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=agentcli --cov-report=term-missing --cov-fail-under=85"
+addopts = "--cov=agentcli --cov-report=term-missing --cov-fail-under=85 --basetemp=.pytest-temp"
 
 [tool.mypy]
 python_version = "3.11"

@@ -104,14 +104,17 @@ Please provide a structured analysis with:
             try:
                 client = await self._get_client(self._config)
                 messages = [
-                    ChatMessage(role="system", content="You are a code analysis expert. Provide thorough, actionable code analysis with specific file/line references where possible. Structure your response with clear sections."),
+                    ChatMessage(
+                        role="system",
+                        content="You are a code analysis expert. Provide thorough, actionable code analysis with specific file/line references where possible. Structure your response with clear sections.",
+                    ),
                     ChatMessage(role="user", content=prompt),
                 ]
                 stream = client.chat_stream(messages, model=model, models=models)
                 full_response = ""
                 async for chunk in stream:
                     full_response += chunk
-                
+
                 return SubAgentResult(
                     task_id=task.id,
                     agent_type=self.agent_type,

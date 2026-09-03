@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 @dataclass
 class SearchResult:
     """A single search result."""
+
     title: str
     url: str
     snippet: str
@@ -66,11 +67,13 @@ class BraveSearchProvider(SearchProvider):
 
         results = []
         for item in data.get("web", {}).get("results", [])[:max_results]:
-            results.append(SearchResult(
-                title=item.get("title", ""),
-                url=item.get("url", ""),
-                snippet=item.get("description", ""),
-            ))
+            results.append(
+                SearchResult(
+                    title=item.get("title", ""),
+                    url=item.get("url", ""),
+                    snippet=item.get("description", ""),
+                )
+            )
         return results
 
 
@@ -85,20 +88,20 @@ class DuckDuckGoProvider(SearchProvider):
         # Extract all result positions first (title links)
         title_pattern = r'<h2 class="result__title">\s*<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>\s*</h2>'
         title_matches = list(re.finditer(title_pattern, html, re.DOTALL))
-        
+
         # Extract all snippet positions
         snippet_pattern = r'<a class="result__snippet"[^>]*href="([^"]*)"[^>]*>(.*?)</a>'
         snippet_matches = list(re.finditer(snippet_pattern, html, re.DOTALL))
-        
+
         # Extract display URLs
         url_pattern = r'class="result__url"[^>]*>(.*?)</a>'
         url_matches = list(re.finditer(url_pattern, html, re.DOTALL))
-        
+
         results = []
         for i, title_match in enumerate(title_matches[:max_results]):
             url = title_match.group(1)
-            title = re.sub(r'<[^>]+>', '', title_match.group(2)).strip()
-            
+            title = re.sub(r"<[^>]+>", "", title_match.group(2)).strip()
+
             # Find matching snippet (by URL proximity or index)
             snippet = ""
             if i < len(snippet_matches):
@@ -107,26 +110,28 @@ class DuckDuckGoProvider(SearchProvider):
                 snippet_text = snippet_match.group(2)
                 # Verify URL matches (or use index as fallback)
                 if snippet_url == url or i < len(snippet_matches):
-                    snippet = re.sub(r'<[^>]+>', '', snippet_text).strip()
-            
+                    snippet = re.sub(r"<[^>]+>", "", snippet_text).strip()
+
             # Find matching display URL
             display_url = ""
             if i < len(url_matches):
-                display_url = re.sub(r'<[^>]+>', '', url_matches[i].group(1)).strip()
-            
+                display_url = re.sub(r"<[^>]+>", "", url_matches[i].group(1)).strip()
+
             # Use the actual URL from the title link if display_url is not clean
-            if not display_url or display_url.startswith('\n'):
+            if not display_url or display_url.startswith("\n"):
                 final_url = url
             else:
                 final_url = display_url
-            
+
             if title and final_url:
-                results.append(SearchResult(
-                    title=title,
-                    url=final_url,
-                    snippet=snippet[:300] if snippet else "",
-                ))
-        
+                results.append(
+                    SearchResult(
+                        title=title,
+                        url=final_url,
+                        snippet=snippet[:300] if snippet else "",
+                    )
+                )
+
         return results
 
     async def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
@@ -215,6 +220,8 @@ class WebSearchAgent(SubAgent):
                     output={
                         "query": query,
                         "results": [],
+                        "count": 0,
+                        "provider": provider.__class__.__name__.replace("Provider", ""),
                         "message": "No results found",
                     },
                 )
@@ -226,8 +233,7 @@ class WebSearchAgent(SubAgent):
                 output={
                     "query": query,
                     "results": [
-                        {"title": r.title, "url": r.url, "snippet": r.snippet}
-                        for r in results
+                        {"title": r.title, "url": r.url, "snippet": r.snippet} for r in results
                     ],
                     "count": len(results),
                     "provider": provider.__class__.__name__.replace("Provider", ""),
@@ -235,7 +241,10 @@ class WebSearchAgent(SubAgent):
             )
 
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429 and provider.__class__.__name__ != "DuckDuckGoProvider":
+            if (
+                e.response.status_code == 429
+                and provider.__class__.__name__ != "DuckDuckGoProvider"
+            ):
                 # Rate limited, try fallback to DuckDuckGo
                 fallback = self.providers.get("duckduckgo")
                 if fallback:

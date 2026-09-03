@@ -214,10 +214,10 @@ async def test_planner_llm_multiple_steps(monkeypatch) -> None:
 
     class MockClient:
         async def chat_stream(self, messages, model=None, models=None):
-            yield '''[
+            yield """[
                 {"agent_type": "file_ops", "payload": {"operation": "read", "path": "README.md"}, "priority": 5, "goal_criterion": "README"},
                 {"agent_type": "code_analyzer", "payload": {"files": ["README.md"], "focus": "general", "context": "User wants analysis"}, "priority": 10, "goal_criterion": "analysis"}
-            ]'''
+            ]"""
 
     monkeypatch.setattr("agentcli.subagents.planner.OpenRouterClient", lambda _: MockClient())
 

@@ -201,12 +201,17 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
             if session.should_use_loop(expanded):
                 await session.async_add_user_message(expanded)
                 if verbose:
-                    safe_print("[agent-loop] Multi-step task detected -- running Plan->Act->Reflect loop")
+                    safe_print(
+                        "[agent-loop] Multi-step task detected -- running Plan->Act->Reflect loop"
+                    )
                 try:
                     async for event in session.run_loop(expanded):
                         _render_loop_event(event, verbose=verbose)
                         if isinstance(event, FinishEvent):
-                            loop_summary = event.summary
+                            if getattr(event, "output", None):
+                                loop_summary = f"{event.summary}\n\n{event.output}"
+                            else:
+                                loop_summary = event.summary
                         elif isinstance(event, LoopErrorEvent):
                             loop_summary = f"[loop error] {event.error}"
                     await session.async_add_assistant_message(loop_summary or "(loop completed)")
@@ -244,7 +249,10 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     else session.client.chat_stream(trimmed, model=forced_model)
                 )
                 async for delta in stream:
-                    print(delta, end="", flush=True)
+                    try:
+                        print(delta, end="", flush=True)
+                    except UnicodeEncodeError:
+                        safe_print(delta, end="", flush=True)
                     reply_parts.append(delta)
 
                 full_reply = "".join(reply_parts)
@@ -340,6 +348,8 @@ def _render_loop_event(event: object, *, verbose: bool) -> None:
         safe_print(f"  [reflect] {event.decision} -- {event.reason}")
     elif isinstance(event, FinishEvent):
         safe_print(f"\n[done] {event.summary}")
+        if getattr(event, "output", None):
+            safe_print(f"\n{event.output}\n")
     elif isinstance(event, LoopErrorEvent):
         safe_print(f"\n[loop-error] {event.error}")
 

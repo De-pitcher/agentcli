@@ -100,7 +100,9 @@ class PlannerAgent(SubAgent):
 
         # Use LLM-based planning if model is provided and config is available
         if model and self._config:
-            sub_tasks = await self._generate_plan_llm(query, context, available_agents, model, models)
+            sub_tasks = await self._generate_plan_llm(
+                query, context, available_agents, model, models
+            )
         else:
             sub_tasks = self._generate_plan(query, context, available_agents)
 
@@ -139,7 +141,7 @@ class PlannerAgent(SubAgent):
         raw_tasks: list[dict[str, Any]] = []
         query_lower = query.lower()
 
-# Code analysis tasks
+        # Code analysis tasks
         if any(
             keyword in query_lower
             for keyword in ["review", "analyze", "audit", "bug", "code", "refactor"]
@@ -298,8 +300,7 @@ class PlannerAgent(SubAgent):
         }
 
         available_desc = "\n".join(
-            f"- {agent_descriptions.get(t, 'Unknown agent')}"
-            for t in allowed_types
+            f"- {agent_descriptions.get(t, 'Unknown agent')}" for t in allowed_types
         )
 
         system_prompt = f"""You are a task planner for an AI agent system. Decompose the user's request into a sequence of steps that can be executed by the available sub-agents.
@@ -367,18 +368,23 @@ Example output:
                     step.setdefault("priority", 1)
                     step.setdefault("goal_criterion", "")
                     validated_tasks.append(step)
-                elif SubAgentType.CODE_ANALYZER in allowed_types and agent_type_enum != SubAgentType.CODE_ANALYZER:
+                elif (
+                    SubAgentType.CODE_ANALYZER in allowed_types
+                    and agent_type_enum != SubAgentType.CODE_ANALYZER
+                ):
                     # Fallback to code analyzer
-                    validated_tasks.append({
-                        "agent_type": SubAgentType.CODE_ANALYZER.value,
-                        "payload": {
-                            "files": self._extract_file_paths(query),
-                            "focus": "general",
-                            "context": f"Fallback from {agent_type_str} for: {query}",
-                        },
-                        "priority": 1,
-                        "goal_criterion": "",
-                    })
+                    validated_tasks.append(
+                        {
+                            "agent_type": SubAgentType.CODE_ANALYZER.value,
+                            "payload": {
+                                "files": self._extract_file_paths(query),
+                                "focus": "general",
+                                "context": f"Fallback from {agent_type_str} for: {query}",
+                            },
+                            "priority": 1,
+                            "goal_criterion": "",
+                        }
+                    )
 
             if not validated_tasks:
                 # Fallback to heuristic if LLM produces no valid tasks

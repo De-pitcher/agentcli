@@ -279,7 +279,7 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
             raise ConfigError(
                 f"Unknown preset '{preset}'. Available presets: {', '.join(PRESETS.keys())}"
             )
-        raw = _merge_dict(PRESETS[preset], raw)
+        raw = _merge_dict(raw, PRESETS[preset])
 
     or_raw = raw.get("openrouter", {})
     app_raw = raw.get("app", {})

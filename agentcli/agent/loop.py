@@ -175,7 +175,8 @@ class AgentLoop:
 
                 if outcome.decision == ReflectDecision.FINISH:
                     summary = self._build_summary(step_results)
-                    yield FinishEvent(iteration=iteration, summary=summary)
+                    output = self._extract_finish_output(step_results)
+                    yield FinishEvent(iteration=iteration, summary=summary, output=output)
                     return
 
                 if outcome.decision == ReflectDecision.FAIL:
@@ -311,6 +312,24 @@ class AgentLoop:
     def _build_summary(results: list[SubAgentResult]) -> str:
         successes = sum(1 for r in results if r.success)
         return f"{successes}/{len(results)} step(s) completed successfully."
+
+    @staticmethod
+    def _extract_finish_output(results: list[SubAgentResult]) -> str | None:
+        """Extract user-facing output from the completed steps."""
+        extracted: list[str] = []
+        for r in results:
+            if not r.success or r.output is None:
+                continue
+            if isinstance(r.output, str) and r.output.strip():
+                extracted.append(r.output.strip())
+            elif isinstance(r.output, dict):
+                # Common sub-agent output fields
+                for key in ("summary", "content", "output", "analysis", "result"):
+                    val = r.output.get(key)
+                    if isinstance(val, str) and val.strip():
+                        extracted.append(val.strip())
+                        break
+        return "\n\n".join(extracted) if extracted else None
 
 
 # ------------------------------------------------------------------
