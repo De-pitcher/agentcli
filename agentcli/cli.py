@@ -78,9 +78,19 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SESSION_ID",
         help="Resume a prior conversation session by its ID",
     )
+    chat_p.add_argument(
+        "--allow-write",
+        action="store_true",
+        help="Permit mutating file operations (write, create, delete, mkdir)",
+    )
 
-    sub.add_parser(
+    mcp_p = sub.add_parser(
         "mcp", help="Run agentcli as a Model Context Protocol (MCP) stdio JSON-RPC server"
+    )
+    mcp_p.add_argument(
+        "--allow-write",
+        action="store_true",
+        help="Permit mutating file operations (write, create, delete, mkdir)",
     )
 
     sessions_p = sub.add_parser("sessions", help="Manage persisted conversation sessions")
@@ -477,11 +487,14 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "no_agents_md", False):
         config.app.load_agents_md = False
 
+    if getattr(args, "allow_write", False):
+        config.subagents.allow_write = True
+
     if args.command == "mcp":
         from .agent.registry import ToolRegistry
         from .mcp import run_mcp
 
-        reg = ToolRegistry()
+        reg = ToolRegistry(config=config)
         for p in config.app.plugins:
             reg.load_plugin_file(p)
         return run_mcp(registry=reg)

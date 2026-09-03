@@ -183,7 +183,13 @@ class ToolRegistry:
     # ------------------------------------------------------------------
 
     def _register_defaults(self) -> None:
-        file_cfg = self._tool_configs.get(SubAgentType.FILE_OPS.value)
+        file_cfg = dict(self._tool_configs.get(SubAgentType.FILE_OPS.value) or {})
+        if (
+            self._config
+            and hasattr(self._config, "subagents")
+            and hasattr(self._config.subagents, "allow_write")
+        ):
+            file_cfg.setdefault("allow_write", self._config.subagents.allow_write)
         shell_cfg = self._tool_configs.get(SubAgentType.SHELL_EXECUTION.value)
         code_cfg = self._tool_configs.get(SubAgentType.CODE_ANALYZER.value)
         web_cfg = self._tool_configs.get(SubAgentType.WEB_SEARCH.value)

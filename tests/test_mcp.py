@@ -217,3 +217,155 @@ def test_run_mcp_handles_exception(monkeypatch):
     monkeypatch.setattr(MCPServer, "run", mock_run_exc)
     # Should return 1 on error
     assert run_mcp() == 1
+
+
+@pytest.mark.asyncio
+async def test_mcp_default_file_ops_happy_and_denial(tmp_path):
+    test_file = tmp_path / "hello.txt"
+    test_file.write_text("file content", encoding="utf-8")
+
+    # Read-only default (no allow_write)
+    server = MCPServer()
+
+    # Happy path: read
+    req_read = {
+        "jsonrpc": "2.0",
+        "id": 101,
+        "method": "tools/call",
+        "params": {
+            "name": "file_ops",
+            "arguments": {"operation": "read", "path": str(test_file)},
+        },
+    }
+    resp_read = await server.handle_request(req_read)
+    assert resp_read["result"]["isError"] is False
+    assert "file content" in resp_read["result"]["content"][0]["text"]
+
+    # Denial path: write blocked in read-only default
+    req_write = {
+        "jsonrpc": "2.0",
+        "id": 102,
+        "method": "tools/call",
+        "params": {
+            "name": "file_ops",
+            "arguments": {
+                "operation": "write",
+                "path": str(tmp_path / "out.txt"),
+                "content": "blocked",
+            },
+        },
+    }
+    resp_write = await server.handle_request(req_write)
+    assert resp_write["result"]["isError"] is True
+    assert "read-only mode" in resp_write["result"]["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_default_shell_execution_happy_and_denial():
+    server = MCPServer()
+
+    # Happy path: safe allowed execution
+    req_happy = {
+        "jsonrpc": "2.0",
+        "id": 201,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_execution",
+            "arguments": {"command": "python -c \"print('mcp_ok')\""},
+        },
+    }
+    resp_happy = await server.handle_request(req_happy)
+    assert resp_happy["result"]["isError"] is False
+    assert "mcp_ok" in resp_happy["result"]["content"][0]["text"]
+
+    # Denial path: command in denylist
+    req_denial = {
+        "jsonrpc": "2.0",
+        "id": 202,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_execution",
+            "arguments": {"command": "rm -rf /"},
+        },
+    }
+    resp_denial = await server.handle_request(req_denial)
+    assert resp_denial["result"]["isError"] is True
+    assert "denied" in resp_denial["result"]["content"][0]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_mcp_default_code_analyzer_happy_and_denial(tmp_path):
+    server = MCPServer()
+
+    test_code = tmp_path / "sample.py"
+    test_code.write_text("x = 1\n", encoding="utf-8")
+
+    # Happy path: analyze existing file
+    req_happy = {
+        "jsonrpc": "2.0",
+        "id": 301,
+        "method": "tools/call",
+        "params": {
+            "name": "code_analyzer",
+            "arguments": {"files": [str(test_code)]},
+        },
+    }
+    resp_happy = await server.handle_request(req_happy)
+    assert resp_happy["result"]["isError"] is False
+    assert "files_analyzed" in resp_happy["result"]["content"][0]["text"]
+
+    # Denial path: nonexistent file
+    req_denial = {
+        "jsonrpc": "2.0",
+        "id": 302,
+        "method": "tools/call",
+        "params": {
+            "name": "code_analyzer",
+            "arguments": {"files": ["/path/does/not/exist/never.py"]},
+        },
+    }
+    resp_denial = await server.handle_request(req_denial)
+    assert resp_denial["result"]["isError"] is True
+    assert "Failed to read" in resp_denial["result"]["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_default_web_search_happy_and_denial(monkeypatch):
+    server = MCPServer()
+
+    # Happy path with mock provider
+    from agentcli.subagents.web_search import SearchResult
+
+    async def mock_search(self, query, max_results=10):
+        return [SearchResult(title="Result Title", url="https://example.com", snippet="Snippet")]
+
+    from agentcli.subagents.web_search import DuckDuckGoProvider
+
+    monkeypatch.setattr(DuckDuckGoProvider, "search", mock_search)
+
+    req_happy = {
+        "jsonrpc": "2.0",
+        "id": 401,
+        "method": "tools/call",
+        "params": {
+            "name": "web_search",
+            "arguments": {"query": "python"},
+        },
+    }
+    resp_happy = await server.handle_request(req_happy)
+    assert resp_happy["result"]["isError"] is False
+    assert "https://example.com" in resp_happy["result"]["content"][0]["text"]
+
+    # Denial path: missing query
+    req_denial = {
+        "jsonrpc": "2.0",
+        "id": 402,
+        "method": "tools/call",
+        "params": {
+            "name": "web_search",
+            "arguments": {},
+        },
+    }
+    resp_denial = await server.handle_request(req_denial)
+    assert resp_denial["result"]["isError"] is True
+    assert "No search query" in resp_denial["result"]["content"][0]["text"]

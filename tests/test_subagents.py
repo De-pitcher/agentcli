@@ -365,7 +365,7 @@ class TestFileOps:
 
         working_dir = str(tmp_path)
 
-        agent = FileOpsAgent(config={"working_dir": working_dir})
+        agent = FileOpsAgent(config={"working_dir": working_dir, "allow_write": True})
 
         file_path = "subdir/test.txt"
 
@@ -463,6 +463,22 @@ class TestFileOps:
         assert result.success is False
 
         assert "Unknown operation" in str(result.error)
+
+    @pytest.mark.asyncio
+    async def test_file_ops_read_only_default_blocks_mutations(
+        self, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        agent = FileOpsAgent(config={"working_dir": str(tmp_path)})
+        assert agent.read_only is True
+
+        for op in ("write", "create", "delete", "mkdir"):
+            task = SubAgentTask(
+                agent_type=SubAgentType.FILE_OPS,
+                payload={"operation": op, "path": "test.txt", "content": "hello"},
+            )
+            res = await agent.run(task)
+            assert res.success is False
+            assert "read-only mode" in str(res.error)
 
 
 class TestShellExecution:

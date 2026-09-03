@@ -140,6 +140,7 @@ class SubAgentsConfig:
     idle_timeout_seconds: float = 300.0
     default_timeout_seconds: float = 30.0
     max_output_bytes: int = 1024 * 1024  # 1MB
+    allow_write: bool = False
     models: list[SubAgentModelEntry] = field(default_factory=list)
 
 
@@ -398,6 +399,7 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
             max_output_bytes=_parse_int(
                 subagents_raw.get("max_output_bytes"), "max_output_bytes", 1024 * 1024
             ),
+            allow_write=bool(subagents_raw.get("allow_write", False)),
             models=subagent_entries,
         ),
         agent_loop=AgentLoopConfig(
