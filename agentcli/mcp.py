@@ -30,29 +30,88 @@ class MCPServer:
         definitions = []
         for name in self.registry.registered_types():
             desc = f"agentcli tool: {name}"
+            input_schema = {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            }
             if name == "file_ops":
-                desc = "Perform file operations: read, write, or list files."
+                desc = "Perform file operations: read, write, create, delete, list, or mkdir. Paths are constrained to the working directory."
+                input_schema = {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "enum": ["read", "write", "create", "delete", "list", "mkdir"]},
+                        "path": {"type": "string", "description": "Path to file or directory"},
+                        "content": {"type": "string", "description": "Content to write (required for write operation)"},
+                        "encoding": {"type": "string", "description": "Text encoding (default: utf-8)"},
+                    },
+                    "required": ["operation", "path"],
+                }
             elif name == "shell_execution":
-                desc = "Execute sandboxed shell commands."
+                desc = "Execute sandboxed shell commands. Uses allowlist/denylist. No shell=True, direct binary execution."
+                input_schema = {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string", "description": "Command to execute"},
+                        "timeout": {"type": "number", "description": "Timeout in seconds (default: 30)"},
+                        "working_dir": {"type": "string", "description": "Working directory (default: current directory)"},
+                    },
+                    "required": ["command"],
+                }
             elif name == "code_analyzer":
-                desc = "Inspect and analyze code files."
+                desc = "Analyze code files for bugs, security issues, performance problems, and style. Uses LLM for deep analysis when model provided."
+                input_schema = {
+                    "type": "object",
+                    "properties": {
+                        "files": {"type": "array", "items": {"type": "string"}, "description": "List of file paths to analyze"},
+                        "focus": {"type": "string", "enum": ["security", "performance", "style", "general"], "default": "general"},
+                        "context": {"type": "string", "description": "Additional context for the analysis"},
+                        "model": {"type": "string", "description": "Optional model ID for LLM-based analysis"},
+                        "models": {"type": "array", "items": {"type": "string"}, "description": "Optional list of model fallbacks"},
+                    },
+                    "required": ["files"],
+                }
             elif name == "web_search":
-                desc = "Query and retrieve external information."
-
+                desc = "Search the web for information. Supports Brave Search API and DuckDuckGo fallback."
+                input_schema = {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query string"},
+                        "max_results": {"type": "integer", "minimum": 1, "maximum": 20, "default": 10},
+                        "provider": {"type": "string", "enum": ["brave", "duckduckgo"], "description": "Search provider to use"},
+                        "timeout": {"type": "number", "description": "Request timeout in seconds (default: 30)"},
+                    },
+                    "required": ["query"],
+                }
+            elif name == "file_ops":
+                desc = "Perform file operations: read, write, create, delete, list, or mkdir. Paths are constrained to the working directory."
+                input_schema = {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "enum": ["read", "write", "create", "delete", "list", "mkdir"]},
+                        "path": {"type": "string", "description": "Path to file or directory"},
+                        "content": {"type": "string", "description": "Content to write (required for write operation)"},
+                        "encoding": {"type": "string", "description": "Text encoding (default: utf-8)"},
+                    },
+                    "required": ["operation", "path"],
+                }
+            else:
+                input_schema = {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string"},
+                        "path": {"type": "string"},
+                        "command": {"type": "string"},
+                        "query": {"type": "string"},
+                        "task": {"type": "string"},
+                    },
+                }
+            
             definitions.append(
                 {
                     "name": name,
                     "description": desc,
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "operation": {"type": "string"},
-                            "path": {"type": "string"},
-                            "command": {"type": "string"},
-                            "query": {"type": "string"},
-                            "task": {"type": "string"},
-                        },
-                    },
+                    "inputSchema": input_schema,
                 }
             )
         return definitions
