@@ -452,7 +452,14 @@ class MemoryStore:
         self.close()
 
     def __del__(self) -> None:
-        self.close()
+        # Use getattr to safely handle missing _conn during interpreter shutdown
+        conn = getattr(self, '_conn', None)
+        if conn is not None:
+            try:
+                conn.close()
+            except BaseException:  # noqa: BLE001,S110 - intentional broad catch for shutdown
+                pass
+            self._conn = None
 
 
 __all__ = ["MemoryStore", "MessageRecord", "SessionRecord", "default_memory_db_path"]

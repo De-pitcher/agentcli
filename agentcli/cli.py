@@ -29,6 +29,7 @@ from .openrouter_client import (
 from .routing.classifier import classify
 from .routing.router import NoAvailableModelError
 from .session import AgentSession
+from .unicode import safe_print
 
 logger = logging.getLogger(__name__)
 
@@ -149,14 +150,14 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
 
     if session.router is not None:
         print(
-            "agentcli — model: auto (task-based routing)  "
+            "agentcli -- model: auto (task-based routing)  "
             "(Ctrl+C or /exit to quit, end line with \\ for multi-line)"
         )
 
     else:
         actual_model = forced_model or config.openrouter.default_model
         print(
-            f"agentcli — model: {actual_model}  "
+            f"agentcli -- model: {actual_model}  "
             "(Ctrl+C or /exit to quit, end line with \\ for multi-line)"
         )
 
@@ -196,11 +197,11 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 logger.error("%s", exc)
                 continue
 
-            # ── AGENTIC LOOP PATH (Phase 4) ────────────────────────────
+            # --- AGENTIC LOOP PATH (Phase 4) ----------------------------
             if session.should_use_loop(expanded):
                 await session.async_add_user_message(expanded)
                 if verbose:
-                    print("[agent-loop] Multi-step task detected — running Plan→Act→Reflect loop")
+                    safe_print("[agent-loop] Multi-step task detected -- running Plan->Act->Reflect loop")
                 try:
                     async for event in session.run_loop(expanded):
                         _render_loop_event(event, verbose=verbose)
@@ -217,7 +218,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     session.pop_last_message()
                 continue
 
-            # ── SIMPLE SINGLE-TURN CHAT PATH (unchanged from Phase 1/2) ─
+            # --- SIMPLE SINGLE-TURN CHAT PATH (unchanged from Phase 1/2) --
             await session.async_add_user_message(expanded)
 
             print("assistant> ", end="", flush=True)
@@ -253,13 +254,13 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print()
                 if (show_model or verbose) and session.last_served_model:
                     if decision is not None and decision.is_fallback:
-                        print(
-                            f"[model: {session.last_served_model} — "
+                        safe_print(
+                            f"[model: {session.last_served_model} -- "
                             f"fallback from category {decision.requested_category} to {decision.served_category}]"
                         )
                     elif requested_primary and session.last_served_model != requested_primary:
-                        print(
-                            f"[model: {session.last_served_model} — "
+                        safe_print(
+                            f"[model: {session.last_served_model} -- "
                             f"routed from {requested_primary}]"
                         )
                     elif show_model:
@@ -324,23 +325,23 @@ def _render_loop_event(event: object, *, verbose: bool) -> None:
     """
     if isinstance(event, PlanEvent):
         label = "[re-plan]" if event.is_replan else "[plan]"
-        print(f"\n{label} iteration {event.iteration}: {len(event.plan)} step(s) planned")
+        safe_print(f"\n{label} iteration {event.iteration}: {len(event.plan)} step(s) planned")
         if verbose:
             for i, step in enumerate(event.plan):
-                print(f"  step {i + 1}: {step.get('agent_type')} — {step.get('payload', {})}")
+                safe_print(f"  step {i + 1}: {step.get('agent_type')} -- {step.get('payload', {})}")
     elif isinstance(event, StepStartEvent) and verbose:
-        print(f"  [step {event.step_index + 1}] running {event.agent_type}…", flush=True)
+        safe_print(f"  [step {event.step_index + 1}] running {event.agent_type}...", flush=True)
     elif isinstance(event, StepResultEvent) and verbose:
         r = event.result
-        status = "✓" if (r and r.success) else "✗"
+        status = "[OK]" if (r and r.success) else "[FAIL]"
         err = f" ({r.error})" if (r and not r.success and r.error) else ""
-        print(f"  [step {event.step_index + 1}] {status}{err}")
+        safe_print(f"  [step {event.step_index + 1}] {status}{err}")
     elif isinstance(event, ReflectEvent) and verbose:
-        print(f"  [reflect] {event.decision} — {event.reason}")
+        safe_print(f"  [reflect] {event.decision} -- {event.reason}")
     elif isinstance(event, FinishEvent):
-        print(f"\n[done] {event.summary}")
+        safe_print(f"\n[done] {event.summary}")
     elif isinstance(event, LoopErrorEvent):
-        print(f"\n[loop-error] {event.error}")
+        safe_print(f"\n[loop-error] {event.error}")
 
 
 def run_sessions(args: argparse.Namespace, config: Config) -> int:
@@ -423,7 +424,7 @@ def run_config(args: argparse.Namespace, config: Config) -> int:
         if written:
             print(f"Wrote default config to {path}")
         else:
-            print(f"Config file already exists at {path} — leaving it untouched.")
+            print(f"Config file already exists at {path} -- leaving it untouched.")
         return ExitCode.SUCCESS
     if args.config_command == "show":
         print(f"openrouter.api_key_env  = {config.openrouter.api_key_env}")

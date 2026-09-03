@@ -59,6 +59,42 @@ def test_session_pop_last_message():
 
 
 @pytest.mark.asyncio
+async def test_session_pop_last_message_syncs_to_store(tmp_path):
+    """Test that pop_last_message() syncs with the memory store."""
+    config = Config()
+    config.memory.db_path = str(tmp_path / "test_session.db")
+    session = AgentSession(config)
+
+    session.add_user_message("msg1")
+    session.add_assistant_message("reply1")
+    session.add_user_message("msg2")
+    session.add_assistant_message("reply2")
+
+    # Pop last message (reply2)
+    session.pop_last_message()
+
+    # Verify in-memory history is updated (last message removed)
+    assert len(session.history) == 3
+    assert session.history[-1].content == "msg2"
+
+    # Verify memory store is synced
+    from agentcli.memory.store import MemoryStore
+    store = MemoryStore(config.memory.db_path)
+    msgs = store.get_messages(session.session_id)
+    assert len(msgs) == 3
+    assert msgs[-1].content == "msg2"
+
+    # Pop again (removes msg2)
+    session.pop_last_message()
+    assert len(session.history) == 2
+    msgs = store.get_messages(session.session_id)
+    assert len(msgs) == 2
+    assert msgs[-1].content == "reply1"
+
+    await session.aclose()
+
+
+@pytest.mark.asyncio
 async def test_session_async_add_messages_and_stats(tmp_path):
     config = Config()
     config.memory.db_path = str(tmp_path / "sess_test.db")
