@@ -69,6 +69,7 @@ def test_renderer_markdown(capsys, monkeypatch):
     # Rich
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("TERM", raising=False)
     r_rich = ConsoleRenderer(plain=False)
     r_rich.render_markdown("# Title\n- item 1")
     out_rich = capsys.readouterr().out
@@ -84,6 +85,7 @@ def test_renderer_file_preview(capsys, monkeypatch):
     # Rich
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("TERM", raising=False)
     r_rich = ConsoleRenderer(plain=False)
     r_rich.render_file_preview("test.py", "def foo():\n    return 42\n" * 15)
     out_rich = capsys.readouterr().out
@@ -131,6 +133,7 @@ def test_renderer_loop_events_plain_and_rich(capsys, monkeypatch):
     # Test rich mode
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("TERM", raising=False)
     r_rich = ConsoleRenderer(plain=False)
     for ev in events:
         r_rich.render_loop_event(ev, verbose=True)
@@ -164,6 +167,7 @@ def test_renderer_sessions_table(capsys, monkeypatch):
     # Rich
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("TERM", raising=False)
     r_rich = ConsoleRenderer(plain=False)
     r_rich.render_sessions_table(sessions, lambda sid: stats_map[sid])
     out_rich = capsys.readouterr().out
@@ -188,6 +192,7 @@ def test_renderer_model_badge(capsys, monkeypatch):
     # Rich
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("TERM", raising=False)
     r_rich = ConsoleRenderer(plain=False)
     r_rich.render_model_badge("openai/gpt-4o", show_always=True)
     assert "openai/gpt-4o" in capsys.readouterr().out
@@ -208,6 +213,7 @@ def test_renderer_token_usage(capsys, monkeypatch):
     # Rich
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("TERM", raising=False)
     r_rich = ConsoleRenderer(plain=False)
     r_rich.render_token_usage({"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30})
     assert "tokens:" in capsys.readouterr().out
