@@ -220,6 +220,8 @@ class WebSearchAgent(SubAgent):
                     output={
                         "query": query,
                         "results": [],
+                        "count": 0,
+                        "provider": provider.__class__.__name__.replace("Provider", ""),
                         "message": "No results found",
                     },
                 )
