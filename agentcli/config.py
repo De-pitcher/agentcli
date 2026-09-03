@@ -188,6 +188,25 @@ class MemoryConfig:
 
 
 @dataclass
+class CapabilityConfig:
+    """Configuration for capability policy enforcement (Phase 10).
+
+    Fields:
+        read_only:              Default to read-only operations; mutations require explicit approval.
+        workspace_only:         Restrict file operations to workspace directory.
+        allowed_commands:       Allowlist of permitted shell commands (empty = all allowed).
+        approval_hooks:         Require explicit approval for mutations (write, delete, shell).
+        plugin_trust_boundary:  Plugins run in restricted context; no host access by default.
+    """
+
+    read_only: bool = True
+    workspace_only: bool = True
+    allowed_commands: list[str] = field(default_factory=list)
+    approval_hooks: bool = True
+    plugin_trust_boundary: bool = True
+
+
+@dataclass
 class Config:
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     app: AppConfig = field(default_factory=AppConfig)

@@ -91,11 +91,12 @@ Context: {context}
 Files to analyze:
 {files_text}
 
-Please provide:
+Please provide a structured analysis with:
 1. Summary of the code's purpose
-2. Issues found (bugs, security, performance, style)
-3. Specific recommendations for improvement
-4. Any security concerns
+2. Issues found (bugs, security, performance, style) with specific line references where possible
+3. Specific recommendations for improvement with code examples where applicable
+4. Any security concerns with severity assessment
+5. Overall code quality assessment
 """
 
         # Use LLM for analysis if model provided
@@ -103,7 +104,7 @@ Please provide:
             try:
                 client = await self._get_client(self._config)
                 messages = [
-                    ChatMessage(role="system", content="You are a code analysis expert. Provide thorough, actionable code analysis."),
+                    ChatMessage(role="system", content="You are a code analysis expert. Provide thorough, actionable code analysis with specific file/line references where possible. Structure your response with clear sections."),
                     ChatMessage(role="user", content=prompt),
                 ]
                 stream = client.chat_stream(messages, model=model, models=models)

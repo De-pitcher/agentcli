@@ -68,6 +68,11 @@ def test_find_and_load_agents_md(tmp_path):
 
 
 def test_load_agents_md_missing_returns_none(tmp_path):
-    sub = tmp_path / "empty_dir"
-    sub.mkdir()
-    assert files_mod.load_agents_md(sub) is None
+    # Create a completely isolated directory not under the project root
+    # to avoid finding the project's AGENTS.md
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sub = Path(tmpdir) / "empty_dir"
+        sub.mkdir()
+        assert files_mod.load_agents_md(sub) is None

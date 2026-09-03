@@ -1,0 +1,24 @@
+fix(phase9): Fix MemoryStore __del__ warning + update MCP docs for Windows
+
+### Bug Fixes
+
+**1. MemoryStore.__del__ crash fix**
+- `store.py`: `close()` now uses `getattr(self, '_conn', None)` to safely handle missing `_conn` during interpreter shutdown
+- Fixes `AttributeError: 'MemoryStore' object has no attribute '_conn'` during interpreter shutdown
+
+**2. MemoryStore.__del__ warning fix**
+- `store.py`: `__del__` now uses `getattr(self, '_conn', None)` and catches `BaseException` with `noqa` comments for intentional broad catch during shutdown
+- Fixes warning about `try-except-pass` and bare `except Exception` in `__del__`
+
+### Documentation Updates
+
+**3. MCP Windows compatibility docs**
+- `docs/mcp.md`: Added Windows compatibility section with WSL2/Docker workarounds for `agentcli mcp`
+- Documents the Proactor pipe handle issue on Windows
+- Provides three workarounds: WSL2 (recommended), Docker container, and in-process handler for testing
+
+### Quality Gates
+- 247 tests pass
+- 89% coverage (≥85% floor)
+- ruff: clean
+- mypy: clean

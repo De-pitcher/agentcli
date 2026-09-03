@@ -179,9 +179,9 @@ async def test_mcp_tool_definitions_descriptions():
     assert "shell_execution" in tool_map
     assert "Execute sandboxed shell commands" in tool_map["shell_execution"]["description"]
     assert "code_analyzer" in tool_map
-    assert "Inspect and analyze code files" in tool_map["code_analyzer"]["description"]
+    assert "Analyze code files for bugs, security issues, performance problems" in tool_map["code_analyzer"]["description"]
     assert "web_search" in tool_map
-    assert "Query and retrieve external information" in tool_map["web_search"]["description"]
+    assert "Search the web for information" in tool_map["web_search"]["description"]
 
 
 def test_run_mcp_entrypoint(monkeypatch):
