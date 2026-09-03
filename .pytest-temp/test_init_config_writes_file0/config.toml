@@ -1,0 +1,39 @@
+# agentcli configuration
+
+[openrouter]
+api_key_env = "OPENROUTER_API_KEY"   # name of the env var holding your OpenRouter key
+default_model = "google/gemma-4-31b-it:free"
+timeout_seconds = 30
+max_retries = 3
+base_url = "https://openrouter.ai/api/v1"
+
+[app]
+stream = true
+history_turns = 20     # number of prior user/assistant turn-pairs resent for context
+
+[routing]
+enabled = true         # auto-route each message to a category-matched free model
+max_fallbacks = 2      # extra candidates sent after the primary via the models array
+cooldown_seconds = 300
+failure_threshold = 3  # consecutive failures before a model enters cooldown
+
+[subagents]
+enabled = true         # enable sub-agent system
+max_concurrent = 5     # max concurrent sub-agents per type
+idle_timeout_seconds = 300
+default_timeout_seconds = 30
+max_output_bytes = 1048576  # 1MB
+
+[agent_loop]
+enabled = false        # set to true to enable Plan→Act→Reflect for multi-step tasks
+max_iterations = 5     # hard ceiling on plan/act/reflect cycles (prevents runaway loops)
+reflection_enabled = true
+# plan_model_override = ""    # optional: force a specific model for the planning step
+# reflect_model_override = "" # optional: force a specific model for the reflection step
+
+[memory]
+enabled = true         # persist chat sessions to local SQLite database
+# db_path = ""         # optional: custom path to SQLite database
+retention_days = 30    # auto-prune sessions older than N days (0 to disable)
+cache_enabled = true   # cache unchanged file context to save tokens and disk I/O
+max_shared_context_bytes = 524288  # 512KB capacity for shared sub-agent context pool

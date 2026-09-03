@@ -1,0 +1,4 @@
+[openrouter]
+default_model = "some/other-model:free"
+[app]
+history_turns = 5

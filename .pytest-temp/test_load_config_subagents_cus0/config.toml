@@ -1,0 +1,17 @@
+
+[subagents]
+enabled = false
+max_concurrent = 2
+idle_timeout_seconds = 60.0
+default_timeout_seconds = 15.0
+max_output_bytes = 500000
+
+[[subagents.models]]
+id = "custom-agent"
+command = "python"
+args = ["-m", "custom"]
+timeout_seconds = 20.0
+env = { FOO = "bar" }
+
+[[subagents.models]]
+command = "missing_id"
