@@ -192,12 +192,14 @@ class AgentSession:
             return await self.memory_store.aget_session_stats(self.session_id)
         return {
             "message_count": len(self.history),
-            "total_tokens": sum(estimate_tokens(m.content) for m in self.history),
+            "total_tokens": sum(estimate_tokens(m.content or "") for m in self.history),
             "user_tokens": sum(
-                estimate_tokens(m.content) for m in self.history if m.role == "user"
+                estimate_tokens(m.content or "") for m in self.history if m.role == "user"
             ),
             "assistant_tokens": sum(
-                estimate_tokens(m.content) for m in self.history if m.role == "assistant"
+                estimate_tokens(m.content or "")
+                for m in self.history
+                if m.role == "assistant"
             ),
         }
 

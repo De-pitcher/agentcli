@@ -34,7 +34,7 @@ def estimate_tokens(text: str) -> int:
 def estimate_message_tokens(message: ChatMessage) -> int:
     """Estimate token count for a single ChatMessage including role overhead."""
     # 4 tokens overhead per message for role/formatting structure in standard chat templates
-    return estimate_tokens(message.content) + 4
+    return estimate_tokens(message.content or "") + 4
 
 
 def estimate_history_tokens(messages: list[ChatMessage]) -> int:

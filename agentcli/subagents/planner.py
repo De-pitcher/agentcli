@@ -280,7 +280,7 @@ class PlannerAgent(SubAgent):
         model: str,
         models: list[str] | None,
     ) -> list[dict[str, Any]]:
-        """Generate a task plan using LLM-based planning."""
+        """Generate a task plan using LLM-based planning (native tool calling with legacy fallback)."""
         allowed_types: set[SubAgentType] = set()
         for a in available_agents:
             if isinstance(a, SubAgentType):
@@ -291,12 +291,101 @@ class PlannerAgent(SubAgent):
                 except ValueError:
                     pass
 
+        if self._config is None:
+            return self._generate_plan(query, context, available_agents)
+
+        client = await self._get_client(self._config)
+
+        # -------------------------------------------------------------
+        # 1. Native Tool Calling Engine (Primary Path)
+        # -------------------------------------------------------------
+        try:
+            from ..tools_schema import get_tool_definitions
+
+            tools = get_tool_definitions(allowed_types)
+            if tools:
+                system_prompt = (
+                    "You are an autonomous task planner. Call the required tools in order "
+                    "to satisfy the user's request."
+                )
+                user_prompt = f"User request: {query}\n\nContext: {context}"
+                messages = [
+                    ChatMessage(role="system", content=system_prompt),
+                    ChatMessage(role="user", content=user_prompt),
+                ]
+                completion = await client.chat_completion(
+                    messages=messages,
+                    model=model,
+                    models=models,
+                    tools=tools,
+                )
+                choices = completion.get("choices", [])
+                if choices and isinstance(choices, list):
+                    message = choices[0].get("message", {})
+                    tool_calls = message.get("tool_calls", [])
+                    if tool_calls and isinstance(tool_calls, list):
+                        native_tasks: list[dict[str, Any]] = []
+                        for call in tool_calls:
+                            func = call.get("function", {})
+                            name = func.get("name", "")
+                            args_str = func.get("arguments", "{}")
+                            try:
+                                args = (
+                                    json.loads(args_str) if isinstance(args_str, str) else args_str
+                                )
+                            except json.JSONDecodeError:
+                                args = {}
+
+                            try:
+                                agent_type_enum = SubAgentType(name)
+                            except ValueError:
+                                continue
+
+                            if agent_type_enum in allowed_types:
+                                # Infer appropriate goal criterion for verification
+                                if agent_type_enum == SubAgentType.FILE_OPS:
+                                    criterion = args.get("path") or args.get("operation", "file")
+                                elif agent_type_enum == SubAgentType.SHELL_EXECUTION:
+                                    criterion = "completed"
+                                elif agent_type_enum == SubAgentType.CODE_ANALYZER:
+                                    criterion = "analysis"
+                                elif agent_type_enum == SubAgentType.WEB_SEARCH:
+                                    criterion = "search results"
+                                else:
+                                    criterion = "done"
+
+                                native_tasks.append(
+                                    {
+                                        "agent_type": agent_type_enum.value,
+                                        "payload": args,
+                                        "priority": 5,
+                                        "goal_criterion": criterion,
+                                    }
+                                )
+                        if native_tasks:
+                            return native_tasks
+        except (
+            OpenRouterError,
+            ValueError,
+            KeyError,
+            json.JSONDecodeError,
+            TypeError,
+            AttributeError,
+        ) as exc:
+            self._logger.debug(
+                "Native tool calling failed or not supported by model: %s; falling back to legacy prompt",
+                exc,
+            )
+
+        # -------------------------------------------------------------
+        # 2. Legacy Prompt-Based JSON Planning (Fallback Path)
+        # -------------------------------------------------------------
         # Build agent descriptions for the prompt
         agent_descriptions = {
             SubAgentType.CODE_ANALYZER: "Analyze code files for bugs, security issues, performance problems, and style. Can read files provided via @path references.",
             SubAgentType.FILE_OPS: "Perform file operations: read, write, create, delete, list, mkdir. Paths are constrained to working directory.",
             SubAgentType.SHELL_EXECUTION: "Execute shell commands safely. Uses allowlist/denylist. No shell=True, direct binary execution.",
-            SubAgentType.WEB_SEARCH: "Search the web for information (currently stubbed - not available).",
+            SubAgentType.WEB_SEARCH: "Search the web for information using DuckDuckGo or Brave.",
         }
 
         available_desc = "\n".join(
@@ -336,11 +425,6 @@ Example output:
         ]
 
         try:
-            if self._config is None:
-                raise RuntimeError("Config not set for LLM planning")
-            client = await self._get_client(self._config)
-            # Use non-streaming for planning - we need the full response
-            # We'll use chat_stream but collect all chunks
             stream = client.chat_stream(messages, model=model, models=models)
             full_response = ""
             async for chunk in stream:
