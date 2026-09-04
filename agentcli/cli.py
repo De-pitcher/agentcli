@@ -192,7 +192,9 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         while True:
             try:
                 user_input = interactive_prompt.get_input("you> ").strip()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError:
+                break
+            except KeyboardInterrupt:
                 interrupted = True
                 break
 
