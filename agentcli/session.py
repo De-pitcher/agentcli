@@ -197,9 +197,7 @@ class AgentSession:
                 estimate_tokens(m.content or "") for m in self.history if m.role == "user"
             ),
             "assistant_tokens": sum(
-                estimate_tokens(m.content or "")
-                for m in self.history
-                if m.role == "assistant"
+                estimate_tokens(m.content or "") for m in self.history if m.role == "assistant"
             ),
         }
 

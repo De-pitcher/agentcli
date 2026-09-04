@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 
@@ -56,6 +57,15 @@ class ConsoleRenderer:
         """Stream an individual assistant text token to stdout without delay."""
         sys.stdout.write(chunk)
         sys.stdout.flush()
+
+    @contextmanager
+    def status_spinner(self, message: str) -> Iterator[None]:
+        """Display an animated status spinner during long-running tasks if interactive."""
+        if self.is_rich_enabled:
+            with self.console.status(f"[cyan]{message}[/cyan]", spinner="dots"):
+                yield
+        else:
+            yield
 
     def render_markdown(self, text: str) -> None:
         """Render completed markdown text with styling if rich is active."""

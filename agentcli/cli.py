@@ -30,6 +30,8 @@ from .openrouter_client import (
 from .routing.classifier import classify
 from .routing.router import NoAvailableModelError
 from .session import AgentSession
+from .ui.prompt import InteractivePrompt
+from .ui.render import ConsoleRenderer
 from .unicode import safe_print
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="Disable rich formatting and interactive prompts",
+    )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable ANSI color output",
+    )
     parser.add_argument(
         "--preset",
         choices=["coding", "chat", "minimal"],
@@ -164,44 +176,26 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         else:
             print(f"No session found with ID '{resume_id}'. Starting a new session instead.")
 
-    if session.router is not None:
-        print(
-            "agentcli -- model: auto (task-based routing)  "
-            "(Ctrl+C or /exit to quit, end line with \\ for multi-line)"
-        )
+    plain = getattr(args, "plain", False)
+    no_color = getattr(args, "no_color", False)
+    renderer = ConsoleRenderer(plain=plain, no_color=no_color)
+    interactive_prompt = InteractivePrompt(plain=plain)
 
+    if session.router is not None:
+        print("agentcli -- model: auto (task-based routing)  (Ctrl+C or /exit to quit)")
     else:
         actual_model = forced_model or config.openrouter.default_model
-        print(
-            f"agentcli -- model: {actual_model}  "
-            "(Ctrl+C or /exit to quit, end line with \\ for multi-line)"
-        )
+        print(f"agentcli -- model: {actual_model}  (Ctrl+C or /exit to quit)")
 
     interrupted = False
     try:
         while True:
-            lines: list[str] = []
-            while True:
-                prompt = "\nyou> " if not lines else "... "
-                try:
-                    line = input(prompt)
-                except EOFError:
-                    break
-                except KeyboardInterrupt:
-                    interrupted = True
-                    break
-
-                if line.endswith("\\"):
-                    lines.append(line[:-1])
-                    continue
-                else:
-                    lines.append(line)
-                    break
-
-            if interrupted or not lines:
+            try:
+                user_input = interactive_prompt.get_input("you> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                interrupted = True
                 break
 
-            user_input = "\n".join(lines).strip()
             if not user_input:
                 continue
             if user_input in {"/exit", "/quit"}:
@@ -221,15 +215,16 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                         "[agent-loop] Multi-step task detected -- running Plan->Act->Reflect loop"
                     )
                 try:
-                    async for event in session.run_loop(expanded):
-                        _render_loop_event(event, verbose=verbose)
-                        if isinstance(event, FinishEvent):
-                            if getattr(event, "output", None):
-                                loop_summary = f"{event.summary}\n\n{event.output}"
-                            else:
-                                loop_summary = event.summary
-                        elif isinstance(event, LoopErrorEvent):
-                            loop_summary = f"[loop error] {event.error}"
+                    with renderer.status_spinner("Thinking and planning steps..."):
+                        async for event in session.run_loop(expanded):
+                            renderer.render_loop_event(event, verbose=verbose)
+                            if isinstance(event, FinishEvent):
+                                if getattr(event, "output", None):
+                                    loop_summary = f"{event.summary}\n\n{event.output}"
+                                else:
+                                    loop_summary = event.summary
+                            elif isinstance(event, LoopErrorEvent):
+                                loop_summary = f"[loop error] {event.error}"
                     await session.async_add_assistant_message(loop_summary or "(loop completed)")
                 except LoopIterationLimitError as exc:
                     print(f"\n[agent-loop] Iteration limit reached: {exc}")
