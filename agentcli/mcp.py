@@ -231,36 +231,43 @@ class MCPServer:
 
     async def run(self, reader: asyncio.StreamReader | None = None) -> None:
         """Run the JSON-RPC message processing loop on stdio or custom reader."""
-        if reader is None:
-            loop = asyncio.get_running_loop()
-            reader = asyncio.StreamReader()
-            protocol = asyncio.StreamReaderProtocol(reader)
-            await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+        if reader is not None:
+            while True:
+                line = await reader.readline()
+                if not line:
+                    break
+                line_str = line.decode("utf-8", errors="replace").strip()
+                if not line_str:
+                    continue
+                await self._process_line(line_str)
+        else:
+            # Cross-platform stdio reading: works on Windows ProactorEventLoop and POSIX
+            while True:
+                line_str = await asyncio.to_thread(sys.stdin.readline)
+                if not line_str:
+                    break
+                line_str = line_str.strip()
+                if not line_str:
+                    continue
+                await self._process_line(line_str)
 
-        while True:
-            line = await reader.readline()
-            if not line:
-                break
-            line_str = line.decode("utf-8", errors="replace").strip()
-            if not line_str:
-                continue
+    async def _process_line(self, line_str: str) -> None:
+        try:
+            msg = json.loads(line_str)
+        except json.JSONDecodeError:
+            err_resp = {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32700, "message": "Parse error"},
+            }
+            sys.stdout.write(json.dumps(err_resp) + "\n")
+            sys.stdout.flush()
+            return
 
-            try:
-                msg = json.loads(line_str)
-            except json.JSONDecodeError:
-                err_resp = {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {"code": -32700, "message": "Parse error"},
-                }
-                sys.stdout.write(json.dumps(err_resp) + "\n")
-                sys.stdout.flush()
-                continue
-
-            response = await self.handle_request(msg)
-            if response is not None:
-                sys.stdout.write(json.dumps(response) + "\n")
-                sys.stdout.flush()
+        response = await self.handle_request(msg)
+        if response is not None:
+            sys.stdout.write(json.dumps(response) + "\n")
+            sys.stdout.flush()
 
 
 def run_mcp(registry: ToolRegistry | None = None) -> int:

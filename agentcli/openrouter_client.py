@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from types import TracebackType
@@ -12,6 +14,8 @@ from typing import Self
 import httpx
 
 from .config import OpenRouterConfig
+
+logger = logging.getLogger(__name__)
 
 
 class OpenRouterError(Exception):
@@ -47,6 +51,7 @@ class OpenRouterClient:
             )
         self._config = config
         self.last_served_model: str | None = None
+        self.last_latency_seconds: float = 0.0
         self._client = httpx.AsyncClient(
             base_url=config.base_url,
             timeout=httpx.Timeout(config.timeout_seconds),
@@ -94,6 +99,7 @@ class OpenRouterClient:
         """
         self.last_served_model = None
         self.last_usage: dict[str, int] = {}
+        t0 = time.monotonic()
         payload: dict[str, object] = {
             "messages": [m.to_dict() for m in messages],
             "stream": True,
@@ -116,11 +122,23 @@ class OpenRouterClient:
                             models[0] if models else model
                         ) or self._config.default_model
                         last_error = RateLimitedError(f"Rate limited on model '{display_model}'")
+                        logger.warning(
+                            "OpenRouter 429 rate limit on attempt %d/%d for model '%s'; backing off",
+                            attempt + 1,
+                            self._config.max_retries,
+                            display_model,
+                        )
                         await self._backoff(attempt)
                         continue
                     if response.status_code >= 500:
                         last_error = OpenRouterError(
                             f"Server error {response.status_code} from OpenRouter"
+                        )
+                        logger.warning(
+                            "OpenRouter server error %s on attempt %d/%d; backing off",
+                            response.status_code,
+                            attempt + 1,
+                            self._config.max_retries,
                         )
                         await self._backoff(attempt)
                         continue
@@ -136,6 +154,13 @@ class OpenRouterClient:
                             continue
                         data = line[len("data: ") :]
                         if data.strip() == "[DONE]":
+                            self.last_latency_seconds = round(time.monotonic() - t0, 4)
+                            logger.debug(
+                                "OpenRouter stream completed in %.3fs (model=%s, tokens=%s)",
+                                self.last_latency_seconds,
+                                self.last_served_model,
+                                self.last_usage,
+                            )
                             return
                         try:
                             chunk = json.loads(data)
@@ -178,10 +203,23 @@ class OpenRouterClient:
                         )
                         if delta:
                             yield delta
+                    self.last_latency_seconds = round(time.monotonic() - t0, 4)
+                    logger.debug(
+                        "OpenRouter stream completed in %.3fs (model=%s, tokens=%s)",
+                        self.last_latency_seconds,
+                        self.last_served_model,
+                        self.last_usage,
+                    )
                     return  # stream completed normally
 
             except httpx.TransportError as exc:
                 last_error = OpenRouterError(f"Network error: {exc}")
+                logger.warning(
+                    "Network error on attempt %d/%d: %s; backing off",
+                    attempt + 1,
+                    self._config.max_retries,
+                    exc,
+                )
                 await self._backoff(attempt)
                 continue
 

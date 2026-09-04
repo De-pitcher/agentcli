@@ -55,6 +55,10 @@ extend-exclude = [".pytest-temp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=agentcli --cov-report=term-missing --cov-fail-under=85 --basetemp=.pytest-temp"
+markers = [
+    "integration: mark a test as an integration test",
+    "live: mark a test as requiring live API credentials",
+]
 
 [tool.mypy]
 python_version = "3.11"

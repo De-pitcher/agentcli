@@ -642,3 +642,62 @@ def register_tools(registry):
         result = await registry.execute("multiplier", {"x": 5, "y": 6})
         assert result.success is True
         assert result.output == {"output": "30"}
+
+
+class TestObservabilityAndCancellation:
+    @pytest.mark.asyncio
+    async def test_run_id_and_duration_observability(self) -> None:
+        planner = MagicMock()
+        planner.run = AsyncMock(
+            return_value=SubAgentResult(
+                task_id="p1",
+                agent_type=SubAgentType.PLANNER,
+                success=True,
+                output={"plan": [_plan_step()]},
+            )
+        )
+        registry = MagicMock()
+        registry.execute = AsyncMock(return_value=_make_result(True))
+
+        loop = AgentLoop(
+            goal="Observability test",
+            registry=registry,
+            planner=planner,
+            run_id="run-custom-123",
+        )
+        assert loop.run_id == "run-custom-123"
+
+        events = await _collect(loop)
+        assert len(events) >= 4
+
+        for ev in events:
+            assert getattr(ev, "run_id", None) == "run-custom-123"
+
+        step_res = next(e for e in events if isinstance(e, StepResultEvent))
+        assert step_res.duration_seconds >= 0.0
+
+        finish = next(e for e in events if isinstance(e, FinishEvent))
+        assert finish.duration_seconds >= 0.0
+
+    @pytest.mark.asyncio
+    async def test_loop_cancel_terminates_tasks(self) -> None:
+        import asyncio
+
+        loop = AgentLoop(goal="Cancellation test")
+
+        async def dummy_slow_coro() -> None:
+            await asyncio.sleep(10.0)
+
+        task = asyncio.create_task(dummy_slow_coro())
+        loop._running_tasks.append(task)
+
+        assert not task.done()
+        loop.cancel()
+        assert task.cancelling() or task.cancelled()
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        assert task.cancelled()

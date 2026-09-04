@@ -11,4 +11,5 @@ build/
 .coverage
 htmlcov/
 agentcli.toml
-
+.pytest-temp/
+*.db

@@ -1,1 +1,0 @@
-Custom project instructions for AI agent.

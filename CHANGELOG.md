@@ -5,6 +5,24 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added — Phase 11: End-to-End Reliability, Observability & Packaging
+
+- **Structured Run Observability & Tracing (`agentcli.agent.events`, `agentcli.agent.loop`)**:
+  - Added correlation identifier `run_id` across `LoopEvent`, `PlanEvent`, `StepStartEvent`, `StepResultEvent`, `ReflectEvent`, and `FinishEvent`.
+  - Added execution timing `duration_seconds` for individual step completions and total loop duration.
+  - Added structured diagnostic logging with run ID, step numbers, agent types, and elapsed execution timings.
+  - Added explicit loop cancellation handler `AgentLoop.cancel()` for clean in-flight task termination.
+- **Provider Latency & Retry Logging (`agentcli.openrouter_client`)**:
+  - Latency tracking recorded in `client.last_latency_seconds`.
+  - Structured logging for backoff retries and completed completion streams.
+- **Cross-Platform Stdio & Subprocess Resilience (`agentcli.mcp`, `agentcli.cli`)**:
+  - Implemented cross-platform async stdio line reading in `MCPServer.run` using `asyncio.to_thread(sys.stdin.readline)`, eliminating Windows IOCP handle errors on `ProactorEventLoop`.
+  - Added `--local` flag to `agentcli config init` for project-directory configuration initialization.
+- **Packaging, Hermetic & E2E Validation (`tests/test_e2e_packaging.py`)**:
+  - Added comprehensive subprocess E2E test suite validating console script entry points (`agentcli --version`, `agentcli --help`, `agentcli config`, `agentcli sessions`, `agentcli mcp`).
+  - Tested session persistence and lifecycle across process restarts.
+  - Validated environment resilience with `TERM=dumb`, `NO_COLOR=1`, and offline execution.
+
 ### Added — Phase 6: Advanced Optimization
 
 - **ContextCache LRU Bounding (`agentcli.memory.cache`)**:
