@@ -479,3 +479,231 @@ def test_cli_preset_and_mcp_command(monkeypatch):
     monkeypatch.setattr("agentcli.mcp.run_mcp", lambda **kwargs: ExitCode.SUCCESS)
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-dummy"}):
         assert main(["--preset", "coding", "mcp"]) == ExitCode.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_run_goal_success(monkeypatch, capsys):
+    from agentcli.agent.events import (
+        FinishEvent,
+        PlanEvent,
+        ReflectEvent,
+        StepResultEvent,
+        StepStartEvent,
+    )
+    from agentcli.cli import run_goal
+    from agentcli.subagents.base import SubAgentResult, SubAgentType
+
+    args = argparse.Namespace(
+        goal="Build feature X",
+        model="google/gemma-4-31b-it:free",
+        file=[],
+        max_iterations=3,
+        no_agents_md=True,
+        allow_write=True,
+        plain=True,
+        no_color=True,
+    )
+    config = Config()
+
+    class MockLoop:
+        def __init__(self, *args, **kwargs):
+            self.initial_context = kwargs.get("initial_context")
+
+        async def run(self):
+            yield PlanEvent(iteration=1, run_id="r1", plan=[{"agent_type": "file_ops", "payload": {}}])
+            yield StepStartEvent(iteration=1, run_id="r1", step_index=0, agent_type="file_ops", payload={})
+            yield StepResultEvent(
+                iteration=1,
+                run_id="r1",
+                step_index=0,
+                result=SubAgentResult(task_id="t1", agent_type=SubAgentType.FILE_OPS, success=True, output={"status": "ok"}),
+                duration_seconds=0.15,
+            )
+            yield ReflectEvent(iteration=1, run_id="r1", decision="FINISH", reason="Task completed")
+            yield FinishEvent(iteration=1, run_id="r1", summary="All done successfully", output={"status": "ok"}, duration_seconds=0.5)
+
+    monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
+
+    code = await run_goal(args, config)
+    assert code == ExitCode.SUCCESS
+    out, _ = capsys.readouterr()
+    assert "Goal: Build feature X" in out
+    assert "All done successfully" in out
+
+
+@pytest.mark.asyncio
+async def test_run_goal_loop_error(monkeypatch):
+    from agentcli.agent.events import LoopErrorEvent
+    from agentcli.cli import run_goal
+
+    args = argparse.Namespace(
+        goal="Faulty task",
+        model=None,
+        file=[],
+        max_iterations=None,
+        no_agents_md=True,
+        allow_write=False,
+        plain=True,
+        no_color=True,
+    )
+    config = Config()
+
+    class MockLoop:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run(self):
+            yield LoopErrorEvent(iteration=1, run_id="r1", error="Fatal planner explosion")
+
+    monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
+
+    code = await run_goal(args, config)
+    assert code == ExitCode.GENERAL_ERROR
+
+
+@pytest.mark.asyncio
+async def test_run_goal_iteration_limit(monkeypatch, capsys):
+    from agentcli.agent.loop import LoopIterationLimitError
+    from agentcli.cli import run_goal
+
+    args = argparse.Namespace(
+        goal="Endless loop",
+        model=None,
+        file=[],
+        max_iterations=2,
+        no_agents_md=True,
+        allow_write=False,
+        plain=True,
+        no_color=True,
+    )
+    config = Config()
+
+    class MockLoop:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run(self):
+            if True:
+                raise LoopIterationLimitError("Hit 2 iterations")
+            yield
+
+    monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
+
+    code = await run_goal(args, config)
+    assert code == ExitCode.GENERAL_ERROR
+    out, _ = capsys.readouterr()
+    assert "Hit 2 iterations" in out
+
+
+@pytest.mark.asyncio
+async def test_run_goal_keyboard_interrupt(monkeypatch, capsys):
+    from agentcli.cli import run_goal
+
+    args = argparse.Namespace(
+        goal="Interrupt me",
+        model=None,
+        file=[],
+        max_iterations=5,
+        no_agents_md=True,
+        allow_write=False,
+        plain=True,
+        no_color=True,
+    )
+    config = Config()
+
+    class MockLoop:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run(self):
+            if True:
+                raise KeyboardInterrupt()
+            yield
+
+    monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
+
+    code = await run_goal(args, config)
+    assert code == ExitCode.USER_INTERRUPT
+    out, _ = capsys.readouterr()
+    assert "[interrupted]" in out
+
+
+@pytest.mark.asyncio
+async def test_run_goal_context_files_and_agents_md(tmp_path, monkeypatch):
+    from agentcli.agent.events import FinishEvent
+    from agentcli.cli import run_goal
+
+    context_file = tmp_path / "extra.py"
+    context_file.write_text("print('extra')", encoding="utf-8")
+
+    agents_md = tmp_path / "AGENTS.md"
+    agents_md.write_text("# Project Rules\nRule 1: Always test.", encoding="utf-8")
+
+    args = argparse.Namespace(
+        goal="Refactor project",
+        model="custom-model",
+        file=[str(context_file)],
+        max_iterations=5,
+        no_agents_md=False,
+        allow_write=True,
+        plain=True,
+        no_color=True,
+    )
+    config = Config()
+
+    captured_context = None
+
+    class MockLoop:
+        def __init__(self, *args, **kwargs):
+            nonlocal captured_context
+            captured_context = kwargs.get("initial_context")
+
+        async def run(self):
+            yield FinishEvent(iteration=1, run_id="r1", summary="Complete", duration_seconds=0.1)
+
+    monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
+    monkeypatch.chdir(tmp_path)
+
+    code = await run_goal(args, config)
+    assert code == ExitCode.SUCCESS
+    assert captured_context is not None
+    assert "Rule 1: Always test." in captured_context
+    assert "print('extra')" in captured_context
+
+
+@pytest.mark.asyncio
+async def test_run_goal_invalid_file(tmp_path):
+    from agentcli.cli import run_goal
+
+    args = argparse.Namespace(
+        goal="Refactor project",
+        model="custom-model",
+        file=[str(tmp_path / "non_existent.py")],
+        max_iterations=5,
+        no_agents_md=True,
+        allow_write=True,
+        plain=True,
+        no_color=True,
+    )
+    config = Config()
+
+    code = await run_goal(args, config)
+    assert code == ExitCode.GENERAL_ERROR
+
+
+def test_main_run_command_success(monkeypatch):
+    from agentcli.agent.events import FinishEvent
+
+    class MockLoop:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run(self):
+            yield FinishEvent(iteration=1, run_id="r1", summary="Success", duration_seconds=0.1)
+
+    monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
+
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-dummy"}):
+        exit_code = main(["run", "Fix bug in parser", "--model", "test/model", "--allow-write"])
+        assert exit_code == ExitCode.SUCCESS
+

@@ -79,6 +79,7 @@ class AgentLoop:
         reflect_model: str | None = None,
         config: Any | None = None,
         run_id: str | None = None,
+        initial_context: str | None = None,
     ) -> None:
         self.goal = goal
         self.registry: ExecutorProtocol = registry if registry is not None else ToolRegistry()
@@ -92,6 +93,7 @@ class AgentLoop:
         self.reflect_model = reflect_model
         self._config = config
         self.run_id: str = run_id or uuid.uuid4().hex[:8]
+        self.initial_context = initial_context
 
         # If using default PlannerAgent, pass config for LLM-based planning
         if self._config is not None and isinstance(self.planner, PlannerAgent):
@@ -273,12 +275,19 @@ class AgentLoop:
                 payload["model"] = decision.primary
                 payload["models"] = decision.models
 
+        context_parts: list[str] = []
+        if self.initial_context:
+            context_parts.append(self.initial_context)
+
         if previous_plan:
             # Give the planner context about what was already tried.
-            payload["context"] = (
+            context_parts.append(
                 f"Previous plan had {len(previous_plan)} step(s). Re-planning because "
                 "some steps failed or the goal was not met."
             )
+
+        if context_parts:
+            payload["context"] = "\n\n".join(context_parts)
 
         task = SubAgentTask(
             agent_type=SubAgentType.PLANNER,

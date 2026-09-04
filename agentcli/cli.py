@@ -20,7 +20,7 @@ from .agent.events import (
 from .agent.loop import LoopIterationLimitError
 from .config import Config, ConfigError, init_config, load_config
 from .exit_codes import ExitCode
-from .files import FileReadError, expand_file_references
+from .files import FileReadError, expand_file_references, load_agents_md
 from .memory.budget import estimate_tokens
 from .openrouter_client import (
     ChatMessage,
@@ -92,6 +92,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Resume a prior conversation session by its ID",
     )
     chat_p.add_argument(
+        "--allow-write",
+        action="store_true",
+        help="Permit mutating file operations (write, create, delete, mkdir)",
+    )
+
+    run_p = sub.add_parser("run", help="Autonomously execute a multi-turn goal")
+    run_p.add_argument("goal", help="The goal or task description to accomplish")
+    run_p.add_argument("--model", help="Force a specific model, bypassing automatic routing")
+    run_p.add_argument(
+        "--file",
+        action="append",
+        default=[],
+        help="Include a file's contents as context (repeatable)",
+    )
+    run_p.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help="Maximum agent loop iterations (default: 5 or config)",
+    )
+    run_p.add_argument(
+        "--no-agents-md",
+        action="store_true",
+        help="Disable automatic loading of project AGENTS.md instructions",
+    )
+    run_p.add_argument(
         "--allow-write",
         action="store_true",
         help="Permit mutating file operations (write, create, delete, mkdir)",
@@ -342,6 +368,125 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
     return ExitCode.SUCCESS
 
 
+async def run_goal(args: argparse.Namespace, config: Config) -> int:
+    """Execute an autonomous goal-driven task using AgentLoop."""
+    goal: str = getattr(args, "goal", "")
+    forced_model: str | None = getattr(args, "model", None)
+    allow_write: bool = getattr(args, "allow_write", False)
+    if allow_write:
+        config.subagents.allow_write = True
+
+    renderer = ConsoleRenderer(
+        plain=getattr(args, "plain", False),
+        no_color=getattr(args, "no_color", False),
+    )
+
+    # 1. Load project instructions (AGENTS.md) if enabled
+    initial_context_parts: list[str] = []
+    if not getattr(args, "no_agents_md", False):
+        agents_context = load_agents_md()
+        if agents_context:
+            initial_context_parts.append(agents_context)
+
+    # 2. Expand any explicit --file arguments
+    for file_ref in getattr(args, "file", []):
+        try:
+            content = expand_file_references(f"@{file_ref}")
+            initial_context_parts.append(content)
+        except FileReadError as err:
+            logger.error("Error reading file context %s: %s", file_ref, err)
+            return ExitCode.GENERAL_ERROR
+
+    # 3. Auto-ground workspace git status if in a git repo
+    session = AgentSession(config=config)
+    try:
+        git_summary = await session.auto_ground_workspace()
+        if git_summary:
+            initial_context_parts.append(f"Workspace Context: {git_summary}")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Workspace grounding skipped: %s", exc)
+
+    initial_context = "\n\n".join(initial_context_parts) if initial_context_parts else None
+
+    # 4. Build registry & load plugins
+    from .agent.loop import AgentLoop, LoopIterationLimitError
+    from .agent.registry import ToolRegistry
+    from .routing.router import Router
+
+    registry = ToolRegistry(config=config)
+    for p in config.app.plugins:
+        registry.load_plugin_file(p)
+
+    router: Router | None = None
+    if config.routing.enabled and not forced_model:
+        from .routing.registry import ModelRegistry
+
+        model_registry = ModelRegistry(config.routing)
+        router = Router(model_registry, config.routing.max_fallbacks)
+
+    raw_max_iter = getattr(args, "max_iterations", None) or getattr(
+        config.agent_loop, "max_iterations", 5
+    )
+    max_iterations: int = int(raw_max_iter) if raw_max_iter is not None else 5
+
+    if renderer.is_rich_enabled:
+        renderer.console.print(f"[bold cyan]🎯 Goal:[/bold cyan] [bold]{goal}[/bold]")
+        if forced_model:
+            renderer.console.print(
+                f"[dim]Model: {forced_model} | Max Iterations: {max_iterations}[/dim]\n"
+            )
+        else:
+            renderer.console.print(
+                f"[dim]Autonomous Router | Max Iterations: {max_iterations}[/dim]\n"
+            )
+    else:
+        print(f"Goal: {goal}")
+        print(f"Max iterations: {max_iterations}\n")
+
+    loop = AgentLoop(
+        goal=goal,
+        registry=registry,
+        router=router,
+        max_iterations=max_iterations,
+        plan_model=forced_model,
+        reflect_model=forced_model,
+        config=config,
+        initial_context=initial_context,
+    )
+
+    try:
+        async for event in loop.run():
+            renderer.render_loop_event(event, verbose=True)
+            if isinstance(event, FinishEvent):
+                return ExitCode.SUCCESS
+            if isinstance(event, LoopErrorEvent):
+                logger.error("Loop failed: %s", event.error)
+                return ExitCode.GENERAL_ERROR
+    except LoopIterationLimitError as exc:
+        if renderer.is_rich_enabled:
+            renderer.console.print(f"[bold red]❌ Limit Reached:[/bold red] {exc}")
+        else:
+            print(f"[limit-reached] {exc}")
+        return ExitCode.GENERAL_ERROR
+    except RateLimitedError as exc:
+        logger.error("Rate limit encountered: %s", exc)
+        return ExitCode.GENERAL_ERROR
+    except OpenRouterError as exc:
+        logger.error("Model API error: %s", exc)
+        return ExitCode.GENERAL_ERROR
+    except KeyboardInterrupt:
+        if renderer.is_rich_enabled:
+            renderer.console.print("\n[yellow]⚠️ Interrupted by user[/yellow]")
+        else:
+            print("\n[interrupted]")
+        return ExitCode.USER_INTERRUPT
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Execution failed: %s", exc)
+        return ExitCode.GENERAL_ERROR
+
+    return ExitCode.SUCCESS
+
+
 def _render_loop_event(event: object, *, verbose: bool) -> None:
     """Print a human-readable summary of a LoopEvent.
 
@@ -512,6 +657,11 @@ def main(argv: list[str] | None = None) -> int:
             reg.load_plugin_file(p)
         return run_mcp(registry=reg)
 
+    if args.command == "run":
+        try:
+            return asyncio.run(run_goal(args, config))
+        except KeyboardInterrupt:
+            return ExitCode.USER_INTERRUPT
     if args.command == "chat":
         try:
             return asyncio.run(run_chat(args, config))
