@@ -5,6 +5,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added — Phase 12: Release Evidence & MVP Launch Gate
+
+- **MVP Contract Definition & Release Audit (`.workspace/10_phase12-release-evidence/RELEASE_EVIDENCE.md`)**:
+  - Defined explicit v1.0.0 contract: supported OS matrix (Windows 11 & Linux), Python version bounds (3.11–3.14), default OpenRouter provider, tool capability boundaries (`file_ops`, `shell_execution`, `code_analyzer`, `web_search`), and safety guarantees.
+  - Published evidence-backed release audit with SHA-256 package checksums (`dist/agentcli-1.0.0-py3-none-any.whl`, `dist/agentcli-1.0.0.tar.gz`).
+- **Release Verification Suite (`tests/test_release_evidence.py`)**:
+  - Added launch gate test suite validating version alignment across `pyproject.toml`, `agentcli.__version__`, and `agentcli --version`.
+  - Audited build artifacts, CLI command suite execution (`chat`, `mcp`, `config`, `sessions`), and hermetic quality gates.
+
 ### Added — Phase 11: End-to-End Reliability, Observability & Packaging
 
 - **Structured Run Observability & Tracing (`agentcli.agent.events`, `agentcli.agent.loop`)**:
