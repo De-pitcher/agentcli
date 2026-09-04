@@ -4,6 +4,7 @@ import logging
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .agent.events import LoopEvent
@@ -277,3 +278,24 @@ class AgentSession:
 
         async for event in loop.run():
             yield event
+
+    async def auto_ground_workspace(self, root_dir: str | Path = ".") -> str | None:
+        """Inspect git repository state and inject workspace context into system instructions."""
+        from .subagents.base import SubAgentTask, SubAgentType
+        from .subagents.workspace import WorkspaceAgent
+
+        agent = WorkspaceAgent()
+        task = SubAgentTask(
+            agent_type=SubAgentType.WORKSPACE,
+            payload={"operation": "git_status", "path": str(root_dir)},
+        )
+        res = await agent.run(task)
+        if res.success and isinstance(res.output, dict) and res.output.get("is_git_repo"):
+            summary = str(res.output.get("summary", ""))
+            ctx_msg = ChatMessage(
+                role="system",
+                content=f"[Workspace Context: {summary}]",
+            )
+            self.history.insert(0, ctx_msg)
+            return summary
+        return None

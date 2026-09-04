@@ -120,6 +120,40 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             },
         },
     },
+    SubAgentType.WORKSPACE.value: {
+        "type": "function",
+        "function": {
+            "name": "workspace",
+            "description": "Inspect git status, search for files, search code contents, or list directory tree across the workspace repository.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "enum": ["git_status", "search_files", "search_code", "list_tree"],
+                        "description": "Operation to perform",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Search query for search_code",
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "Filename pattern/glob for search_files",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Target root directory path (default: current workspace)",
+                    },
+                    "max_depth": {
+                        "type": "integer",
+                        "description": "Max depth for list_tree (default: 2)",
+                    },
+                },
+                "required": ["operation"],
+            },
+        },
+    },
 }
 
 

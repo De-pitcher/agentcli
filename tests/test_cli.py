@@ -85,8 +85,7 @@ async def test_run_chat_multiline_input(monkeypatch):
     monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
-    assert len(fake_client.last_history) == 1
-    assert fake_client.last_history[0].content == "def hello():\n    print('world')"
+    assert any(m.role == "user" and m.content == "def hello():\n    print('world')" for m in fake_client.last_history)
 
 
 @pytest.mark.asyncio

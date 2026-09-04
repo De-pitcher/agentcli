@@ -222,6 +222,46 @@ class PlannerAgent(SubAgent):
                     }
                 )
 
+        # Workspace operations
+        if any(
+            keyword in query_lower
+            for keyword in [
+                "git status",
+                "branch",
+                "search code",
+                "search codebase",
+                "find file",
+                "search file",
+                "file tree",
+                "directory tree",
+            ]
+        ):
+            if "git" in query_lower or "branch" in query_lower:
+                op = "git_status"
+                crit = "Branch:"
+            elif "tree" in query_lower:
+                op = "list_tree"
+                crit = "root"
+            elif "code" in query_lower or "symbol" in query_lower or "function" in query_lower:
+                op = "search_code"
+                crit = "query"
+            else:
+                op = "search_files"
+                crit = "matches"
+
+            raw_tasks.append(
+                {
+                    "agent_type": SubAgentType.WORKSPACE.value,
+                    "payload": {
+                        "operation": op,
+                        "query": query,
+                        "pattern": "*",
+                    },
+                    "priority": 8,
+                    "goal_criterion": crit,
+                }
+            )
+
         # Default to code analyzer if no specific agent matched
         if not raw_tasks:
             # Set a general criterion based on query content
@@ -351,6 +391,8 @@ class PlannerAgent(SubAgent):
                                     criterion = "analysis"
                                 elif agent_type_enum == SubAgentType.WEB_SEARCH:
                                     criterion = "search results"
+                                elif agent_type_enum == SubAgentType.WORKSPACE:
+                                    criterion = str(args.get("operation") or "workspace")
                                 else:
                                     criterion = "done"
 
@@ -386,6 +428,7 @@ class PlannerAgent(SubAgent):
             SubAgentType.FILE_OPS: "Perform file operations: read, write, create, delete, list, mkdir. Paths are constrained to working directory.",
             SubAgentType.SHELL_EXECUTION: "Execute shell commands safely. Uses allowlist/denylist. No shell=True, direct binary execution.",
             SubAgentType.WEB_SEARCH: "Search the web for information using DuckDuckGo or Brave.",
+            SubAgentType.WORKSPACE: "Inspect git status, search for files, search code contents, or list directory tree across the workspace repository.",
         }
 
         available_desc = "\n".join(

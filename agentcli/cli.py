@@ -181,6 +181,10 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
     renderer = ConsoleRenderer(plain=plain, no_color=no_color)
     interactive_prompt = InteractivePrompt(plain=plain)
 
+    ws_summary = await session.auto_ground_workspace()
+    if ws_summary and (verbose or show_model):
+        safe_print(f"[workspace] {ws_summary}")
+
     if session.router is not None:
         print("agentcli -- model: auto (task-based routing)  (Ctrl+C or /exit to quit)")
     else:
