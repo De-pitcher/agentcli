@@ -9,7 +9,7 @@ import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Self
+from typing import Any, Self
 
 import httpx
 
@@ -28,11 +28,23 @@ class RateLimitedError(OpenRouterError):
 
 @dataclass
 class ChatMessage:
-    role: str  # "system" | "user" | "assistant"
-    content: str
+    role: str  # "system" | "user" | "assistant" | "tool"
+    content: str | None = None
+    name: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
 
-    def to_dict(self) -> dict:
-        return {"role": self.role, "content": self.content}
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"role": self.role}
+        if self.content is not None:
+            d["content"] = self.content
+        if self.name is not None:
+            d["name"] = self.name
+        if self.tool_calls is not None:
+            d["tool_calls"] = self.tool_calls
+        if self.tool_call_id is not None:
+            d["tool_call_id"] = self.tool_call_id
+        return d
 
 
 class OpenRouterClient:
@@ -83,6 +95,8 @@ class OpenRouterClient:
         messages: list[ChatMessage],
         model: str | None = None,
         models: list[str] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """
         Yields text deltas as they arrive over SSE. Retries transient failures
@@ -105,6 +119,10 @@ class OpenRouterClient:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if tools:
+            payload["tools"] = tools
+        if tool_choice:
+            payload["tool_choice"] = tool_choice
         if models:
             payload["models"] = models
         else:
@@ -211,6 +229,107 @@ class OpenRouterClient:
                         self.last_usage,
                     )
                     return  # stream completed normally
+
+            except httpx.TransportError as exc:
+                last_error = OpenRouterError(f"Network error: {exc}")
+                logger.warning(
+                    "Network error on attempt %d/%d: %s; backing off",
+                    attempt + 1,
+                    self._config.max_retries,
+                    exc,
+                )
+                await self._backoff(attempt)
+                continue
+
+        raise last_error or OpenRouterError("Exhausted retries with unknown error")
+
+    async def chat_completion(
+        self,
+        messages: list[ChatMessage],
+        model: str | None = None,
+        models: list[str] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Non-streaming chat completion supporting native function/tool calling.
+        Retries transient failures (network errors, 429, 5xx) with exponential
+        backoff up to config.max_retries attempts; raises OpenRouterError on
+        exhaustion or on a non-retryable 4xx.
+
+        Returns the parsed response dict containing 'choices', 'usage', etc.
+        """
+        self.last_served_model = None
+        self.last_usage = {}
+        t0 = time.monotonic()
+        payload: dict[str, Any] = {
+            "messages": [m.to_dict() for m in messages],
+        }
+        if tools:
+            payload["tools"] = tools
+        if tool_choice:
+            payload["tool_choice"] = tool_choice
+        if models:
+            payload["models"] = models
+        else:
+            payload["model"] = model or self._config.default_model
+
+        last_error: Exception | None = None
+        for attempt in range(self._config.max_retries):
+            try:
+                response = await self._client.post("/chat/completions", json=payload)
+                if response.status_code == 429:
+                    display_model = (
+                        models[0] if models else model
+                    ) or self._config.default_model
+                    last_error = RateLimitedError(f"Rate limited on model '{display_model}'")
+                    logger.warning(
+                        "OpenRouter 429 rate limit on attempt %d/%d for model '%s'; backing off",
+                        attempt + 1,
+                        self._config.max_retries,
+                        display_model,
+                    )
+                    await self._backoff(attempt)
+                    continue
+                if response.status_code >= 500:
+                    last_error = OpenRouterError(
+                        f"Server error {response.status_code} from OpenRouter"
+                    )
+                    logger.warning(
+                        "OpenRouter server error %s on attempt %d/%d; backing off",
+                        response.status_code,
+                        attempt + 1,
+                        self._config.max_retries,
+                    )
+                    await self._backoff(attempt)
+                    continue
+                if response.status_code >= 400:
+                    body = response.text
+                    raise OpenRouterError(
+                        f"OpenRouter error {response.status_code}: {body}"
+                    )
+
+                data = response.json()
+                self.last_latency_seconds = round(time.monotonic() - t0, 4)
+                if isinstance(data, dict):
+                    served = data.get("model")
+                    if isinstance(served, str) and served:
+                        self.last_served_model = served
+                    usage = data.get("usage")
+                    if isinstance(usage, dict):
+                        self.last_usage = {
+                            "prompt_tokens": int(usage.get("prompt_tokens", 0)),
+                            "completion_tokens": int(usage.get("completion_tokens", 0)),
+                            "total_tokens": int(usage.get("total_tokens", 0)),
+                        }
+                    logger.debug(
+                        "OpenRouter completion in %.3fs (model=%s, tokens=%s)",
+                        self.last_latency_seconds,
+                        self.last_served_model,
+                        self.last_usage,
+                    )
+                    return data
+                raise OpenRouterError("Invalid response JSON structure from OpenRouter")
 
             except httpx.TransportError as exc:
                 last_error = OpenRouterError(f"Network error: {exc}")
