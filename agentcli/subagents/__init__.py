@@ -12,6 +12,7 @@ from .planner import PlannerAgent
 from .shell import ShellExecutionAgent
 from .spawner import SubAgentPool, SubAgentSpawner
 from .web_search import WebSearchAgent
+from .workspace import WorkspaceAgent
 
 __all__ = [
     "CodeAnalyzerAgent",
@@ -27,4 +28,5 @@ __all__ = [
     "SubAgentTask",
     "SubAgentType",
     "WebSearchAgent",
+    "WorkspaceAgent",
 ]

@@ -28,6 +28,7 @@ from ..subagents.code_analyzer import CodeAnalyzerAgent
 from ..subagents.file_ops import FileOpsAgent
 from ..subagents.shell import ShellExecutionAgent
 from ..subagents.web_search import WebSearchAgent
+from ..subagents.workspace import WorkspaceAgent
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,8 @@ class ToolRegistry:
             code_analyzer._set_config(self._config)
         self.register(SubAgentType.CODE_ANALYZER.value, lambda: code_analyzer)
         self.register(SubAgentType.WEB_SEARCH.value, lambda: WebSearchAgent(config=web_cfg))
+        ws_cfg = self._tool_configs.get(SubAgentType.WORKSPACE.value)
+        self.register(SubAgentType.WORKSPACE.value, lambda: WorkspaceAgent(config=ws_cfg))
 
     @staticmethod
     def _safe_type(agent_type: str) -> SubAgentType:

@@ -33,6 +33,7 @@ class SubAgentType(str, Enum):
     SHELL_EXECUTION = "shell_execution"
     WEB_SEARCH = "web_search"
     PLANNER = "planner"
+    WORKSPACE = "workspace"
 
 
 class SubAgentStatus(str, Enum):
