@@ -614,8 +614,26 @@ class TestWebSearch:
         assert "No search query" in str(result.error)
 
     @pytest.mark.asyncio
-    async def test_search_works(self) -> None:
+    async def test_search_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typing import Any
+
+        from agentcli.subagents.web_search import SearchResult
+
         agent = WebSearchAgent()
+
+        async def mock_search(self: Any, query: str, max_results: int = 10) -> list[SearchResult]:
+            return [
+                SearchResult(
+                    title="Python Asyncio Documentation",
+                    url="https://docs.python.org/3/library/asyncio.html",
+                    snippet="Asynchronous I/O, event loop, and coroutines in Python.",
+                )
+            ]
+
+        monkeypatch.setattr(
+            "agentcli.subagents.web_search.DuckDuckGoProvider.search",
+            mock_search,
+        )
 
         task = SubAgentTask(
             agent_type=SubAgentType.WEB_SEARCH,
@@ -631,6 +649,19 @@ class TestWebSearch:
         assert result.output["count"] > 0
         assert len(result.output["results"]) > 0
         assert "provider" in result.output
+        assert result.output["results"][0]["title"] == "Python Asyncio Documentation"
+
+    @pytest.mark.live
+    @pytest.mark.asyncio
+    async def test_search_live(self) -> None:
+        agent = WebSearchAgent()
+        task = SubAgentTask(
+            agent_type=SubAgentType.WEB_SEARCH,
+            payload={"query": "python", "provider": "duckduckgo"},
+        )
+        result = await agent.run(task)
+        if result.success:
+            assert "provider" in result.output
 
 
 class TestPlanner:
