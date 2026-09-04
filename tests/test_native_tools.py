@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+
 import httpx
 import pytest
 
@@ -11,11 +12,10 @@ from agentcli.openrouter_client import (
     ChatMessage,
     OpenRouterClient,
     OpenRouterError,
-    RateLimitedError,
 )
 from agentcli.subagents.base import SubAgentTask, SubAgentType
 from agentcli.subagents.planner import PlannerAgent
-from agentcli.tools_schema import get_tool_definitions, TOOL_DEFINITIONS
+from agentcli.tools_schema import TOOL_DEFINITIONS, get_tool_definitions
 
 
 async def async_mock_sleep(t: float) -> None:
@@ -35,7 +35,9 @@ def test_chat_message_to_dict() -> None:
     assert d["role"] == "assistant"
     assert d["content"] == "Thinking..."
     assert d["name"] == "planner"
-    assert d["tool_calls"] == [{"id": "call_123", "type": "function", "function": {"name": "file_ops"}}]
+    assert d["tool_calls"] == [
+        {"id": "call_123", "type": "function", "function": {"name": "file_ops"}}
+    ]
     assert d["tool_call_id"] == "call_123"
 
 
@@ -109,7 +111,9 @@ async def test_chat_completion_with_tool_calls(monkeypatch) -> None:
                                     "type": "function",
                                     "function": {
                                         "name": "file_ops",
-                                        "arguments": json.dumps({"operation": "read", "path": "main.py"}),
+                                        "arguments": json.dumps(
+                                            {"operation": "read", "path": "main.py"}
+                                        ),
                                     },
                                 }
                             ],
@@ -197,7 +201,9 @@ async def test_planner_native_tool_calling_success(monkeypatch) -> None:
     agent._set_config(cfg)
 
     class MockClient:
-        async def chat_completion(self, messages, model=None, models=None, tools=None, tool_choice=None):
+        async def chat_completion(
+            self, messages, model=None, models=None, tools=None, tool_choice=None
+        ):
             return {
                 "choices": [
                     {
@@ -209,7 +215,9 @@ async def test_planner_native_tool_calling_success(monkeypatch) -> None:
                                     "type": "function",
                                     "function": {
                                         "name": "file_ops",
-                                        "arguments": json.dumps({"operation": "read", "path": "app.py"}),
+                                        "arguments": json.dumps(
+                                            {"operation": "read", "path": "app.py"}
+                                        ),
                                     },
                                 },
                                 {
@@ -256,7 +264,9 @@ async def test_planner_native_tool_calling_fallback_to_prompt(monkeypatch) -> No
     agent._set_config(cfg)
 
     class MockClient:
-        async def chat_completion(self, messages, model=None, models=None, tools=None, tool_choice=None):
+        async def chat_completion(
+            self, messages, model=None, models=None, tools=None, tool_choice=None
+        ):
             raise OpenRouterError("400: Model does not support tools")
 
         async def chat_stream(self, messages, model=None, models=None):

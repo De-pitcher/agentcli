@@ -330,7 +330,9 @@ class PlannerAgent(SubAgent):
                             name = func.get("name", "")
                             args_str = func.get("arguments", "{}")
                             try:
-                                args = json.loads(args_str) if isinstance(args_str, str) else args_str
+                                args = (
+                                    json.loads(args_str) if isinstance(args_str, str) else args_str
+                                )
                             except json.JSONDecodeError:
                                 args = {}
 
@@ -362,8 +364,18 @@ class PlannerAgent(SubAgent):
                                 )
                         if native_tasks:
                             return native_tasks
-        except Exception as exc:
-            self._logger.debug("Native tool calling failed or not supported by model: %s; falling back to legacy prompt", exc)
+        except (
+            OpenRouterError,
+            ValueError,
+            KeyError,
+            json.JSONDecodeError,
+            TypeError,
+            AttributeError,
+        ) as exc:
+            self._logger.debug(
+                "Native tool calling failed or not supported by model: %s; falling back to legacy prompt",
+                exc,
+            )
 
         # -------------------------------------------------------------
         # 2. Legacy Prompt-Based JSON Planning (Fallback Path)

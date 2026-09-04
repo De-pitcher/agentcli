@@ -279,9 +279,7 @@ class OpenRouterClient:
             try:
                 response = await self._client.post("/chat/completions", json=payload)
                 if response.status_code == 429:
-                    display_model = (
-                        models[0] if models else model
-                    ) or self._config.default_model
+                    display_model = (models[0] if models else model) or self._config.default_model
                     last_error = RateLimitedError(f"Rate limited on model '{display_model}'")
                     logger.warning(
                         "OpenRouter 429 rate limit on attempt %d/%d for model '%s'; backing off",
@@ -305,9 +303,7 @@ class OpenRouterClient:
                     continue
                 if response.status_code >= 400:
                     body = response.text
-                    raise OpenRouterError(
-                        f"OpenRouter error {response.status_code}: {body}"
-                    )
+                    raise OpenRouterError(f"OpenRouter error {response.status_code}: {body}")
 
                 data = response.json()
                 self.last_latency_seconds = round(time.monotonic() - t0, 4)

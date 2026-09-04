@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from .subagents.base import SubAgentType
@@ -123,7 +124,7 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
 
 
 def get_tool_definitions(
-    allowed_types: set[SubAgentType | str] | list[SubAgentType | str] | None = None,
+    allowed_types: Iterable[SubAgentType | str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return OpenAI/OpenRouter function calling tool definitions for the allowed agent types."""
     if allowed_types is None:
@@ -136,8 +137,4 @@ def get_tool_definitions(
         elif isinstance(item, str):
             allowed_names.add(item)
 
-    return [
-        definition
-        for name, definition in TOOL_DEFINITIONS.items()
-        if name in allowed_names
-    ]
+    return [definition for name, definition in TOOL_DEFINITIONS.items() if name in allowed_names]
