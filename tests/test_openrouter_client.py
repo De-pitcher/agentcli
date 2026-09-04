@@ -423,4 +423,5 @@ async def test_chat_stream_captures_usage(monkeypatch):
         "completion_tokens": 5,
         "total_tokens": 17,
     }
+    assert client.last_latency_seconds >= 0.0
     await client.aclose()

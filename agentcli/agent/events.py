@@ -17,7 +17,8 @@ from ..subagents.base import SubAgentResult
 class LoopEvent:
     """Base class for all loop lifecycle events."""
 
-    iteration: int
+    iteration: int = 0
+    run_id: str = ""
 
 
 @dataclass
@@ -43,6 +44,7 @@ class StepResultEvent(LoopEvent):
 
     step_index: int = 0
     result: SubAgentResult | None = None
+    duration_seconds: float = 0.0
 
 
 @dataclass
@@ -59,6 +61,7 @@ class FinishEvent(LoopEvent):
 
     summary: str = ""
     output: Any = None
+    duration_seconds: float = 0.0
 
 
 @dataclass

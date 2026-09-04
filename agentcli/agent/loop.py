@@ -22,6 +22,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -61,6 +63,8 @@ class AgentLoop:
         max_iterations: Hard ceiling on plan/act/reflect cycles.
         plan_model:     Optional model ID override for the planning step.
         reflect_model:  Optional model ID override for the reflection step.
+        config:         Optional resolved application configuration.
+        run_id:         Optional correlation run identifier for observability.
     """
 
     def __init__(
@@ -74,6 +78,7 @@ class AgentLoop:
         plan_model: str | None = None,
         reflect_model: str | None = None,
         config: Any | None = None,
+        run_id: str | None = None,
     ) -> None:
         self.goal = goal
         self.registry: ExecutorProtocol = registry if registry is not None else ToolRegistry()
@@ -86,6 +91,7 @@ class AgentLoop:
         self.plan_model = plan_model
         self.reflect_model = reflect_model
         self._config = config
+        self.run_id: str = run_id or uuid.uuid4().hex[:8]
 
         # If using default PlannerAgent, pass config for LLM-based planning
         if self._config is not None and isinstance(self.planner, PlannerAgent):
@@ -93,6 +99,13 @@ class AgentLoop:
 
         self._all_results: list[SubAgentResult] = []
         self._running_tasks: list[asyncio.Task[Any]] = []
+        self._start_time: float | None = None
+
+    def cancel(self) -> None:
+        """Explicitly cancel in-flight tasks in this loop run."""
+        for task in list(self._running_tasks):
+            if not task.done():
+                task.cancel()
 
     async def run(self) -> AsyncIterator[LoopEvent]:
         """Drive the loop and yield LoopEvent objects.
@@ -112,10 +125,16 @@ class AgentLoop:
         needs_plan = True
         is_replan = False
         outcome = None
+        self._start_time = time.monotonic()
 
         try:
             for iteration in range(1, self.max_iterations + 1):
-                logger.debug("AgentLoop: iteration %d / %d", iteration, self.max_iterations)
+                logger.debug(
+                    "AgentLoop [%s]: iteration %d / %d",
+                    self.run_id,
+                    iteration,
+                    self.max_iterations,
+                )
 
                 # ── PLAN ────────────────────────────────────────────────
                 if needs_plan:
@@ -124,12 +143,14 @@ class AgentLoop:
                     except Exception as exc:  # noqa: BLE001
                         yield LoopErrorEvent(
                             iteration=iteration,
+                            run_id=self.run_id,
                             error=f"Planning failed: {exc}",
                         )
                         return
 
                     yield PlanEvent(
                         iteration=iteration,
+                        run_id=self.run_id,
                         plan=current_plan,
                         is_replan=is_replan,
                     )
@@ -137,6 +158,7 @@ class AgentLoop:
                     if not current_plan:
                         yield LoopErrorEvent(
                             iteration=iteration,
+                            run_id=self.run_id,
                             error="Planner returned an empty plan.",
                         )
                         return
@@ -149,19 +171,33 @@ class AgentLoop:
 
                     yield StepStartEvent(
                         iteration=iteration,
+                        run_id=self.run_id,
                         step_index=step_index,
                         agent_type=agent_type,
                         payload=payload,
                     )
 
+                    t0 = time.monotonic()
                     result = await self._execute_step(agent_type, payload, iteration)
+                    step_duration = time.monotonic() - t0
                     step_results.append(result)
                     self._all_results.append(result)
 
+                    logger.info(
+                        "AgentLoop [%s] step %d (%s) finished in %.3fs (success=%s)",
+                        self.run_id,
+                        step_index + 1,
+                        agent_type,
+                        step_duration,
+                        result.success,
+                    )
+
                     yield StepResultEvent(
                         iteration=iteration,
+                        run_id=self.run_id,
                         step_index=step_index,
                         result=result,
+                        duration_seconds=round(step_duration, 4),
                     )
 
                 # ── REFLECT ─────────────────────────────────────────────
@@ -169,19 +205,36 @@ class AgentLoop:
 
                 yield ReflectEvent(
                     iteration=iteration,
+                    run_id=self.run_id,
                     decision=outcome.decision.value,
                     reason=outcome.reason,
                 )
 
                 if outcome.decision == ReflectDecision.FINISH:
+                    total_duration = (
+                        time.monotonic() - self._start_time if self._start_time else 0.0
+                    )
                     summary = self._build_summary(step_results)
                     output = self._extract_finish_output(step_results)
-                    yield FinishEvent(iteration=iteration, summary=summary, output=output)
+                    logger.info(
+                        "AgentLoop [%s] finished in %.3fs: %s",
+                        self.run_id,
+                        total_duration,
+                        summary,
+                    )
+                    yield FinishEvent(
+                        iteration=iteration,
+                        run_id=self.run_id,
+                        summary=summary,
+                        output=output,
+                        duration_seconds=round(total_duration, 4),
+                    )
                     return
 
                 if outcome.decision == ReflectDecision.FAIL:
                     yield LoopErrorEvent(
                         iteration=iteration,
+                        run_id=self.run_id,
                         error=f"Reflector declared failure: {outcome.reason}",
                     )
                     return
@@ -197,7 +250,7 @@ class AgentLoop:
             # Exhausted max_iterations without finishing.
             last_reason = outcome.reason if outcome else "No reflection outcome"
             raise LoopIterationLimitError(
-                f"AgentLoop reached max_iterations={self.max_iterations} "
+                f"AgentLoop [{self.run_id}] reached max_iterations={self.max_iterations} "
                 f"without finishing. Last reflect reason: {last_reason}"
             )
 

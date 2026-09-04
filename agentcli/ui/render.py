@@ -109,14 +109,19 @@ class ConsoleRenderer:
                 )
             elif event_name == "StepResultEvent" and verbose:
                 r = event.result
+                duration_str = (
+                    f" ({getattr(event, 'duration_seconds', 0.0):.2f}s)"
+                    if getattr(event, "duration_seconds", 0.0) > 0.0
+                    else ""
+                )
                 if r and r.success:
                     self.console.print(
-                        f"  [green]✓ step {event.step_index + 1}[/green] [dim]succeeded[/dim]"
+                        f"  [green]✓ step {event.step_index + 1}[/green] [dim]succeeded{duration_str}[/dim]"
                     )
                 else:
                     err = f": {r.error}" if (r and r.error) else ""
                     self.console.print(
-                        f"  [red]✗ step {event.step_index + 1}[/red] [bold red]failed{err}[/bold red]"
+                        f"  [red]✗ step {event.step_index + 1}[/red] [bold red]failed{err}{duration_str}[/bold red]"
                     )
             elif event_name == "ReflectEvent" and verbose:
                 self.console.print(
@@ -143,7 +148,12 @@ class ConsoleRenderer:
                 r = event.result
                 status = "✓" if (r and r.success) else "✗"
                 err = f" ({r.error})" if (r and not r.success and r.error) else ""
-                print(f"  [step {event.step_index + 1}] {status}{err}")
+                timing = (
+                    f" ({getattr(event, 'duration_seconds', 0.0):.2f}s)"
+                    if getattr(event, "duration_seconds", 0.0) > 0.0
+                    else ""
+                )
+                print(f"  [step {event.step_index + 1}] {status}{err}{timing}")
             elif event_name == "ReflectEvent" and verbose:
                 print(f"  [reflect] {event.decision} — {event.reason}")
             elif event_name == "FinishEvent":

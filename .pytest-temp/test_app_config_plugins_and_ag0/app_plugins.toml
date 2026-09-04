@@ -1,4 +1,0 @@
-
-[app]
-load_agents_md = false
-plugins = ["plugins/custom.py"]

@@ -1,5 +1,0 @@
-
-[memory]
-budget_ratio = 0.5
-max_cache_entries = 100
-max_cache_bytes = 5242880

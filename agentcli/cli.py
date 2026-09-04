@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import logging
 import sys
+from pathlib import Path
 
 from . import __version__
 from .agent.events import (
@@ -109,7 +110,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_p = sub.add_parser("config", help="Manage agentcli configuration")
     config_sub = config_p.add_subparsers(dest="config_command", required=True)
-    config_sub.add_parser("init", help="Write a default config file")
+    init_p = config_sub.add_parser("init", help="Write a default config file")
+    init_p.add_argument(
+        "--local",
+        action="store_true",
+        help="Write config to agentcli.toml in the current working directory",
+    )
     config_sub.add_parser("show", help="Print the resolved configuration")
 
     return parser
@@ -353,7 +359,12 @@ def _render_loop_event(event: object, *, verbose: bool) -> None:
         r = event.result
         status = "[OK]" if (r and r.success) else "[FAIL]"
         err = f" ({r.error})" if (r and not r.success and r.error) else ""
-        safe_print(f"  [step {event.step_index + 1}] {status}{err}")
+        timing = (
+            f" ({event.duration_seconds:.2f}s)"
+            if getattr(event, "duration_seconds", 0.0) > 0.0
+            else ""
+        )
+        safe_print(f"  [step {event.step_index + 1}] {status}{err}{timing}")
     elif isinstance(event, ReflectEvent) and verbose:
         safe_print(f"  [reflect] {event.decision} -- {event.reason}")
     elif isinstance(event, FinishEvent):
@@ -440,7 +451,8 @@ def run_sessions(args: argparse.Namespace, config: Config) -> int:
 
 def run_config(args: argparse.Namespace, config: Config) -> int:
     if args.config_command == "init":
-        path, written = init_config()
+        target = Path("agentcli.toml") if getattr(args, "local", False) else None
+        path, written = init_config(path=target)
         if written:
             print(f"Wrote default config to {path}")
         else:

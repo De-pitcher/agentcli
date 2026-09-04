@@ -256,7 +256,7 @@ class AgentSession:
         """
         return self.config.agent_loop.enabled and is_agentic_task(user_text)
 
-    async def run_loop(self, goal: str) -> AsyncIterator[LoopEvent]:
+    async def run_loop(self, goal: str, run_id: str | None = None) -> AsyncIterator[LoopEvent]:
         """Drive the Plan → Act → Reflect loop for a multi-step goal.
 
         Yields LoopEvent objects consumed by cli.py for display.
@@ -272,6 +272,7 @@ class AgentSession:
             plan_model=loop_cfg.plan_model_override or None,
             reflect_model=loop_cfg.reflect_model_override or None,
             config=self.config,
+            run_id=run_id,
         )
 
         async for event in loop.run():
