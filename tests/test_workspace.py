@@ -153,7 +153,7 @@ async def test_auto_ground_workspace(monkeypatch) -> None:
 
     summary = await session.auto_ground_workspace()
     assert summary == "Branch: feat/test | Modified: 1"
-    assert len(session.history) > 0
+    assert session.history[0].content is not None
     assert "[Workspace Context: Branch: feat/test | Modified: 1]" in session.history[0].content
 
 
