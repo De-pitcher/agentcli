@@ -139,6 +139,9 @@ class ConsoleRenderer:
                 )
             elif event_name == "FinishEvent":
                 self.console.print(f"\n[bold green]✨ Done:[/bold green] {event.summary}")
+                out = getattr(event, "output", None)
+                if out:
+                    self.console.print(f"\n{out}")
             elif event_name == "LoopErrorEvent":
                 self.console.print(f"\n[bold red]❌ Loop Error:[/bold red] {event.error}")
 
@@ -168,6 +171,9 @@ class ConsoleRenderer:
                 print(f"  [reflect] {event.decision} — {event.reason}")
             elif event_name == "FinishEvent":
                 print(f"\n[done] {event.summary}")
+                out = getattr(event, "output", None)
+                if out:
+                    print(f"\n{out}")
             elif event_name == "LoopErrorEvent":
                 print(f"\n[loop-error] {event.error}")
 
