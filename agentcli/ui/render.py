@@ -287,3 +287,93 @@ class ConsoleRenderer:
                 self.console.print(Text(msg, style="dim"))
             else:
                 print(msg)
+
+    def render_step_tree(self, steps: list[dict[str, Any]], current_index: int = -1) -> None:
+        """Render a hierarchical Plan -> Act -> Reflect step tree."""
+        if not steps:
+            return
+
+        from .theme import is_unicode_supported
+
+        use_unicode = is_unicode_supported()
+        branch_mid = "├─ " if use_unicode else "|- "
+        branch_last = "└─ " if use_unicode else "`- "
+
+        print("\n🤖 Plan Execution Hierarchy:")
+        total = len(steps)
+        for idx, step in enumerate(steps):
+            is_last = idx == total - 1
+            prefix = branch_last if is_last else branch_mid
+            agent = step.get("agent_type", "task")
+            goal = step.get("goal_criterion") or step.get("description") or f"Step {idx + 1}"
+
+            if idx < current_index or current_index == -1:
+                status = "[DONE]"
+            elif idx == current_index:
+                status = "[RUNNING]"
+            else:
+                status = "[PENDING]"
+
+            if self.is_rich_enabled:
+                from rich.text import Text
+
+                t = Text()
+                t.append(f"  {prefix}", style="dim")
+                t.append(f"[{agent}] ", style="bold cyan")
+                t.append(f"{goal} ", style="white")
+                t.append(status, style="bold green" if status == "[DONE]" else ("bold yellow" if status == "[RUNNING]" else "dim"))
+                self.console.print(t)
+            else:
+                print(f"  {prefix}[{agent}] {goal} {status}")
+        print()
+
+    def render_diff_preview(self, diff_text: str, file_path: str = "") -> None:
+        """Render a syntax-highlighted diff preview box with line counters."""
+        if not diff_text.strip():
+            return
+
+        lines = diff_text.splitlines()
+        additions = sum(1 for line in lines if line.startswith("+") and not line.startswith("+++"))
+        deletions = sum(1 for line in lines if line.startswith("-") and not line.startswith("---"))
+
+        header_title = f"Diff Preview: {file_path}" if file_path else "Diff Preview"
+        summary = f"(+{additions} / -{deletions} lines)"
+
+        if self.is_rich_enabled:
+            from rich.panel import Panel
+            from rich.syntax import Syntax
+
+            syntax = Syntax(diff_text, "diff", theme="monokai", line_numbers=True, word_wrap=True)
+            self.console.print(
+                Panel(
+                    syntax,
+                    title=f"[bold cyan]📝 {header_title}[/bold cyan] [dim]{summary}[/dim]",
+                    border_style="dim",
+                    padding=(0, 1),
+                )
+            )
+        else:
+            from .theme import draw_box
+
+            box_str = draw_box(f"{header_title} {summary}", diff_text, width=80)
+            print(f"\n{box_str}\n")
+
+    def render_telemetry_banner(
+        self,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        latency_seconds: float = 0.0,
+        cost_usd: float = 0.0,
+    ) -> None:
+        """Render a compact horizontal telemetry footer."""
+        total_tokens = prompt_tokens + completion_tokens
+        msg = f"⚡ Latency: {latency_seconds:.2f}s | 🪙 Tokens: {total_tokens:,} (in: {prompt_tokens:,}, out: {completion_tokens:,}) | 💡 Spend: ${cost_usd:.4f}"
+        if self.is_rich_enabled:
+            from rich.panel import Panel
+            from rich.text import Text
+
+            self.console.print(
+                Panel(Text(msg, style="dim cyan"), border_style="dim", padding=(0, 1))
+            )
+        else:
+            print(f"\n[telemetry] {msg}\n")
