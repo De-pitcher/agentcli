@@ -221,11 +221,16 @@ class VectorStore:
 
     def delete_file_chunks(self, file_path: str) -> int:
         """Delete all cached chunk embeddings for a specific file path."""
-        p_str = str(Path(file_path).resolve())
+        p_raw = str(file_path)
+        p_resolved = str(Path(file_path).resolve())
+        p_posix = Path(file_path).as_posix()
         with self._lock:
             conn = self._get_connection()
             with conn:
-                cur = conn.execute("DELETE FROM chunk_embeddings WHERE file_path = ?", (p_str,))
+                cur = conn.execute(
+                    "DELETE FROM chunk_embeddings WHERE file_path = ? OR file_path = ? OR file_path = ?",
+                    (p_raw, p_resolved, p_posix),
+                )
                 return cur.rowcount
 
     def clear(self) -> int:

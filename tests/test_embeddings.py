@@ -86,8 +86,9 @@ def test_vector_store_crud():
     with tempfile.TemporaryDirectory() as td:
         db_path = Path(td) / "test_vectors.db"
         with VectorStore(db_path=str(db_path)) as store:
+            target_file = str((Path(td) / "file.py").resolve())
             chunk = CodeChunk(
-                file_path=str(Path(td) / "file.py"),
+                file_path=target_file,
                 chunk_id="chunk_01",
                 start_line=1,
                 end_line=10,
@@ -111,7 +112,7 @@ def test_vector_store_crud():
 
             # Batch save
             chunk2 = CodeChunk(
-                file_path=str(Path(td) / "file.py"),
+                file_path=target_file,
                 chunk_id="chunk_02",
                 start_line=11,
                 end_line=20,
@@ -129,7 +130,7 @@ def test_vector_store_crud():
             assert stats["by_model"]["text-embedding-test"] == 2
 
             # Delete
-            deleted = store.delete_file_chunks(str(Path(td) / "file.py"))
+            deleted = store.delete_file_chunks(target_file)
             assert deleted == 2
             assert store.stats()["total_chunks"] == 0
 
