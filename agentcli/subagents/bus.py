@@ -14,7 +14,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .base import SubAgentResult, SubAgentTask
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,10 @@ class MessageType(str, Enum):
     TASK_SUBMIT = "task_submit"
     TASK_RESULT = "task_result"
     TASK_PROGRESS = "task_progress"
+    PEER_DELEGATE = "peer_delegate"
+    PEER_DELEGATE_RESULT = "peer_delegate_result"
+    CONSENSUS_REQUEST = "consensus_request"
+    CONSENSUS_RESPONSE = "consensus_response"
     AGENT_STATUS = "agent_status"
     AGENT_SPAWN = "agent_spawn"
     AGENT_KILL = "agent_kill"
@@ -193,3 +200,42 @@ class MessageBus:
             target=None,
         )
         return message
+
+    async def delegate_task(self, task: SubAgentTask, timeout: float = 30.0) -> SubAgentResult:
+        """Send a peer delegation request message and wait for the execution result.
+
+        Args:
+            task: The SubAgentTask to delegate.
+            timeout: Maximum timeout in seconds to wait for result.
+
+        Returns:
+            SubAgentResult from the executing agent.
+        """
+        from .base import SubAgentResult
+
+        msg = Message(
+            type=MessageType.PEER_DELEGATE,
+            source=task.delegator_id or "anonymous_agent",
+            payload={"task": task},
+        )
+        resp = await self.request_response(
+            msg,
+            expected_type=MessageType.PEER_DELEGATE_RESULT,
+            timeout=timeout,
+        )
+        if resp is None:
+            return SubAgentResult(
+                task_id=task.id,
+                agent_type=task.agent_type,
+                success=False,
+                error=f"Peer delegation to {task.agent_type.value} timed out after {timeout:.1f}s",
+            )
+        result_raw = resp.payload.get("result")
+        if not isinstance(result_raw, SubAgentResult):
+            return SubAgentResult(
+                task_id=task.id,
+                agent_type=task.agent_type,
+                success=False,
+                error=f"Peer delegation to {task.agent_type.value} returned invalid result",
+            )
+        return result_raw
