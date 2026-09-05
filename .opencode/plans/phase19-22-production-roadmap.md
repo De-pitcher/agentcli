@@ -53,7 +53,7 @@ Elevate `agentcli`'s sub-agent architecture from a centralized hub-and-spoke loo
 
 ---
 
-## Phase 21: Full-Screen Interactive TUI Dashboard (`agentcli tui`)
+## Phase 21: Full-Screen Interactive TUI Dashboard (`agentcli tui`) [COMPLETED ✅]
 
 ### 🎯 Goal
 Provide a full-screen terminal user interface (TUI) for developers who prefer rich visual observability, split-pane navigation, and interactive diff inspection.
