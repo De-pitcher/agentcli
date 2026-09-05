@@ -3,6 +3,34 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.7.0] - 2026-09-05
+
+### Added — Phase 26: Automated Benchmark Suite & Agent Efficacy Arena (`agentcli bench` & `agentcli arena`)
+- **Standardized Benchmark Task Definitions (`agentcli.arena.task`)**:
+  - `TaskCategory` taxonomy (`code_gen`, `bug_fix`, `refactor`, `tool_use`, `multi_file`, `mesh_orchestration`).
+  - `BenchmarkTask` schema with workspace fixtures, expected file regexes, verification test commands, injected test files, timeouts, iteration limits, and tags.
+- **Task Repository & Suite Loader (`agentcli.arena.loader.TaskLoader`)**:
+  - Built-in hermetic `core` benchmark suite (HumanEval-style coding, SWE-bench bugfixing, JSON aggregation tool use, modular class refactoring).
+  - Custom YAML and JSON suite loading (`agentcli bench run --file custom.json`).
+  - Multi-dimensional filtering by category, tags, task ID, and suite name.
+- **Isolated Workspace Evaluation Engine (`agentcli.arena.evaluator.TaskEvaluator`)**:
+  - Automated sandbox verification against expected files, regex patterns, and subprocess test suite runs.
+  - Granular `TaskResult` metrics: binary success/failure, exit reasons, wall-clock latency, turn counts, tool invocation counts, and USD cost tracking.
+- **Benchmark & Multi-Model Arena Runners (`agentcli.arena.runner`)**:
+  - `BenchmarkRunner`: Temporary isolated directory sandbox execution with single-worker sequential execution on `peregrine001`.
+  - `ArenaRunner`: Multi-model head-to-head evaluation matrix across benchmark suites.
+- **Scorecard & Leaderboard Generators (`agentcli.arena.scorecard.ScorecardFormatter`)**:
+  - Terminal ASCII summary tables with pass rates, avg latency, and total costs.
+  - Full GitHub-flavored Markdown evaluation reports.
+  - Comparative multi-model Arena leaderboards ranked by accuracy, latency, and cost.
+  - Machine-readable JSON output for CI regression tracking.
+- **CLI Subcommands (`agentcli bench` & `agentcli arena`)**:
+  - `agentcli bench list`: List suites and tasks with categories and tags.
+  - `agentcli bench run`: Execute tasks in isolated sandboxes and render scorecards.
+  - `agentcli arena compare`: Run head-to-head comparison across multiple models.
+- **Configuration Integration (`agentcli.config.BenchmarkConfig`)**:
+  - Added `[benchmark]` TOML configuration support (`default_suite`, `default_timeout_seconds`, `output_dir`, `record_traces`).
+
 ## [2.6.0] - 2026-09-05
 
 ### Added — Phase 25: Multi-Repository Orchestration & Monorepo Mesh (`agentcli mesh`)

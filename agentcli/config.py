@@ -314,6 +314,23 @@ class MeshConfig:
 
 
 @dataclass
+class BenchmarkConfig:
+    """Configuration for automated benchmarks and developer task evaluation (Phase 26).
+
+    Fields:
+        default_suite:           Default benchmark suite name (default: 'core').
+        default_timeout_seconds: Default per-task timeout in seconds.
+        output_dir:              Directory for persisting benchmark and arena scorecards.
+        record_traces:           Whether to capture per-turn trace events.
+    """
+
+    default_suite: str = "core"
+    default_timeout_seconds: int = 60
+    output_dir: str = ".agentcli/benchmarks"
+    record_traces: bool = True
+
+
+@dataclass
 class Config:
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     app: AppConfig = field(default_factory=AppConfig)
@@ -325,6 +342,7 @@ class Config:
     watcher: WatcherConfig = field(default_factory=WatcherConfig)
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
     mesh: MeshConfig = field(default_factory=MeshConfig)
+    benchmark: BenchmarkConfig = field(default_factory=BenchmarkConfig)
 
 
 def _platform_config_path() -> Path:
@@ -627,6 +645,14 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
                 )
                 if isinstance(w, dict) and w.get("name") and w.get("path")
             ],
+        ),
+        benchmark=BenchmarkConfig(
+            default_suite=str(raw.get("benchmark", {}).get("default_suite", "core")),
+            default_timeout_seconds=_parse_int(
+                raw.get("benchmark", {}).get("default_timeout_seconds"), "benchmark.default_timeout_seconds", 60
+            ),
+            output_dir=str(raw.get("benchmark", {}).get("output_dir", ".agentcli/benchmarks")),
+            record_traces=bool(raw.get("benchmark", {}).get("record_traces", True)),
         ),
     )
 
