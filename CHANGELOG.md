@@ -3,6 +3,21 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.10.0] - 2026-09-05
+
+### Added — Phase 29: LLM Parser Robustness, Edge Case Defense & Windows Safety
+- **Resilient Multi-Format LLM JSON Parser (`agentcli.parser`)**:
+  - `robust_json_loads()` with multi-pass auto-repair for markdown code blocks (` ```json ... ``` `), unclosed backticks, single-quoted keys and values, trailing commas in objects and arrays, Python literals (`True`, `False`, `None`), and conversational preambles/trailers.
+  - Unified wiring into `PlannerAgent` (tool argument parsing and fallback planning), `LLMReflector` (reflection decision parsing), and `MCPAdapter` (tool response extraction).
+- **Multi-Tier Context Budget Emergency Compression (`agentcli.memory.budget`)**:
+  - `prune_tool_output()` and `compress_history_tier1()`: Truncates oversized tool and assistant response outputs while preserving head and tail excerpts with character omission counts.
+  - `compress_history_tier2()`: Synthesizes older turn pairs into a condensed factual conversation summary block.
+  - `emergency_context_reset()`: Tier 3 emergency context reset preserving system instructions, user root goal, and touched workspace files.
+  - `adaptive_budget_compress()`: Progressive compression applying Tier 1 -> Tier 2 -> Tier 3 until token constraints are met.
+- **Windows Filesystem & SQLite Handle Safety (`agentcli.files`, `agentcli.memory.store`, `agentcli.embeddings.store`)**:
+  - `safe_rmtree()` and `safe_unlink()`: Automated garbage collection (`gc.collect()`), read-only attribute clearing, and exponential backoff retry loops handling Windows `WinError 32` (locked file) and `WinError 5` (access denied).
+  - Explicit context manager lifecycle support across `MemoryStore` and `VectorStore`.
+
 ## [2.9.0] - 2026-09-05
 
 ### Added — Phase 28: UI/UX Visual Modernization, Terminal Aesthetics Overhaul & Frame Snapshot Testing
