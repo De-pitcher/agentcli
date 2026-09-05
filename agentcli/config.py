@@ -211,6 +211,27 @@ class CapabilityConfig:
 
 
 @dataclass
+class MCPServerConfig:
+    """Configuration for an external Model Context Protocol (MCP) server connection (Phase 19).
+
+    Fields:
+        name:     Unique identifier for this server.
+        command:  Executable or runtime command (e.g. 'npx', 'python', 'docker').
+        args:     Command-line arguments.
+        env:      Environment variables passed to the server process.
+        enabled:  Whether this server connection is active.
+        url:      Optional HTTP/SSE endpoint URL.
+    """
+
+    name: str = ""
+    command: str = ""
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+    enabled: bool = True
+    url: str = ""
+
+
+@dataclass
 class Config:
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     app: AppConfig = field(default_factory=AppConfig)
@@ -218,6 +239,7 @@ class Config:
     subagents: SubAgentsConfig = field(default_factory=SubAgentsConfig)
     agent_loop: AgentLoopConfig = field(default_factory=AgentLoopConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
 
 
 def _platform_config_path() -> Path:
@@ -438,6 +460,18 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
             max_cache_entries=max_cache_entries,
             max_cache_bytes=max_cache_bytes,
         ),
+        mcp_servers={
+            str(name): MCPServerConfig(
+                name=str(name),
+                command=str(s_cfg.get("command", "")),
+                args=[str(a) for a in s_cfg.get("args", [])],
+                env={str(k): str(v) for k, v in s_cfg.get("env", {}).items()},
+                enabled=bool(s_cfg.get("enabled", True)),
+                url=str(s_cfg.get("url", "")),
+            )
+            for name, s_cfg in raw.get("mcp_servers", {}).items()
+            if isinstance(s_cfg, dict)
+        },
     )
 
 

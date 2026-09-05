@@ -290,6 +290,8 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
     renderer = ConsoleRenderer(plain=plain, no_color=no_color)
     interactive_prompt = InteractivePrompt(plain=plain)
 
+    await session.initialize_mcp()
+
     ws_summary = await session.auto_ground_workspace()
     if ws_summary and (verbose or show_model):
         safe_print(f"[workspace] {ws_summary}")
@@ -604,11 +606,12 @@ async def run_goal(args: argparse.Namespace, config: Config) -> int:
     # 3. Auto-ground workspace git status if in a git repo
     session = AgentSession(config=config)
     try:
+        await session.initialize_mcp()
         git_summary = await session.auto_ground_workspace()
         if git_summary:
             initial_context_parts.append(f"Workspace Context: {git_summary}")
     except Exception as exc:  # noqa: BLE001
-        logger.debug("Workspace grounding skipped: %s", exc)
+        logger.debug("Workspace grounding or MCP init skipped: %s", exc)
 
     initial_context = "\n\n".join(initial_context_parts) if initial_context_parts else None
 
@@ -618,6 +621,7 @@ async def run_goal(args: argparse.Namespace, config: Config) -> int:
     from .routing.router import Router
 
     registry = ToolRegistry(config=config)
+    session.mcp_manager.register_tools(registry)
     for p in config.app.plugins:
         registry.load_plugin_file(p)
 

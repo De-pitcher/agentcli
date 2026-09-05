@@ -296,22 +296,28 @@ class WorkspaceAgent(SubAgent):
         )
 
     async def _git_branch(
-        self, task_id: str, root_dir: Path, branch_name: str, action: str = "create"
+        self,
+        task_id: str,
+        root_dir: Path,
+        branch_name: str | None = None,
+        action: str = "create",
     ) -> SubAgentResult:
-        if not branch_name:
+        if action != "list" and not branch_name:
             return SubAgentResult(
                 task_id=task_id,
                 agent_type=self.agent_type,
                 success=False,
-                error="No branch_name provided for git_branch",
+                error=f"No branch_name provided for git_branch '{action}'",
             )
         try:
-            if action == "create":
-                cmd = ["git", "checkout", "-b", branch_name]
+            if action == "list":
+                cmd = ["git", "branch", "--list"]
+            elif action == "create":
+                cmd = ["git", "checkout", "-b", str(branch_name)]
             elif action == "delete":
-                cmd = ["git", "branch", "-D", branch_name]
+                cmd = ["git", "branch", "-D", str(branch_name)]
             else:
-                cmd = ["git", "checkout", branch_name]
+                cmd = ["git", "checkout", str(branch_name)]
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -327,7 +333,7 @@ class WorkspaceAgent(SubAgent):
                     success=True,
                     output={
                         "action": action,
-                        "branch": branch_name,
+                        "branch": branch_name or "",
                         "message": out.decode(errors="replace").strip()
                         or f"Branch operation '{action}' succeeded.",
                     },
