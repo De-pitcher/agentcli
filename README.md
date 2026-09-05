@@ -14,6 +14,7 @@ models, and is designed to run comfortably alongside other CLI agents
 - Local SQLite conversation memory persistence with real-time token & cost tracking
 - Bounded LRU context caching and dynamic token budget reconciliation
 - Model Context Protocol (MCP) bidirectional JSON-RPC stdio server and client for dynamic external tool integrations
+- Full-screen interactive TUI dashboard (`agentcli tui`) with live sub-agent tree and telemetry gauges
 - Custom tool plugins & workflow presets (`coding`, `chat`, `minimal`)
 - Automatic project instruction loading via `AGENTS.md`
 
@@ -230,6 +231,7 @@ Key architectural decisions are documented in [docs/adr/](docs/adr/):
 - **Phase 18: v2.0.0 Production Release & Developer Ergonomics** ✅
 - **Phase 19: MCP Client & Dynamic External Tool Integrations** ✅
 - **Phase 20: Multi-Agent Swarm & Peer Delegation** ✅
+- **Phase 21: Full-Screen Interactive TUI Dashboard** ✅
 
 ---
 

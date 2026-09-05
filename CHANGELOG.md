@@ -24,11 +24,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [2.3.0] - 2026-09-05
 
 ### Added — Phase 21: Full-Screen Interactive TUI Dashboard (`agentcli tui`)
-- **Interactive Multi-Pane TUI Application (`agentcli.ui.tui_app`)**:
-  - Three responsive panes: Conversation Stream, Live Sub-Agent Tree & Tool Execution, and Speedometer / Token & Cost Budget Gauge.
-  - Global keyboard shortcuts (`Tab`, `Ctrl+O`, `Ctrl+H`, `Ctrl+C`).
-- **CLI Subcommand `agentcli tui` (`agentcli.cli`)**:
-  - Added `tui` subcommand with model routing, context loading, and live budget tracking.
+- **Multi-Pane TUI Application (`agentcli.ui.tui_app`)**:
+  - Implemented `TUIApplication` and `TUIState` using `prompt_toolkit` with full-screen layout:
+    - **Main Stream Pane**: Real-time conversation stream with role styling, timestamps, and auto-scroll.
+    - **Sub-Agent Tree & Events Pane**: Live visualization of active sub-agents, running tasks, and message bus logs.
+    - **Telemetry & Gauge Pane**: Real-time token usage breakdown (prompt, completion, cached, total), session USD spend, and dynamic ASCII budget progress bar.
+    - **Command & Prompt Bar**: Multiline input buffer with slash-command and @file autocomplete.
+- **Interactive Modals & Keybindings**:
+  - `Tab`: Cycle active pane focus between input, chat, sub-agents, and telemetry.
+  - `Ctrl+O`: Toggle full-screen step diff inspector popup.
+  - `Ctrl+H`: Toggle session history timeline browser popup.
+  - `Escape`: Close all open modal dialogs.
+  - `Ctrl+C` / `Ctrl+D`: Interrupt stream / exit application.
+- **CLI Subcommand (`agentcli.cli`)**:
+  - Added `agentcli tui` supporting `--budget`, `--max-cost`, `--model`, and `--allow-write`.
+- **Async Turn Stepper (`agentcli.session`)**:
+  - Added `AgentSession.step()` for async single-turn execution, streaming, and persistence.
 
 ## [2.2.0] - 2026-09-05
 
