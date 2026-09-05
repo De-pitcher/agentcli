@@ -83,7 +83,12 @@ class AgentLoop:
         initial_context: str | None = None,
         max_cost_usd: float | None = None,
     ) -> None:
-        self.goal = goal
+        from ..files import expand_file_references
+
+        try:
+            self.goal = expand_file_references(goal) if "@" in goal else goal
+        except Exception:  # noqa: BLE001
+            self.goal = goal
         self.registry: ExecutorProtocol = registry if registry is not None else ToolRegistry()
         self.planner: PlannerProtocol = planner if planner is not None else PlannerAgent()
         self._config = config

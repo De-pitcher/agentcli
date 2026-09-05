@@ -267,10 +267,21 @@ class AgentSession:
 
         return SessionReply(stream=stream, requested_primary=requested_primary)
 
+    def prepare_prompt(self, user_text: str) -> str:
+        """Expand @file, @repo, @semantic tokens in user text before sending/persisting."""
+        from .files import expand_file_references
+
+        try:
+            return expand_file_references(user_text) if "@" in user_text else user_text
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Prompt token expansion notice: %s", exc)
+            return user_text
+
     async def step(self, user_text: str) -> str:
         """Execute a single user turn, streaming and persisting the response, and return full reply."""
-        await self.async_add_user_message(user_text)
-        reply = await self.send(user_text)
+        expanded_text = self.prepare_prompt(user_text)
+        await self.async_add_user_message(expanded_text)
+        reply = await self.send(expanded_text)
         chunks: list[str] = []
         async for delta in reply.stream:
             chunks.append(delta)

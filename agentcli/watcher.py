@@ -611,6 +611,19 @@ class ContinuousTDDRunner:
                     f"🔄 Detected changes in {len(changed_files)} file(s): {', '.join(names[:5])}"
                 )
 
+                # Auto-sync semantic vector index for changed files
+                if getattr(self.config, "embeddings", None) and self.config.embeddings.enabled:
+                    try:
+                        from .embeddings import VectorIndex, VectorStore
+
+                        v_store = VectorStore(self.config.embeddings.cache_path or None)
+                        v_index = VectorIndex(store=v_store)
+                        for cf in changed_files:
+                            await v_index.sync_file(cf)
+                        v_store.close()
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("Incremental vector sync notice: %s", exc)
+
                 test_res = await self.run_tests()
                 if test_res.passed:
                     self._log_success(f"✅ Tests passed ({test_res.duration_seconds:.2f}s).")
