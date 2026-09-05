@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..config import Config
 from ..openrouter_client import ChatMessage, OpenRouterClient, OpenRouterError
+from ..parser import robust_json_loads
 from .base import SubAgent, SubAgentResult, SubAgentTask, SubAgentType
 
 if TYPE_CHECKING:
@@ -371,9 +372,11 @@ class PlannerAgent(SubAgent):
                             args_str = func.get("arguments", "{}")
                             try:
                                 args = (
-                                    json.loads(args_str) if isinstance(args_str, str) else args_str
+                                    robust_json_loads(args_str)
+                                    if isinstance(args_str, str)
+                                    else args_str
                                 )
-                            except json.JSONDecodeError:
+                            except (json.JSONDecodeError, ValueError, TypeError):
                                 args = {}
 
                             try:
@@ -474,7 +477,7 @@ Example output:
                 full_response += chunk
 
             # Parse JSON from response
-            plan = json.loads(full_response.strip())
+            plan = robust_json_loads(full_response.strip())
             if not isinstance(plan, list):
                 raise TypeError("Planner response is not a list")
 
