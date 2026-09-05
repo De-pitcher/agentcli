@@ -33,6 +33,7 @@ class RoutingDecision:
     is_fallback: bool = False
     requested_category: str | None = None
     served_category: str | None = None
+    budget_tier: str | None = None
 
     @property
     def models(self) -> list[str]:
@@ -40,36 +41,46 @@ class RoutingDecision:
 
 
 class Router:
-    def __init__(self, registry: ModelRegistry, max_fallbacks: int):
+    def __init__(self, registry: ModelRegistry, max_fallbacks: int = 2, budget_tier: str = "low"):
         self._registry = registry
         self._max_fallbacks = max(0, max_fallbacks)
+        self._budget_tier = budget_tier
 
-    def decide(self, category: str) -> RoutingDecision:
-        """Best healthy candidates with cross-category fallbacks, or raises NoAvailableModelError."""
-        candidates = self._registry.candidates(category)
+    def decide(self, category: str, budget_tier: str | None = None) -> RoutingDecision:
+        """Best healthy candidates with cross-category and cross-tier fallbacks, or raises NoAvailableModelError."""
+        tier = budget_tier or self._budget_tier
+        candidates = self._registry.candidates(category, budget_tier=tier)
         is_fallback = False
         served_cat: str | None = category
 
-        # Cross-category fallback chain if target category is fully cooling down
+        # Cross-category fallback chain if target category is fully cooling down in this tier
         if not candidates:
             for fallback_cat in CATEGORY_FALLBACKS.get(category, ()):
-                candidates = self._registry.candidates(fallback_cat)
+                candidates = self._registry.candidates(fallback_cat, budget_tier=tier)
                 if candidates:
                     is_fallback = True
                     served_cat = fallback_cat
                     logger.info(
-                        "Category '%s' exhausted; falling back to category '%s'",
+                        "Category '%s' exhausted; falling back to category '%s' in tier '%s'",
                         category,
                         fallback_cat,
+                        tier,
                     )
                     break
 
-        # Final global fallback to any healthy model in registry
+        # Fallback to any healthy model in this budget tier
         if not candidates:
-            candidates = self._registry.healthy_models()
+            candidates = self._registry.healthy_models(budget_tier=tier)
             if candidates:
                 is_fallback = True
                 served_cat = "global"
+
+        # If still empty, fallback across all tiers
+        if not candidates and tier != "high":
+            candidates = self._registry.healthy_models(budget_tier="high")
+            if candidates:
+                is_fallback = True
+                served_cat = "all_tiers"
 
         if not candidates:
             total_models = len(self._registry.all_models())
@@ -86,4 +97,5 @@ class Router:
             is_fallback=is_fallback,
             requested_category=category,
             served_category=served_cat,
+            budget_tier=tier,
         )

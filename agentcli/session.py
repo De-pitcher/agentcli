@@ -81,12 +81,31 @@ class AgentSession:
                 if agents_context:
                     self.history.insert(0, ChatMessage(role="system", content=agents_context))
 
+        self.cumulative_cost_usd: float = 0.0
         self.registry: ModelRegistry | None = None
         self.router: Router | None = None
 
         if config.routing.enabled and not forced_model:
             self.registry = ModelRegistry(config.routing)
-            self.router = Router(self.registry, config.routing.max_fallbacks)
+            self.router = Router(
+                self.registry,
+                config.routing.max_fallbacks,
+                budget_tier=getattr(config.routing, "budget_tier", "low"),
+            )
+
+    def record_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+        """Calculate and accumulate the USD cost for a model invocation."""
+        from .memory.budget import calculate_cost
+
+        cost = calculate_cost(model, prompt_tokens, completion_tokens)
+        self.cumulative_cost_usd += cost
+        return cost
+
+    def is_budget_exceeded(self) -> bool:
+        """Check if session cumulative cost has reached or exceeded max_cost_usd."""
+        max_cost = getattr(self.config.routing, "max_cost_usd", None)
+        return bool(max_cost is not None and self.cumulative_cost_usd >= max_cost)
+
 
     def close(self) -> None:
         store = getattr(self, "memory_store", None)

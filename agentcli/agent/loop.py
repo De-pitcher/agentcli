@@ -80,6 +80,7 @@ class AgentLoop:
         config: Any | None = None,
         run_id: str | None = None,
         initial_context: str | None = None,
+        max_cost_usd: float | None = None,
     ) -> None:
         self.goal = goal
         self.registry: ExecutorProtocol = registry if registry is not None else ToolRegistry()
@@ -94,6 +95,8 @@ class AgentLoop:
         self._config = config
         self.run_id: str = run_id or uuid.uuid4().hex[:8]
         self.initial_context = initial_context
+        self.max_cost_usd = max_cost_usd
+        self.cumulative_cost_usd: float = 0.0
 
         # If using default PlannerAgent, pass config for LLM-based planning
         if self._config is not None and isinstance(self.planner, PlannerAgent):
@@ -185,6 +188,15 @@ class AgentLoop:
                     step_results.append(result)
                     self._all_results.append(result)
 
+                    # Accumulate estimated step cost if model specified
+                    model_used = payload.get("model", "")
+                    if model_used:
+                        from ..memory.budget import calculate_cost, estimate_tokens
+
+                        prompt_tok = estimate_tokens(str(payload))
+                        comp_tok = estimate_tokens(str(result.output or ""))
+                        self.cumulative_cost_usd += calculate_cost(model_used, prompt_tok, comp_tok)
+
                     logger.info(
                         "AgentLoop [%s] step %d (%s) finished in %.3fs (success=%s)",
                         self.run_id,
@@ -201,6 +213,17 @@ class AgentLoop:
                         result=result,
                         duration_seconds=round(step_duration, 4),
                     )
+
+                    if (
+                        self.max_cost_usd is not None
+                        and self.cumulative_cost_usd >= self.max_cost_usd
+                    ):
+                        yield LoopErrorEvent(
+                            iteration=iteration,
+                            run_id=self.run_id,
+                            error=f"Budget limit of ${self.max_cost_usd:.4f} reached (total spent: ${self.cumulative_cost_usd:.4f})",
+                        )
+                        return
 
                 # ── REFLECT ─────────────────────────────────────────────
                 outcome = self.reflector.reflect(self.goal, current_plan, step_results)

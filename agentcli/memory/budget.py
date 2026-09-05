@@ -105,10 +105,57 @@ def trim_history_to_budget(
     return selected_chronological
 
 
+# Pricing rates in USD per 1M tokens: (prompt_rate, completion_rate)
+MODEL_PRICING: dict[str, tuple[float, float]] = {
+    # Free models
+    "google/gemma-4-31b-it:free": (0.0, 0.0),
+    "cohere/north-mini-code:free": (0.0, 0.0),
+    "z-ai/glm-5.2:free": (0.0, 0.0),
+    "nvidia/nemotron-3-super-120b-a12b:free": (0.0, 0.0),
+    "minimax/minimax-m2.7:free": (0.0, 0.0),
+    "poolside/laguna-s-2.1:free": (0.0, 0.0),
+    "nvidia/nemotron-3-ultra-550b-a55b:free": (0.0, 0.0),
+    "minimax/minimax-m3:free": (0.0, 0.0),
+    "thinkingmachines/inkling-small:free": (0.0, 0.0),
+    "google/gemma-4-26b-a4b-it:free": (0.0, 0.0),
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": (0.0, 0.0),
+    "dots-studio/dots-3-note-preview:free": (0.0, 0.0),
+    "nvidia/nemotron-3.5-lightning:free": (0.0, 0.0),
+    "liquid/lfm-2.5-2.6b:free": (0.0, 0.0),
+    # Medium tier
+    "openai/gpt-4o-mini": (0.15, 0.60),
+    "anthropic/claude-3.5-haiku": (0.80, 4.00),
+    "deepseek/deepseek-chat": (0.14, 0.28),
+    "meta-llama/llama-3.3-70b-instruct": (0.40, 0.40),
+    "qwen/qwen-2.5-coder-32b-instruct": (0.20, 0.20),
+    # High tier
+    "anthropic/claude-3.5-sonnet": (3.00, 15.00),
+    "deepseek/deepseek-r1": (0.55, 2.19),
+    "openai/gpt-4o": (2.50, 10.00),
+    "google/gemini-2.5-pro": (1.25, 5.00),
+}
+
+DEFAULT_PAID_RATES: tuple[float, float] = (1.00, 3.00)
+
+
+def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    """Calculate the estimated USD cost of an API call given model and token counts."""
+    if not model or ":free" in model:
+        return 0.0
+    prompt_rate, completion_rate = MODEL_PRICING.get(model, DEFAULT_PAID_RATES)
+    cost = (prompt_tokens * prompt_rate / 1_000_000.0) + (
+        completion_tokens * completion_rate / 1_000_000.0
+    )
+    return round(cost, 6)
+
+
 __all__ = [
     "CHARS_PER_TOKEN",
     "DEFAULT_BUDGET_RATIO",
     "DEFAULT_CONTEXT_WINDOW",
+    "DEFAULT_PAID_RATES",
+    "MODEL_PRICING",
+    "calculate_cost",
     "estimate_history_tokens",
     "estimate_message_tokens",
     "estimate_tokens",

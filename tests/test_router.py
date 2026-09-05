@@ -63,3 +63,46 @@ def test_negative_fallbacks_clamped_to_zero():
     router = Router(ModelRegistry(RoutingConfig()), max_fallbacks=-3)
     decision = router.decide(CHAT)
     assert decision.fallbacks == ()
+
+
+def test_router_budget_tier_low_filters_free():
+    config = RoutingConfig(budget_tier="low")
+    registry = ModelRegistry(config)
+    router = Router(registry, budget_tier="low")
+    decision = router.decide(CHAT)
+    assert decision.budget_tier == "low"
+    assert ":free" in decision.primary
+    for fb in decision.fallbacks:
+        assert ":free" in fb
+
+
+def test_router_budget_tier_medium_and_high():
+    config = RoutingConfig(budget_tier="medium")
+    registry = ModelRegistry(config)
+    router = Router(registry, budget_tier="medium")
+    decision = router.decide(CODE)
+    assert decision.budget_tier == "medium"
+    assert decision.primary is not None
+
+    config_high = RoutingConfig(budget_tier="high")
+    registry_high = ModelRegistry(config_high)
+    router_high = Router(registry_high, budget_tier="high")
+    decision_high = router_high.decide(CHAT)
+    assert decision_high.budget_tier == "high"
+    assert decision_high.primary is not None
+
+
+def test_router_budget_tier_fallback_on_tier_exhaustion():
+    config = RoutingConfig(budget_tier="low")
+    registry = ModelRegistry(config)
+    # Cool down all low tier models
+    for m in registry.candidates(CHAT, budget_tier="low"):
+        registry.mark_failure(m.id, rate_limited=True)
+
+    router = Router(registry, budget_tier="low")
+    # Low is exhausted, should escalate to medium/high tier
+    decision = router.decide(CHAT)
+    assert decision is not None
+    assert decision.is_fallback is True
+
+

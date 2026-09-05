@@ -96,6 +96,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Permit mutating file operations (write, create, delete, mkdir)",
     )
+    chat_p.add_argument(
+        "--budget",
+        choices=["low", "medium", "high"],
+        default=None,
+        help="Budget tier for model selection (low=free/fast, medium=balanced, high=frontier)",
+    )
+    chat_p.add_argument(
+        "--max-cost",
+        type=float,
+        default=None,
+        help="Maximum cumulative session cost budget in USD",
+    )
 
     run_p = sub.add_parser("run", help="Autonomously execute a multi-turn goal")
     run_p.add_argument("goal", help="The goal or task description to accomplish")
@@ -121,6 +133,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-write",
         action="store_true",
         help="Permit mutating file operations (write, create, delete, mkdir)",
+    )
+    run_p.add_argument(
+        "--budget",
+        choices=["low", "medium", "high"],
+        default=None,
+        help="Budget tier for model selection (low=free/fast, medium=balanced, high=frontier)",
+    )
+    run_p.add_argument(
+        "--max-cost",
+        type=float,
+        default=None,
+        help="Maximum cumulative execution cost budget in USD",
     )
 
     mcp_p = sub.add_parser(
@@ -160,6 +184,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def run_chat(args: argparse.Namespace, config: Config) -> int:
+    if getattr(args, "budget", None):
+        config.routing.budget_tier = args.budget
+    if getattr(args, "max_cost", None) is not None:
+        config.routing.max_cost_usd = args.max_cost
+
     forced_model = args.model
     show_model = getattr(args, "show_model", False) or getattr(args, "verbose", False)
     verbose = getattr(args, "verbose", False)
@@ -372,6 +401,11 @@ async def run_goal(args: argparse.Namespace, config: Config) -> int:
     """Execute an autonomous goal-driven task using AgentLoop."""
     goal: str = getattr(args, "goal", "")
     forced_model: str | None = getattr(args, "model", None)
+    if getattr(args, "budget", None):
+        config.routing.budget_tier = args.budget
+    if getattr(args, "max_cost", None) is not None:
+        config.routing.max_cost_usd = args.max_cost
+
     allow_write: bool = getattr(args, "allow_write", False)
     if allow_write:
         config.subagents.allow_write = True
@@ -422,12 +456,19 @@ async def run_goal(args: argparse.Namespace, config: Config) -> int:
         from .routing.registry import ModelRegistry
 
         model_registry = ModelRegistry(config.routing)
-        router = Router(model_registry, config.routing.max_fallbacks)
+        router = Router(
+            model_registry,
+            config.routing.max_fallbacks,
+            budget_tier=config.routing.budget_tier,
+        )
 
     raw_max_iter = getattr(args, "max_iterations", None) or getattr(
         config.agent_loop, "max_iterations", 5
     )
     max_iterations: int = int(raw_max_iter) if raw_max_iter is not None else 5
+    max_cost_usd = getattr(args, "max_cost", None) or getattr(
+        config.routing, "max_cost_usd", None
+    )
 
     if renderer.is_rich_enabled:
         renderer.console.print(f"[bold cyan]🎯 Goal:[/bold cyan] [bold]{goal}[/bold]")
@@ -436,8 +477,9 @@ async def run_goal(args: argparse.Namespace, config: Config) -> int:
                 f"[dim]Model: {forced_model} | Max Iterations: {max_iterations}[/dim]\n"
             )
         else:
+            budget_label = config.routing.budget_tier.upper()
             renderer.console.print(
-                f"[dim]Autonomous Router | Max Iterations: {max_iterations}[/dim]\n"
+                f"[dim]Autonomous Router ({budget_label} budget) | Max Iterations: {max_iterations}[/dim]\n"
             )
     else:
         print(f"Goal: {goal}")
@@ -452,6 +494,7 @@ async def run_goal(args: argparse.Namespace, config: Config) -> int:
         reflect_model=forced_model,
         config=config,
         initial_context=initial_context,
+        max_cost_usd=max_cost_usd,
     )
 
     try:

@@ -707,3 +707,69 @@ def test_main_run_command_success(monkeypatch):
         exit_code = main(["run", "Fix bug in parser", "--model", "test/model", "--allow-write"])
         assert exit_code == ExitCode.SUCCESS
 
+
+def test_main_run_command_budget_flags(monkeypatch):
+    from agentcli.agent.events import FinishEvent
+
+    captured_kwargs = {}
+
+    class MockLoop:
+        def __init__(self, *args, **kwargs):
+            nonlocal captured_kwargs
+            captured_kwargs = kwargs
+
+        async def run(self):
+            yield FinishEvent(iteration=1, run_id="r1", summary="Success", duration_seconds=0.1)
+
+    monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
+
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-dummy"}):
+        exit_code = main([
+            "run",
+            "Fix bug",
+            "--budget",
+            "medium",
+            "--max-cost",
+            "1.50",
+            "--allow-write",
+        ])
+        assert exit_code == ExitCode.SUCCESS
+        assert captured_kwargs.get("config").routing.budget_tier == "medium"
+        assert captured_kwargs.get("max_cost_usd") == 1.50
+
+
+
+@pytest.mark.asyncio
+async def test_run_goal_budget_exceeded(monkeypatch, capsys):
+    from agentcli.agent.events import LoopErrorEvent
+    from agentcli.cli import run_goal
+
+    args = argparse.Namespace(
+        goal="Expensive task",
+        model=None,
+        budget="low",
+        max_cost=0.01,
+        file=[],
+        max_iterations=5,
+        no_agents_md=True,
+        allow_write=False,
+        plain=True,
+        no_color=True,
+    )
+    config = Config()
+
+    class MockLoop:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run(self):
+            yield LoopErrorEvent(iteration=1, run_id="r1", error="Budget limit exceeded ($0.015000 > $0.010000 limit)")
+
+    monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
+
+    code = await run_goal(args, config)
+    assert code == ExitCode.GENERAL_ERROR
+    out, _ = capsys.readouterr()
+    assert "Budget limit exceeded" in out
+
+
