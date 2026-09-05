@@ -22,6 +22,7 @@ from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.styles import Style
 
+from .. import __version__
 from .prompt import SlashAndFileCompleter
 
 if TYPE_CHECKING:
@@ -177,7 +178,7 @@ class TUIApplication:
         cost = f"${self.state.cost_usd:.4f}"
         tokens = f"{self.state.total_tokens():,} tok"
         return [
-            ("class:header", f"  agentcli v2.2.0 | Model: {model} | Preset: {preset} | Spend: {cost} ({tokens})  "),
+            ("class:header", f"  agentcli v{__version__} | Model: {model} | Preset: {preset} | Spend: {cost} ({tokens})  "),
         ]
 
     def _render_chat(self) -> StyleAndTextTuples:
