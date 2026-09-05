@@ -232,6 +232,35 @@ class MCPServerConfig:
 
 
 @dataclass
+class WatcherConfig:
+    """Configuration for autonomous project watcher and continuous TDD loop (Phase 22).
+
+    Fields:
+        enabled:                Whether watcher capabilities are enabled.
+        test_command:           Command to run on file change (default: 'python -m pytest').
+        paths:                  List of directories/paths to watch (default: ['.']).
+        debounce_seconds:       Debounce interval in seconds to coalesce rapid file saves.
+        cooldown_seconds:       Cooldown period in seconds between test runs.
+        auto_apply:             Whether to apply verified fixes to working tree automatically.
+        max_cost_usd:           Optional cumulative budget limit in USD per session.
+        max_repair_iterations:  Maximum repair loop iterations per failure attempt.
+        budget_tier:            Budget tier for routing during repair ('low', 'medium', 'high').
+        model:                  Optional forced model override for repair.
+    """
+
+    enabled: bool = True
+    test_command: str = "python -m pytest"
+    paths: list[str] = field(default_factory=lambda: ["."])
+    debounce_seconds: float = 1.5
+    cooldown_seconds: float = 5.0
+    auto_apply: bool = False
+    max_cost_usd: float | None = None
+    max_repair_iterations: int = 5
+    budget_tier: str = "low"
+    model: str | None = None
+
+
+@dataclass
 class Config:
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     app: AppConfig = field(default_factory=AppConfig)
@@ -240,6 +269,7 @@ class Config:
     agent_loop: AgentLoopConfig = field(default_factory=AgentLoopConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
+    watcher: WatcherConfig = field(default_factory=WatcherConfig)
 
 
 def _platform_config_path() -> Path:
@@ -401,6 +431,34 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
             f"Invalid value for 'memory.max_cache_bytes': must be >= 1024, got {max_cache_bytes}"
         )
 
+    watcher_raw = raw.get("watcher", {})
+    watcher_paths_raw = watcher_raw.get("paths", ["."])
+    watcher_paths = [str(p) for p in watcher_paths_raw] if isinstance(watcher_paths_raw, list) else ["."]
+    watcher_max_cost_raw = watcher_raw.get("max_cost_usd")
+    watcher_max_cost = (
+        _parse_float(watcher_max_cost_raw, "watcher.max_cost_usd", 0.0)
+        if watcher_max_cost_raw is not None
+        else None
+    )
+    watcher_cfg = WatcherConfig(
+        enabled=bool(watcher_raw.get("enabled", True)),
+        test_command=str(watcher_raw.get("test_command", "python -m pytest")),
+        paths=watcher_paths if watcher_paths else ["."],
+        debounce_seconds=_parse_float(
+            watcher_raw.get("debounce_seconds"), "watcher.debounce_seconds", 1.5
+        ),
+        cooldown_seconds=_parse_float(
+            watcher_raw.get("cooldown_seconds"), "watcher.cooldown_seconds", 5.0
+        ),
+        auto_apply=bool(watcher_raw.get("auto_apply", False)),
+        max_cost_usd=watcher_max_cost,
+        max_repair_iterations=_parse_int(
+            watcher_raw.get("max_repair_iterations"), "watcher.max_repair_iterations", 5
+        ),
+        budget_tier=str(watcher_raw.get("budget_tier", "low")).lower(),
+        model=str(watcher_raw["model"]) if watcher_raw.get("model") else None,
+    )
+
     return Config(
         openrouter=OpenRouterConfig(
             api_key_env=str(or_raw.get("api_key_env", "OPENROUTER_API_KEY")),
@@ -472,6 +530,7 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
             for name, s_cfg in raw.get("mcp_servers", {}).items()
             if isinstance(s_cfg, dict)
         },
+        watcher=watcher_cfg,
     )
 
 

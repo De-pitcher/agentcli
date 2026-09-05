@@ -3,9 +3,27 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.4.0] - 2026-09-05
+
+### Added — Phase 22: Autonomous Project Watcher & Continuous TDD Loop (`agentcli watch`)
+- **Asynchronous Debounced File Watcher (`agentcli.watcher.FileWatcher`)**:
+  - Monitors project source and test files (`.py`, `.ts`, `.js`, etc.) while filtering ignored directories (`.git`, `.venv`, `__pycache__`, `.pytest_cache`, `.agentcli_worktrees`, `node_modules`, `dist`, `build`).
+  - Configurable debounce intervals (`debounce_seconds = 1.5`) coalescing rapid editor saves into single test triggers.
+- **Continuous TDD Engine (`agentcli.watcher.ContinuousTDDRunner`)**:
+  - Runs configured test suites (`--test-cmd`, default `python -m pytest`) on startup and upon file modification.
+  - Intercepts test failures, extracts diagnostic tracebacks, and coordinates autonomous repair attempts.
+- **Isolated Git Worktree Repair (`agentcli.watcher.WorktreeManager`)**:
+  - Dynamically creates temporary Git worktrees on dedicated branches (`agentcli-repair-*`), runs `AgentLoop` in isolated workspaces with full write capabilities, verifies fixes by re-executing tests in the worktree, extracts unified git diffs, and optionally applies verified patches back to the working tree (`--auto-apply`).
+  - Ensures clean teardown and branch deletion after every repair attempt.
+- **Budget & Hardware Guardrails (`peregrine001`)**:
+  - Enforces thermal and rate-limit cooldown periods (`--cooldown`, default 5.0s) between test executions.
+  - Cumulative cost limits (`--max-cost`) and budget tier routing (`--budget`).
+- **CLI Subcommand `agentcli watch` (`agentcli.cli`)**:
+  - Added `watch` subcommand with `--test-cmd`, `--debounce`, `--cooldown`, `--auto-apply`, `--max-cost`, `--budget`, `--model`, `--max-iterations`, `--paths`, and `--no-initial`.
+
 ## [2.3.0] - 2026-09-05
 
-### Added — Phase 21: Full-Screen Interactive TUI Dashboard
+### Added — Phase 21: Full-Screen Interactive TUI Dashboard (`agentcli tui`)
 - **Multi-Pane TUI Application (`agentcli.ui.tui_app`)**:
   - Implemented `TUIApplication` and `TUIState` using `prompt_toolkit` with full-screen layout:
     - **Main Stream Pane**: Real-time conversation stream with role styling, timestamps, and auto-scroll.
