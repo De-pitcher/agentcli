@@ -161,8 +161,8 @@ async def test_mcp_client_handshake_and_tool_call() -> None:
                 response_queue.put_nowait(
                     json.dumps({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": "echoed"}], "isError": False}}).encode("utf-8") + b"\n"
                 )
-        except Exception:
-            pass
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return
 
     # Mock subprocess streams
     mock_stdin = MagicMock()

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from .adapter import MCPToolAgent, mcp_tool_to_openrouter_schema
 from .client import MCPClient
