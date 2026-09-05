@@ -18,6 +18,11 @@ from agentcli.subagents.consensus import AgentVote, ConsensusEngine, ConsensusSt
 from agentcli.subagents.workspace import WorkspaceAgent
 
 
+@pytest.fixture(autouse=True)
+def set_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "dummy-api-key")
+
+
 def test_session_prepare_prompt_token_expansion(tmp_path: Path) -> None:
     """Test AgentSession.prepare_prompt expanding @file tokens."""
     test_file = tmp_path / "sample.py"
