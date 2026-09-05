@@ -3,6 +3,22 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.8.0] - 2026-09-05
+
+### Added — Phase 27: Real-World Seam Audit & End-to-End Dataflow Hardening
+- **Centralized Prompt Token Expansion (`agentcli.session.AgentSession` & `agentcli.agent.loop.AgentLoop`)**:
+  - Unified `prepare_prompt()` method automatically expanding `@file`, `@repo:<name>/<path>`, and `@semantic:<name>:<query>` tokens across all conversation modes (TUI, REPL, Watcher, and Autonomous Goal Runner).
+  - Graceful fallback hints when referenced repositories or symbols are not found without unhandled crashes.
+- **Incremental Vector Index Synchronization (`agentcli.embeddings.index.VectorIndex.sync_file`)**:
+  - Single-file incremental indexing automatically synchronizing modified code chunks and purging stale chunks upon file edit or deletion.
+  - Automatic background vector index synchronization in continuous TDD watcher daemon (`agentcli.watcher.FileWatcher`).
+- **Fault-Tolerant Consensus Quorums (`agentcli.subagents.consensus.ConsensusEngine`)**:
+  - Partial quorum evaluation supporting degraded node tracking when individual subagents encounter HTTP 429 rate limits or network timeouts.
+- **SQLite Handle & Concurrency Defense (`agentcli.memory.store`, `agentcli.embeddings.store`)**:
+  - Strict handle cleanup and WAL checkpointing (`wal_checkpoint(TRUNCATE)`) to prevent Windows `WinError 32` file locks.
+- **Workspace Tool Scoping (`agentcli.subagents.workspace.WorkspaceAgent`)**:
+  - Strict target workspace directory scoping and path boundary validation.
+
 ## [2.7.0] - 2026-09-05
 
 ### Added — Phase 26: Automated Benchmark Suite & Agent Efficacy Arena (`agentcli bench` & `agentcli arena`)

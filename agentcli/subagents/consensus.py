@@ -183,6 +183,7 @@ class ConsensusEngine:
         *,
         strategy: ConsensusStrategy = ConsensusStrategy.MAJORITY,
         timeout: float = 15.0,
+        min_quorum: int = 1,
     ) -> ConsensusResult:
         """Gather votes asynchronously from voters and evaluate the consensus.
 
@@ -194,11 +195,15 @@ class ConsensusEngine:
             voter_callables: Callables returning an Awaitable[AgentVote].
             strategy: ConsensusStrategy to apply.
             timeout: Maximum timeout per voter execution.
+            min_quorum: Minimum healthy voter responses required to establish quorum.
 
         Returns:
             ConsensusResult summarizing the outcome.
         """
         votes: list[AgentVote] = []
+        degraded_count = 0
+        total_voters = len(voter_callables)
+
         for fn in voter_callables:
             try:
                 vote = await asyncio.wait_for(fn(), timeout=timeout)
@@ -206,10 +211,27 @@ class ConsensusEngine:
                     votes.append(vote)
                 else:
                     logger.warning("Voter %s voted for invalid option '%s'", vote.voter_id, vote.choice)
+                    degraded_count += 1
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Voter failed during consensus gather: %s", exc)
+                degraded_count += 1
 
-        return self.evaluate_votes(votes, strategy=strategy)
+        if len(votes) < min_quorum:
+            return ConsensusResult(
+                decision=None,
+                strategy=strategy,
+                consensus_reached=False,
+                agreement_ratio=0.0,
+                winning_score=0.0,
+                votes=votes,
+                tally={},
+                summary=f"Quorum failure: only {len(votes)}/{total_voters} healthy voters responded (min required: {min_quorum}).",
+            )
+
+        res = self.evaluate_votes(votes, strategy=strategy)
+        if degraded_count > 0:
+            res.summary += f" [Degraded node notice: {degraded_count}/{total_voters} voters timed out or failed]"
+        return res
 
     async def debate_and_converge(
         self,

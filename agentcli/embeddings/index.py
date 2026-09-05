@@ -183,3 +183,16 @@ class VectorIndex:
         # Sort descending by similarity score
         scored.sort(key=lambda r: r.score, reverse=True)
         return scored[:k]
+
+    async def sync_file(self, file_path: str | Path) -> int:
+        """Incrementally synchronize a single file: purge stale chunks and re-index new chunks."""
+        p = Path(file_path).resolve()
+        # If file deleted or not a code file, delete chunks
+        if not p.exists() or not p.is_file():
+            return self.store.delete_file_chunks(str(p))
+        if p.suffix.lower() not in CODE_EXTENSIONS or p.stat().st_size >= 500_000:
+            return self.store.delete_file_chunks(str(p))
+
+        # Purge existing stale chunks for this file
+        self.store.delete_file_chunks(str(p))
+        return await self.index_files([p], force=False)
