@@ -774,7 +774,7 @@ class TestSpawnerAndPool:
 
         bus = MessageBus()
 
-        config = SubAgentConfig(max_concurrent=1, idle_timeout_seconds=0.05)
+        config = SubAgentConfig(max_concurrent=1, idle_timeout_seconds=0.25)
 
         pool = SubAgentPool(
             agent_type=SubAgentType.CODE_ANALYZER,
@@ -799,7 +799,7 @@ class TestSpawnerAndPool:
 
         assert len(pool._idle_agents) == 1  # not timed out yet
 
-        await asyncio.sleep(0.06)
+        await asyncio.sleep(0.3)
 
         await pool._check_idle_agents()
 

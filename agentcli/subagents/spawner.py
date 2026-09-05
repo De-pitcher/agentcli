@@ -21,7 +21,7 @@ from .base import (
     SubAgentTask,
     SubAgentType,
 )
-from .bus import MessageBus
+from .bus import Message, MessageBus, MessageType
 
 logger = logging.getLogger(__name__)
 
@@ -239,14 +239,50 @@ class SubAgentSpawner:
                 self._pools[agent_type_str] = pool
 
     async def start(self) -> None:
-        """Start all pools."""
+        """Start all pools and subscribe to peer delegation messages."""
         for pool in self._pools.values():
             await pool.start()
+        self._bus.subscribe(MessageType.PEER_DELEGATE, self._handle_peer_delegate)
 
     async def shutdown(self) -> None:
-        """Shutdown all pools."""
+        """Shutdown all pools and unsubscribe from message bus."""
+        self._bus.unsubscribe(self._handle_peer_delegate)
         for pool in self._pools.values():
             await pool.shutdown()
+
+    async def _handle_peer_delegate(self, msg: Message) -> None:
+        """Handle peer-to-peer delegation requests from sub-agents."""
+        task_raw = msg.payload.get("task")
+        if not isinstance(task_raw, SubAgentTask):
+            return
+
+        task: SubAgentTask = task_raw
+        if task.depth > task.max_depth:
+            result = SubAgentResult(
+                task_id=task.id,
+                agent_type=task.agent_type,
+                success=False,
+                error=f"Maximum delegation depth exceeded ({task.depth} > {task.max_depth})",
+            )
+        else:
+            try:
+                result = await self.submit_task(task.agent_type, task)
+            except Exception as exc:  # noqa: BLE001
+                result = SubAgentResult(
+                    task_id=task.id,
+                    agent_type=task.agent_type,
+                    success=False,
+                    error=f"Peer delegation execution failed: {exc}",
+                )
+
+        response_msg = Message(
+            type=MessageType.PEER_DELEGATE_RESULT,
+            source="spawner",
+            target=msg.source,
+            correlation_id=msg.id,
+            payload={"result": result},
+        )
+        await self._bus.publish(response_msg)
 
     async def submit_task(
         self,

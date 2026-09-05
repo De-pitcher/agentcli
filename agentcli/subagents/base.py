@@ -58,6 +58,10 @@ class SubAgentTask:
         priority: Task priority (higher = more urgent).
         created_at: Timestamp when the task was created.
         metadata: Additional metadata for the task.
+        depth: Current delegation recursion depth (0 = top-level).
+        max_depth: Maximum allowed delegation depth to prevent infinite loops.
+        delegation_path: Ordered tuple of agent types in the delegation chain.
+        delegator_id: Unique agent ID of the agent that delegated this task.
     """
 
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -67,6 +71,10 @@ class SubAgentTask:
     priority: int = 0
     created_at: datetime = field(default_factory=_utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
+    depth: int = 0
+    max_depth: int = 3
+    delegation_path: tuple[str, ...] = field(default_factory=tuple)
+    delegator_id: str | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.agent_type, str):
@@ -123,6 +131,7 @@ class SubAgent(ABC):
         self.message_bus = message_bus
         self.status = SubAgentStatus.IDLE
         self.current_task_id: str | None = None
+        self.current_task: SubAgentTask | None = None
         self._task: asyncio.Task[SubAgentResult] | None = None
         self._idle_since: float | None = None
         self._start_time: float | None = None
@@ -148,29 +157,112 @@ class SubAgent(ABC):
         """
         ...
 
+    async def delegate(
+        self,
+        target_type: SubAgentType | str,
+        payload: dict[str, Any],
+        *,
+        priority: int = 0,
+        timeout: float = 30.0,
+    ) -> SubAgentResult:
+        """Delegate a sub-task directly to another peer agent.
+
+        Enforces bounded recursion depth and prevents delegation cycles.
+
+        Args:
+            target_type: Target agent type (e.g. SubAgentType.FILE_OPS).
+            payload: Payload for the delegated task.
+            priority: Priority of the delegated task.
+            timeout: Maximum timeout in seconds to wait for peer response.
+
+        Returns:
+            SubAgentResult from the peer sub-agent.
+        """
+        target = target_type if isinstance(target_type, SubAgentType) else SubAgentType(target_type)
+        cur_depth = self.current_task.depth if self.current_task else 0
+        max_d = self.current_task.max_depth if self.current_task else 3
+
+        if cur_depth >= max_d:
+            self._logger.warning(
+                "Delegation depth limit reached for agent %s (depth=%d, max=%d)",
+                self.agent_id,
+                cur_depth,
+                max_d,
+            )
+            return SubAgentResult(
+                task_id=uuid.uuid4().hex[:12],
+                agent_type=target,
+                success=False,
+                error=f"Maximum delegation depth ({max_d}) reached",
+            )
+
+        cur_path = self.current_task.delegation_path if self.current_task else ()
+        new_path = (*cur_path, self.agent_type.value)
+
+        # Detect delegation cycle
+        if new_path.count(target.value) >= 2:
+            self._logger.warning(
+                "Delegation cycle detected for %s -> %s (path=%s)",
+                self.agent_id,
+                target.value,
+                new_path,
+            )
+            return SubAgentResult(
+                task_id=uuid.uuid4().hex[:12],
+                agent_type=target,
+                success=False,
+                error=f"Delegation cycle detected targeting {target.value}",
+            )
+
+        delegated_task = SubAgentTask(
+            agent_type=target,
+            payload=payload,
+            parent_task_id=self.current_task_id,
+            priority=priority,
+            depth=cur_depth + 1,
+            max_depth=max_d,
+            delegation_path=new_path,
+            delegator_id=self.agent_id,
+        )
+
+        if not self.message_bus:
+            self._logger.error("No message bus available on agent %s to delegate task", self.agent_id)
+            return SubAgentResult(
+                task_id=delegated_task.id,
+                agent_type=target,
+                success=False,
+                error="Message bus unavailable for peer delegation",
+            )
+
+        return await self.message_bus.delegate_task(delegated_task, timeout=timeout)
+
     async def on_start(self, task: SubAgentTask) -> None:
         """Called when the agent starts executing a task."""
         self.status = SubAgentStatus.RUNNING
         self.current_task_id = task.id
+        self.current_task = task
         self._start_time = asyncio.get_running_loop().time()
         self._idle_since = None
-        self._logger.debug("Agent %s started task %s", self.agent_id, task.id)
+        self._logger.debug("Agent %s started task %s (depth=%d)", self.agent_id, task.id, task.depth)
 
     async def on_complete(self, task: SubAgentTask, result: SubAgentResult) -> None:
         """Called when the agent completes a task successfully."""
         self.status = SubAgentStatus.COMPLETED
+        self.current_task = None
         elapsed = asyncio.get_running_loop().time() - (self._start_time or 0)
         self._logger.debug("Agent %s completed task %s in %.2fs", self.agent_id, task.id, elapsed)
 
     async def on_failure(self, task: SubAgentTask, error: BaseException) -> None:
         """Called when the agent fails to execute a task."""
         self.status = SubAgentStatus.FAILED
+        self.current_task = None
         self._logger.error("Agent %s failed task %s: %s", self.agent_id, task.id, error)
 
     async def on_idle(self) -> None:
         """Called when the agent becomes idle."""
         self.status = SubAgentStatus.IDLE
         self.current_task_id = None
+        self.current_task = None
         self._idle_since = asyncio.get_running_loop().time()
         self._logger.debug("Agent %s is now idle", self.agent_id)
 
