@@ -1,4 +1,4 @@
-"""Model Context Protocol (MCP) server implementation for agentcli (Phase 7).
+"""Model Context Protocol (MCP) server implementation for agentcli (Phase 7 & Phase 19).
 
 Exposes agentcli tools and sub-agents over standard JSON-RPC 2.0 stdio, enabling
 integration with external agent hosts such as Claude Desktop, Antigravity, Cursor, etc.
@@ -12,7 +12,7 @@ import logging
 import sys
 from typing import Any
 
-from .agent.registry import ToolRegistry
+from ..agent.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,6 @@ class MCPServer:
                     },
                     "required": ["query"],
                 }
-
             else:
                 input_schema = {
                     "type": "object",
@@ -177,7 +176,7 @@ class MCPServer:
                     },
                     "serverInfo": {
                         "name": "agentcli",
-                        "version": "0.1.0",
+                        "version": "2.0.0",
                     },
                 },
             }

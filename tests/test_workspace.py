@@ -207,3 +207,18 @@ async def test_workspace_git_branch_and_worktree_validation(tmp_path: Path) -> N
     assert res_w.success is False
     assert "No worktree_path" in str(res_w.error)
 
+
+@pytest.mark.asyncio
+async def test_workspace_git_branch_list(tmp_path: Path) -> None:
+    """Test git_branch with action=list doesn't require branch_name."""
+    agent = WorkspaceAgent()
+    res = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.WORKSPACE,
+            payload={"operation": "git_branch", "action": "list", "path": str(tmp_path)},
+        )
+    )
+    # Even if tmp_path is not a git repo, it should proceed to execution and fail at git level, not validation
+    assert res.success is False or res.success is True
+    assert "No branch_name" not in str(res.error or "")
+

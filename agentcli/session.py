@@ -13,6 +13,7 @@ from .agent.reflector import DefaultReflector
 from .agent.registry import ToolRegistry
 from .config import Config
 from .files import load_agents_md
+from .mcp.manager import MCPClientManager
 from .memory.budget import DEFAULT_CONTEXT_WINDOW, estimate_tokens, trim_history_to_budget
 from .memory.store import MemoryStore
 from .openrouter_client import (
@@ -84,6 +85,7 @@ class AgentSession:
         self.cumulative_cost_usd: float = 0.0
         self.registry: ModelRegistry | None = None
         self.router: Router | None = None
+        self.mcp_manager: MCPClientManager = MCPClientManager(config=self.config)
 
         if config.routing.enabled and not forced_model:
             self.registry = ModelRegistry(config.routing)
@@ -92,6 +94,11 @@ class AgentSession:
                 config.routing.max_fallbacks,
                 budget_tier=getattr(config.routing, "budget_tier", "low"),
             )
+
+    async def initialize_mcp(self) -> None:
+        """Initialize external MCP servers and discover tools."""
+        if self.config.mcp_servers:
+            await self.mcp_manager.initialize()
 
     def record_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
         """Calculate and accumulate the USD cost for a model invocation."""
@@ -106,7 +113,6 @@ class AgentSession:
         max_cost = getattr(self.config.routing, "max_cost_usd", None)
         return bool(max_cost is not None and self.cumulative_cost_usd >= max_cost)
 
-
     def close(self) -> None:
         store = getattr(self, "memory_store", None)
         if store is not None:
@@ -115,6 +121,7 @@ class AgentSession:
 
     async def aclose(self) -> None:
         await self.client.aclose()
+        await self.mcp_manager.aclose()
         self.close()
 
     def __del__(self) -> None:
@@ -283,9 +290,12 @@ class AgentSession:
         Raises LoopIterationLimitError if the ceiling is hit.
         """
         loop_cfg = self.config.agent_loop
+        registry = ToolRegistry(config=self.config)
+        self.mcp_manager.register_tools(registry)
+
         loop = AgentLoop(
             goal=goal,
-            registry=ToolRegistry(config=self.config),
+            registry=registry,
             reflector=DefaultReflector(),
             router=self.router,
             max_iterations=loop_cfg.max_iterations,
