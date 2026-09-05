@@ -58,6 +58,14 @@ class ConsoleRenderer:
         sys.stdout.write(chunk)
         sys.stdout.flush()
 
+    def clear(self) -> None:
+        """Clear the terminal screen."""
+        if self.is_rich_enabled:
+            self.console.clear()
+        else:
+            sys.stdout.write("\033[H\033[2J")
+            sys.stdout.flush()
+
     @contextmanager
     def status_spinner(self, message: str) -> Iterator[None]:
         """Display an animated status spinner during long-running tasks if interactive."""

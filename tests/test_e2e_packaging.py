@@ -62,7 +62,7 @@ class TestPackagingMetadata:
 
         project = data.get("project", {})
         assert project.get("name") == "agentcli"
-        assert project.get("version") == "1.0.0"
+        assert project.get("version") == "2.0.0"
         assert project.get("requires-python") == ">=3.11"
         assert "agentcli" in project.get("scripts", {})
         assert project["scripts"]["agentcli"] == "agentcli.cli:main"
@@ -71,7 +71,7 @@ class TestPackagingMetadata:
         import agentcli
 
         assert hasattr(agentcli, "__version__")
-        assert agentcli.__version__ == "1.0.0"
+        assert agentcli.__version__ == "2.0.0"
 
 
 class TestCLIEntrypoints:
@@ -80,7 +80,7 @@ class TestCLIEntrypoints:
     def test_cli_version(self) -> None:
         res = _run_cli(["--version"])
         assert res.returncode == 0
-        assert "1.0.0" in res.stdout
+        assert "2.0.0" in res.stdout
 
     def test_cli_help(self) -> None:
         res = _run_cli(["--help"])
@@ -101,7 +101,7 @@ class TestCLIEntrypoints:
             env={"TERM": "dumb", "NO_COLOR": "1"},
         )
         assert res.returncode == 0
-        assert "1.0.0" in res.stdout
+        assert "2.0.0" in res.stdout
 
 
 class TestConfigE2E:

@@ -20,6 +20,7 @@ Design principles:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import re
 import time
@@ -41,7 +42,7 @@ from .events import (
     StepStartEvent,
 )
 from .protocols import ExecutorProtocol, PlannerProtocol, ReflectorProtocol
-from .reflector import DefaultReflector, ReflectDecision
+from .reflector import DefaultReflector, LLMReflector, ReflectDecision, ReflectOutcome
 from .registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -85,14 +86,24 @@ class AgentLoop:
         self.goal = goal
         self.registry: ExecutorProtocol = registry if registry is not None else ToolRegistry()
         self.planner: PlannerProtocol = planner if planner is not None else PlannerAgent()
-        self.reflector: ReflectorProtocol = (
-            reflector if reflector is not None else DefaultReflector()
-        )
+        self._config = config
+        if reflector is not None:
+            self.reflector: ReflectorProtocol = reflector
+        elif config is not None:
+            try:
+                from ..openrouter_client import OpenRouterClient
+
+                client = OpenRouterClient(config.openrouter)
+                self.reflector = LLMReflector(client=client, model=reflect_model, config=config)
+            except Exception:  # noqa: BLE001
+                self.reflector = DefaultReflector()
+        else:
+            self.reflector = DefaultReflector()
+
         self.router = router
         self.max_iterations = max_iterations
         self.plan_model = plan_model
         self.reflect_model = reflect_model
-        self._config = config
         self.run_id: str = run_id or uuid.uuid4().hex[:8]
         self.initial_context = initial_context
         self.max_cost_usd = max_cost_usd
@@ -129,7 +140,7 @@ class AgentLoop:
         current_plan: list[dict[str, Any]] = []
         needs_plan = True
         is_replan = False
-        outcome = None
+        outcome: ReflectOutcome | None = None
         self._start_time = time.monotonic()
 
         try:
@@ -226,7 +237,20 @@ class AgentLoop:
                         return
 
                 # ── REFLECT ─────────────────────────────────────────────
-                outcome = self.reflector.reflect(self.goal, current_plan, step_results)
+                outcome = None
+                if hasattr(self.reflector, "areflect"):
+                    try:
+                        res = self.reflector.areflect(self.goal, current_plan, step_results)
+                        if inspect.isawaitable(res):
+                            outcome = await res
+                        elif isinstance(res, ReflectOutcome):
+                            outcome = res
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("Async reflector error, falling back to sync: %s", exc)
+                        outcome = None
+
+                if outcome is None:
+                    outcome = self.reflector.reflect(self.goal, current_plan, step_results)
 
                 yield ReflectEvent(
                     iteration=iteration,

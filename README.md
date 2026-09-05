@@ -5,10 +5,13 @@ through [OpenRouter](https://openrouter.ai), with a bias toward free-tier
 models, and is designed to run comfortably alongside other CLI agents
 (Codex, Aider, OpenCode, Antigravity, etc.) on modest hardware.
 
-**agentcli v1.0.0 (Phase 7 Complete)** provides:
+**agentcli v2.0.0 (Phase 18 Complete)** provides:
 - Single-model & auto-routed chat with fallback chains
-- Modular sub-agent system & in-process Plan → Act → Reflect agent loop
-- Local SQLite conversation memory persistence with token & cost tracking
+- Autonomous non-interactive execution via `agentcli run "<task>"`
+- Interactive in-session slash commands (`/help`, `/budget`, `/model`, `/goal`, `/tokens`, `/cost`, `/clear`, `/reset`, `/exit`)
+- Modular sub-agent system with Git branch & isolated worktree isolation
+- In-process Plan → Act → Reflect agent loop with LLM-assisted goal reflection
+- Local SQLite conversation memory persistence with real-time token & cost tracking
 - Bounded LRU context caching and dynamic token budget reconciliation
 - Model Context Protocol (MCP) JSON-RPC stdio server for host integration
 - Custom tool plugins & workflow presets (`coding`, `chat`, `minimal`)
@@ -24,6 +27,31 @@ export OPENROUTER_API_KEY=sk-or-...
 agentcli config init      # writes a default config file
 agentcli chat
 ```
+
+### Autonomous One-Shot Run
+
+Execute tasks non-interactively using autonomous multi-step execution:
+
+```bash
+agentcli run "Analyze test coverage in tests/ and write missing unit tests"
+agentcli run "Refactor database migrations" --budget 0.05 --max-iterations 8
+```
+
+### Interactive In-Session Slash Commands
+
+Inside a chat session, use slash commands for real-time control without restarting:
+
+| Command | Description |
+| :--- | :--- |
+| `/help` | List available slash commands and usage tips |
+| `/budget [amount]` | View or dynamically set the session cost ceiling |
+| `/model [model-id]` | View or switch active LLM on the fly |
+| `/goal <description>` | Execute an autonomous compound task within the current session |
+| `/tokens` | Display session token usage breakdown (prompt, completion, total) |
+| `/cost` | Display cumulative session API spend vs allocated budget |
+| `/clear` | Clear terminal display while retaining conversation context |
+| `/reset` | Clear conversation history and reset session token/cost counters |
+| `/exit`, `/quit` | Exit chat session |
 
 ### Resume and Browse Conversations
 
@@ -68,7 +96,7 @@ agentcli --plugin examples/custom_tool_plugin.py chat
 
 ## 🔌 Model Context Protocol (MCP) Server
 
-`agentcli` can run as a zero-dependency **MCP JSON-RPC stdio server**, exposing built-in sub-agent tools (`file_ops`, `shell_execution`, `code_analyzer`, `web_search`) and custom plugins to external agent hosts like Claude Desktop, Antigravity, or Cursor:
+`agentcli` can run as a zero-dependency **MCP JSON-RPC stdio server**, exposing built-in sub-agent tools (`file_ops`, `shell_execution`, `code_analyzer`, `web_search`, `workspace`) and custom plugins to external agent hosts like Claude Desktop, Antigravity, or Cursor:
 
 ```bash
 agentcli mcp
@@ -162,6 +190,9 @@ Key architectural decisions are documented in [docs/adr/](docs/adr/):
 - **Phase 5: Memory Persistence & Context Caching** ✅
 - **Phase 6: Advanced Optimization & Hardening** ✅
 - **Phase 7: Ecosystem Integration & Community Release** ✅
+- **Phases 8–12: Advanced Memory, Multi-agent Benchmarks & Sandboxing** ✅
+- **Phases 13–17: Autonomous Execution, Dynamic Budgeting & Resilient Agent Loops** ✅
+- **Phase 18: v2.0.0 Production Release & Developer Ergonomics** ✅
 
 ---
 
