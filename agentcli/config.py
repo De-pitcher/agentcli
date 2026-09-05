@@ -113,6 +113,7 @@ class RoutingModelEntry:
     categories: list[str] = field(default_factory=lambda: ["chat"])
     priority: int = 50
     context_window: int = 32768
+    tier: str = "low"
 
 
 @dataclass
@@ -121,6 +122,8 @@ class RoutingConfig:
     max_fallbacks: int = 2
     cooldown_seconds: float = 300.0
     failure_threshold: int = 3
+    budget_tier: str = "low"
+    max_cost_usd: float | None = None
     models: list[RoutingModelEntry] = field(default_factory=list)
 
 
@@ -299,7 +302,21 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
                 categories=[str(c) for c in entry.get("categories", ["chat"])],
                 priority=_parse_int(entry.get("priority"), "priority", 50),
                 context_window=_parse_int(entry.get("context_window"), "context_window", 32768),
+                tier=str(entry.get("tier", "low")).lower(),
             )
+        )
+
+    budget_tier_raw = str(routing_raw.get("budget_tier", "low")).lower()
+    if budget_tier_raw not in {"low", "medium", "high"}:
+        raise ConfigError(
+            f"Invalid value for 'routing.budget_tier': expected one of ['low', 'medium', 'high'], got '{budget_tier_raw}'"
+        )
+
+    max_cost_raw = routing_raw.get("max_cost_usd")
+    max_cost_usd = _parse_float(max_cost_raw, "routing.max_cost_usd", 0.0) if max_cost_raw is not None else None
+    if max_cost_usd is not None and max_cost_usd < 0:
+        raise ConfigError(
+            f"Invalid value for 'routing.max_cost_usd': must be >= 0, got {max_cost_usd}"
         )
 
     subagent_entries = []
@@ -385,6 +402,8 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
             failure_threshold=_parse_int(
                 routing_raw.get("failure_threshold"), "failure_threshold", 3
             ),
+            budget_tier=budget_tier_raw,
+            max_cost_usd=max_cost_usd,
             models=entries,
         ),
         subagents=SubAgentsConfig(

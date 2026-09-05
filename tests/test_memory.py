@@ -14,6 +14,7 @@ from agentcli.config import Config, ConfigError, load_config
 from agentcli.exit_codes import ExitCode
 from agentcli.files import expand_file_references, read_file_for_context
 from agentcli.memory.budget import (
+    calculate_cost,
     estimate_message_tokens,
     estimate_tokens,
     trim_history_to_budget,
@@ -723,3 +724,24 @@ class TestPhase6Optimizations:
         assert "fast_0" in events_order
         assert "db_0" in events_order
         assert len(events_order) == 10
+
+
+class TestCalculateCost:
+    def test_calculate_cost_free_model(self) -> None:
+        cost = calculate_cost("google/gemma-4-31b-it:free", prompt_tokens=1000, completion_tokens=500)
+        assert cost == 0.0
+
+    def test_calculate_cost_paid_models(self) -> None:
+        # openai/gpt-4o-mini: $0.15 / 1M prompt, $0.60 / 1M completion
+        cost_mini = calculate_cost("openai/gpt-4o-mini", prompt_tokens=1_000_000, completion_tokens=1_000_000)
+        assert abs(cost_mini - 0.75) < 1e-6
+
+        # anthropic/claude-3.5-sonnet: $3.00 / 1M prompt, $15.00 / 1M completion
+        cost_sonnet = calculate_cost("anthropic/claude-3.5-sonnet", prompt_tokens=100_000, completion_tokens=50_000)
+        # 0.1 * 3.00 + 0.05 * 15.00 = 0.30 + 0.75 = 1.05
+        assert abs(cost_sonnet - 1.05) < 1e-6
+
+    def test_calculate_cost_unknown_model_fallback(self) -> None:
+        cost_unknown = calculate_cost("custom/unknown-model", prompt_tokens=1_000_000, completion_tokens=1_000_000)
+        assert cost_unknown > 0.0
+

@@ -35,68 +35,125 @@ class ModelRecord:
     categories: tuple[str, ...]
     priority: int
     context_window: int
+    tier: str = "low"
 
 
 _BUILTIN_MODELS: tuple[ModelRecord, ...] = (
+    # --- Low Tier (Free Models) ---
     ModelRecord(
-        id="google/gemma-4-31b-it:free", categories=(CHAT,), priority=10, context_window=128000
+        id="google/gemma-4-31b-it:free", categories=(CHAT,), priority=10, context_window=128000, tier="low"
     ),
     ModelRecord(
-        id="cohere/north-mini-code:free", categories=(CODE,), priority=10, context_window=32768
+        id="cohere/north-mini-code:free", categories=(CODE,), priority=10, context_window=32768, tier="low"
     ),
     ModelRecord(
-        id="z-ai/glm-5.2:free", categories=(CODE, REASONING), priority=20, context_window=128000
+        id="z-ai/glm-5.2:free", categories=(CODE, REASONING), priority=20, context_window=128000, tier="low"
     ),
     ModelRecord(
         id="nvidia/nemotron-3-super-120b-a12b:free",
         categories=(REASONING,),
         priority=20,
         context_window=128000,
+        tier="low",
     ),
     ModelRecord(
-        id="minimax/minimax-m2.7:free", categories=(CHAT,), priority=20, context_window=128000
+        id="minimax/minimax-m2.7:free", categories=(CHAT,), priority=20, context_window=128000, tier="low"
     ),
     ModelRecord(
-        id="poolside/laguna-s-2.1:free", categories=(CODE,), priority=30, context_window=64000
+        id="poolside/laguna-s-2.1:free", categories=(CODE,), priority=30, context_window=64000, tier="low"
     ),
     ModelRecord(
         id="nvidia/nemotron-3-ultra-550b-a55b:free",
         categories=(REASONING,),
         priority=30,
         context_window=128000,
+        tier="low",
     ),
     ModelRecord(
-        id="minimax/minimax-m3:free", categories=(CHAT,), priority=30, context_window=128000
+        id="minimax/minimax-m3:free", categories=(CHAT,), priority=30, context_window=128000, tier="low"
     ),
     ModelRecord(
         id="thinkingmachines/inkling-small:free",
         categories=(CHAT,),
         priority=40,
         context_window=64000,
+        tier="low",
     ),
     ModelRecord(
-        id="google/gemma-4-26b-a4b-it:free", categories=(CHAT,), priority=40, context_window=128000
+        id="google/gemma-4-26b-a4b-it:free", categories=(CHAT,), priority=40, context_window=128000, tier="low"
     ),
     ModelRecord(
         id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
         categories=(REASONING,),
         priority=40,
         context_window=64000,
+        tier="low",
     ),
     ModelRecord(
         id="dots-studio/dots-3-note-preview:free",
         categories=(CHAT,),
         priority=50,
         context_window=32768,
+        tier="low",
     ),
     ModelRecord(
         id="nvidia/nemotron-3.5-lightning:free",
         categories=(CHAT,),
         priority=50,
         context_window=64000,
+        tier="low",
     ),
     ModelRecord(
-        id="liquid/lfm-2.5-2.6b:free", categories=(CHAT,), priority=60, context_window=32768
+        id="liquid/lfm-2.5-2.6b:free", categories=(CHAT,), priority=60, context_window=32768, tier="low"
+    ),
+    # --- Medium Tier (High-Efficiency Paid / Frontier Free) ---
+    ModelRecord(
+        id="openai/gpt-4o-mini", categories=(CHAT, CODE), priority=15, context_window=128000, tier="medium"
+    ),
+    ModelRecord(
+        id="anthropic/claude-3.5-haiku",
+        categories=(CHAT, CODE, REASONING),
+        priority=15,
+        context_window=200000,
+        tier="medium",
+    ),
+    ModelRecord(
+        id="deepseek/deepseek-chat", categories=(CHAT, CODE), priority=15, context_window=64000, tier="medium"
+    ),
+    ModelRecord(
+        id="qwen/qwen-2.5-coder-32b-instruct", categories=(CODE,), priority=20, context_window=32768, tier="medium"
+    ),
+    ModelRecord(
+        id="meta-llama/llama-3.3-70b-instruct",
+        categories=(CHAT, REASONING),
+        priority=25,
+        context_window=128000,
+        tier="medium",
+    ),
+    # --- High Tier (Frontier Reasoning & Coding) ---
+    ModelRecord(
+        id="anthropic/claude-3.5-sonnet",
+        categories=(CODE, REASONING, CHAT),
+        priority=5,
+        context_window=200000,
+        tier="high",
+    ),
+    ModelRecord(
+        id="deepseek/deepseek-r1",
+        categories=(REASONING, CODE),
+        priority=5,
+        context_window=64000,
+        tier="high",
+    ),
+    ModelRecord(
+        id="openai/gpt-4o", categories=(CHAT, CODE, REASONING), priority=5, context_window=128000, tier="high"
+    ),
+    ModelRecord(
+        id="google/gemini-2.5-pro",
+        categories=(REASONING, CHAT),
+        priority=10,
+        context_window=1000000,
+        tier="high",
     ),
 )
 
@@ -115,7 +172,7 @@ class RegistryState:
 
 
 class ModelRegistry:
-    """Candidate models for each category, with cooldown-aware selection."""
+    """Candidate models for each category, with cooldown-aware and budget-tier selection."""
 
     def __init__(self, config: RoutingConfig):
         self._config = config
@@ -129,30 +186,65 @@ class ModelRegistry:
                 categories=validated_categories,
                 priority=entry.priority,
                 context_window=entry.context_window,
+                tier=getattr(entry, "tier", "low"),
             )
 
     def all_models(self) -> list[ModelRecord]:
         """Return all registered model records."""
         return list(self._state.models.values())
 
-    def healthy_models(self) -> list[ModelRecord]:
-        """Return all currently non-cooling model records sorted by priority."""
+    def healthy_models(self, budget_tier: str | None = None) -> list[ModelRecord]:
+        """Return all currently non-cooling model records sorted by priority and budget tier."""
         now = time.monotonic()
-        usable = [
-            record for record in self._state.models.values() if not self._is_cooling(record.id, now)
-        ]
-        usable.sort(key=lambda record: (record.priority, record.id))
-        return usable
+        active_tier = budget_tier or getattr(self._config, "budget_tier", "low")
+        if active_tier == "low":
+            allowed_tiers = {"low"}
+        elif active_tier == "medium":
+            allowed_tiers = {"low", "medium"}
+        else:
+            allowed_tiers = {"low", "medium", "high"}
 
-    def candidates(self, category: str) -> list[ModelRecord]:
-        """Healthy models serving `category`, best-first."""
-        now = time.monotonic()
         usable = [
             record
             for record in self._state.models.values()
-            if category in record.categories and not self._is_cooling(record.id, now)
+            if record.tier in allowed_tiers and not self._is_cooling(record.id, now)
         ]
-        usable.sort(key=lambda record: (record.priority, record.id))
+        tier_weight = {"high": 0, "medium": 1, "low": 2}
+        usable.sort(
+            key=lambda record: (
+                tier_weight.get(record.tier, 2) if active_tier != "low" else 0,
+                record.priority,
+                record.id,
+            )
+        )
+        return usable
+
+    def candidates(self, category: str, budget_tier: str | None = None) -> list[ModelRecord]:
+        """Healthy models serving `category`, best-first filtered by budget tier."""
+        now = time.monotonic()
+        active_tier = budget_tier or getattr(self._config, "budget_tier", "low")
+        if active_tier == "low":
+            allowed_tiers = {"low"}
+        elif active_tier == "medium":
+            allowed_tiers = {"low", "medium"}
+        else:
+            allowed_tiers = {"low", "medium", "high"}
+
+        usable = [
+            record
+            for record in self._state.models.values()
+            if category in record.categories
+            and record.tier in allowed_tiers
+            and not self._is_cooling(record.id, now)
+        ]
+        tier_weight = {"high": 0, "medium": 1, "low": 2}
+        usable.sort(
+            key=lambda record: (
+                tier_weight.get(record.tier, 2) if active_tier != "low" else 0,
+                record.priority,
+                record.id,
+            )
+        )
         return usable
 
     def mark_success(self, model_id: str) -> None:
