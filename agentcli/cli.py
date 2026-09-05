@@ -7,6 +7,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .agent.events import (
@@ -342,6 +343,54 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mesh_run_p.add_argument("task", help="Goal or task description to execute across projects")
     mesh_run_p.add_argument("--repos", default=None, help="Comma-separated subset of workspace names to target")
+
+    bench_p = sub.add_parser(
+        "bench",
+        help="Run automated developer benchmark suites and evaluate agent efficacy (Phase 26)",
+        parents=[sub_common_parser],
+    )
+    bench_sub = bench_p.add_subparsers(dest="bench_command", required=True)
+
+    bench_list_p = bench_sub.add_parser(
+        "list",
+        help="List available benchmark suites and tasks",
+        parents=[sub_common_parser],
+    )
+    bench_list_p.add_argument("--suite", default=None, help="Filter tasks by suite name")
+    bench_list_p.add_argument("--category", default=None, help="Filter tasks by category")
+    bench_list_p.add_argument("--tag", default=None, help="Filter tasks by tag")
+
+    bench_run_p = bench_sub.add_parser(
+        "run",
+        help="Execute benchmark tasks in isolated sandboxes and generate scorecard",
+        parents=[sub_common_parser],
+    )
+    bench_run_p.add_argument("--suite", default="core", help="Suite name to run (default: core)")
+    bench_run_p.add_argument("--task", default=None, help="Specific task ID to run")
+    bench_run_p.add_argument("--category", default=None, help="Filter tasks by category")
+    bench_run_p.add_argument("--tag", default=None, help="Filter tasks by tag")
+    bench_run_p.add_argument("--model", default=None, help="Model override for benchmark execution")
+    bench_run_p.add_argument("--output", default=None, help="Output file path for generated report")
+    bench_run_p.add_argument("--format", choices=["table", "markdown", "json"], default="table", help="Output format")
+    bench_run_p.add_argument("--file", default=None, help="Custom JSON file containing benchmark tasks")
+
+    arena_p = sub.add_parser(
+        "arena",
+        help="Run multi-model comparative arena benchmarks and generate leaderboards (Phase 26)",
+        parents=[sub_common_parser],
+    )
+    arena_sub = arena_p.add_subparsers(dest="arena_command", required=True)
+
+    arena_compare_p = arena_sub.add_parser(
+        "compare",
+        help="Run head-to-head comparison across multiple models",
+        parents=[sub_common_parser],
+    )
+    arena_compare_p.add_argument("--models", required=True, help="Comma-separated list of models to evaluate")
+    arena_compare_p.add_argument("--suite", default="core", help="Benchmark suite to run (default: core)")
+    arena_compare_p.add_argument("--output", default=None, help="Output file path for generated leaderboard")
+    arena_compare_p.add_argument("--format", choices=["markdown", "table", "json"], default="markdown", help="Output format")
+    arena_compare_p.add_argument("--file", default=None, help="Custom JSON file containing benchmark tasks")
 
     mcp_p = sub.add_parser(
         "mcp",
@@ -1160,6 +1209,174 @@ async def run_mesh(args: argparse.Namespace, config: Config) -> int:
     return ExitCode.GENERAL_ERROR
 
 
+def run_bench(args: argparse.Namespace, config: Config) -> int:
+    """Handle `agentcli bench` subcommands."""
+    from .arena.loader import TaskLoader
+    from .arena.runner import BenchmarkRunner
+    from .arena.scorecard import ScorecardFormatter
+    from .arena.task import TaskCategory
+
+    loader = TaskLoader()
+    bench_cmd = getattr(args, "bench_command", "")
+
+    if bench_cmd == "list":
+        suites = loader.get_suites()
+        suite_filter = getattr(args, "suite", None)
+        category_str = getattr(args, "category", None)
+        tag_filter = getattr(args, "tag", None)
+
+        category_enum = None
+        if category_str:
+            try:
+                category_enum = TaskCategory(category_str)
+            except ValueError:
+                pass
+
+        print("\nAvailable Benchmark Suites and Tasks:\n")
+        total_matched = 0
+        for s_name, tasks in suites.items():
+            if suite_filter and suite_filter.lower() != s_name.lower():
+                continue
+            filtered = loader.filter_tasks(tasks, category=category_enum, tag=tag_filter)
+            if not filtered:
+                continue
+            print(f"=== Suite: {s_name} ({len(filtered)} tasks) ===")
+            for t in filtered:
+                tags_str = f"[{', '.join(t.tags)}]" if t.tags else ""
+                print(f"  • {t.id:<35} | {t.category.value:<12} | {t.title} {tags_str}")
+                total_matched += 1
+            print()
+
+        if total_matched == 0:
+            print("No benchmark tasks matched the specified filters.")
+        return ExitCode.SUCCESS
+
+    elif bench_cmd == "run":
+        custom_file = getattr(args, "file", None)
+        if custom_file:
+            custom_path = Path(custom_file)
+            if not custom_path.exists():
+                print(f"[benchmark error] Custom task file not found: {custom_file}")
+                return ExitCode.GENERAL_ERROR
+            tasks = loader.load_from_json(custom_path)
+        else:
+            suite_name = getattr(args, "suite", "core") or "core"
+            suites = loader.get_suites()
+            if suite_name not in suites:
+                print(f"[benchmark error] Unknown benchmark suite: '{suite_name}'. Available: {list(suites.keys())}")
+                return ExitCode.GENERAL_ERROR
+            tasks = suites[suite_name]
+
+        # Apply filters
+        task_id = getattr(args, "task", None)
+        category_str = getattr(args, "category", None)
+        tag_filter = getattr(args, "tag", None)
+        category_enum = None
+        if category_str:
+            try:
+                category_enum = TaskCategory(category_str)
+            except ValueError:
+                pass
+
+        tasks = loader.filter_tasks(tasks, category=category_enum, tag=tag_filter, task_id=task_id)
+        if not tasks:
+            print("[benchmark] No tasks to execute after applying filters.")
+            return ExitCode.SUCCESS
+
+        model = getattr(args, "model", None) or config.openrouter.default_model
+        print(f"\nStarting benchmark run on {len(tasks)} task(s) using model '{model}'...\n")
+
+        runner = BenchmarkRunner(config=config, model=model)
+
+        def _progress(idx: int, total: int, t: Any, res: Any) -> None:
+            status = "PASS" if res.success else "FAIL"
+            print(f"[{idx}/{total}] {t.id:<35} -> {status} ({res.latency_seconds:.2f}s, turns: {res.turns_count}, cost: ${res.cost_usd:.4f})")
+
+        results = runner.run_suite(tasks, progress_callback=_progress)
+
+        fmt = getattr(args, "format", "table")
+        if fmt == "table":
+            output_text = ScorecardFormatter.render_table(results, title=f"Benchmark: {getattr(args, 'suite', 'custom')}")
+        elif fmt == "markdown":
+            output_text = ScorecardFormatter.render_markdown_report(suite_name=getattr(args, "suite", "custom"), results=results)
+        else:
+            output_text = ScorecardFormatter.to_json(results)
+
+        print("\n" + output_text)
+
+        out_path_str = getattr(args, "output", None)
+        if out_path_str:
+            out_path = Path(out_path_str)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(output_text, encoding="utf-8")
+            print(f"\nSaved benchmark scorecard to: {out_path.resolve()}")
+
+        return ExitCode.SUCCESS
+
+    return ExitCode.GENERAL_ERROR
+
+
+def run_arena(args: argparse.Namespace, config: Config) -> int:
+    """Handle `agentcli arena` subcommands."""
+    from .arena.loader import TaskLoader
+    from .arena.runner import ArenaRunner
+    from .arena.scorecard import ScorecardFormatter
+
+    loader = TaskLoader()
+    arena_cmd = getattr(args, "arena_command", "")
+
+    if arena_cmd == "compare":
+        models_str = getattr(args, "models", "")
+        models = [m.strip() for m in models_str.split(",") if m.strip()]
+        if not models:
+            print("[arena error] No models specified. Please pass --models <m1,m2,...>")
+            return ExitCode.GENERAL_ERROR
+
+        custom_file = getattr(args, "file", None)
+        if custom_file:
+            custom_path = Path(custom_file)
+            if not custom_path.exists():
+                print(f"[arena error] Custom task file not found: {custom_file}")
+                return ExitCode.GENERAL_ERROR
+            tasks = loader.load_from_json(custom_path)
+        else:
+            suite_name = getattr(args, "suite", "core") or "core"
+            suites = loader.get_suites()
+            if suite_name not in suites:
+                print(f"[arena error] Unknown benchmark suite: '{suite_name}'. Available: {list(suites.keys())}")
+                return ExitCode.GENERAL_ERROR
+            tasks = suites[suite_name]
+
+        print(f"\nRunning Arena comparison across {len(models)} model(s) on {len(tasks)} task(s)...\n")
+
+        arena_runner = ArenaRunner(config=config)
+
+        def _arena_progress(model: str, idx: int, total: int, t: Any, res: Any) -> None:
+            status = "PASS" if res.success else "FAIL"
+            print(f"[{model}] [{idx}/{total}] {t.id:<30} -> {status} ({res.latency_seconds:.2f}s)")
+
+        arena_results = arena_runner.run_comparison(tasks, models, progress_callback=_arena_progress)
+
+        fmt = getattr(args, "format", "markdown")
+        if fmt == "markdown" or fmt == "table":
+            leaderboard_text = ScorecardFormatter.render_arena_leaderboard(arena_results)
+        else:
+            leaderboard_text = ScorecardFormatter.to_json(arena_results)
+
+        print("\n" + leaderboard_text)
+
+        out_path_str = getattr(args, "output", None)
+        if out_path_str:
+            out_path = Path(out_path_str)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(leaderboard_text, encoding="utf-8")
+            print(f"Saved Arena leaderboard to: {out_path.resolve()}")
+
+        return ExitCode.SUCCESS
+
+    return ExitCode.GENERAL_ERROR
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1201,6 +1418,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "search":
         try:
             return asyncio.run(run_search(args, config))
+        except KeyboardInterrupt:
+            return ExitCode.USER_INTERRUPT
+    if args.command == "bench":
+        try:
+            return run_bench(args, config)
+        except KeyboardInterrupt:
+            return ExitCode.USER_INTERRUPT
+    if args.command == "arena":
+        try:
+            return run_arena(args, config)
         except KeyboardInterrupt:
             return ExitCode.USER_INTERRUPT
     if args.command == "run":
