@@ -3,6 +3,32 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.6.0] - 2026-09-05
+
+### Added — Phase 25: Multi-Repository Orchestration & Monorepo Mesh (`agentcli mesh`)
+- **Multi-Root Workspace Registry (`agentcli.mesh.registry.WorkspaceRegistry`)**:
+  - Auto-discovery of multi-technology sub-projects (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `.git`) up to configurable recursion depths.
+  - Manifest dependency inspection (npm workspace/file links).
+  - Explicit workspace configuration loading from `[mesh.workspaces]` and path resolution (`@repo:<name>/<path>`).
+- **Inter-Project Dependency DAG & Topological Engine (`agentcli.mesh.graph.ProjectDependencyGraph`)**:
+  - Directed Acyclic Graph tracking direct and transitive cross-project dependencies.
+  - Topological build/execution ordering with cycle detection (`DependencyCycleError`).
+  - Downstream change impact analysis (`get_impacted_workspaces`) to identify affected packages when shared libraries change.
+  - Formatted ASCII dependency graph visualization (`render_ascii_tree`).
+- **Cross-Repository Semantic Search (`agentcli.mesh.search.MultiRepoIndex`)**:
+  - Unified vector search across multiple repositories with automatic workspace attribution tags (`[workspace]`).
+  - Scoped semantic search queries restricted to individual target repositories (`--repo <name>`).
+- **CLI Subcommand `agentcli mesh` (`agentcli.cli`)**:
+  - `agentcli mesh list`: Table of discovered and configured project roots with dependencies and metadata tags.
+  - `agentcli mesh graph`: Dependency DAG tree and topological build order.
+  - `agentcli mesh search <query>`: Cross-repository semantic code search.
+  - `agentcli mesh run <task>`: Sequential autonomous agent execution across workspaces in topological order.
+- **Context Injection Tokens (`agentcli.files`)**:
+  - `@repo:<name>/<path>`: Reads files directly from named workspace roots.
+  - `@semantic:<name>:<query>`: Scoped semantic vector search injected into chat prompts.
+- **Sub-Agent Workspace Targeting (`agentcli.subagents.workspace.WorkspaceAgent`)**:
+  - Supports `target_workspace` parameter for scoped sub-agent tasks.
+
 ## [2.5.0] - 2026-09-05
 
 ### Added — Phase 24: Semantic Vector Search & Codebase Knowledge Embeddings (`agentcli search`)

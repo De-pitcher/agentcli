@@ -70,24 +70,57 @@ def expand_file_references(text: str, cache: ContextCache | None = None) -> str:
             if tok.startswith("@") and len(tok) > 1:
                 clean_tok = tok.rstrip(".,;:?!)]}\"'")
                 ref = clean_tok[1:]
-                if ref.startswith(("semantic:", "find:")):
-                    query = ref.split(":", 1)[1].replace("_", " ")
+                if ref.startswith(("repo:", "workspace:")):
+                    target = ref.split(":", 1)[1]
                     try:
+                        from .config import load_config
+                        from .mesh import WorkspaceRegistry
+
+                        registry = WorkspaceRegistry()
+                        cfg = load_config()
+                        registry.load_from_config(cfg.mesh.workspaces)
+                        if cfg.mesh.auto_discover and not registry.list_workspaces():
+                            registry.auto_discover(max_depth=cfg.mesh.discovery_depth)
+
+                        _ws, resolved_p = registry.resolve_path(target)
+                        file_blocks.append(read_file_for_context(str(resolved_p), cache=cache))
+                    except Exception as exc:  # noqa: BLE001
+                        file_blocks.append(f"[Error resolving @{ref}: {exc}]")
+                elif ref.startswith(("semantic:", "find:")):
+                    query_raw = ref.split(":", 1)[1]
+                    repo_scope: str | None = None
+                    if ":" in query_raw:
+                        repo_scope, query_raw = query_raw.split(":", 1)
+                    query = query_raw.replace("_", " ")
+                    try:
+                        from .config import load_config
                         from .embeddings import VectorIndex, VectorStore
+                        from .mesh import WorkspaceRegistry
 
                         store = VectorStore()
-                        index = VectorIndex(store=store)
-                        records = store.get_all_for_model(index.engine.model)
+                        registry = WorkspaceRegistry()
+                        cfg = load_config()
+                        registry.load_from_config(cfg.mesh.workspaces)
+                        if cfg.mesh.auto_discover and not registry.list_workspaces():
+                            registry.auto_discover(max_depth=cfg.mesh.discovery_depth)
+
+                        records = store.get_all_for_model(cfg.embeddings.model)
                         if records:
                             # Synchronous dot-product search with fallback embedding
+                            index = VectorIndex(store=store)
                             q_vec = index.engine._deterministic_fallback_vector(query) if hasattr(index.engine, "_deterministic_fallback_vector") else None
                             if q_vec:
                                 from .embeddings.index import _dot_product
 
                                 scored = [(chunk, _dot_product(q_vec, vec)) for chunk, vec in records]
+                                if repo_scope:
+                                    ws_obj = registry.get(repo_scope)
+                                    if ws_obj:
+                                        scored = [s for s in scored if str(ws_obj.resolved_path) in s[0].file_path]
                                 scored.sort(key=lambda s: s[1], reverse=True)
                                 top = scored[:3]
-                                snippet_lines = [f"### Semantic Search Context for: '{query}'"]
+                                prefix = f"[{repo_scope}] " if repo_scope else ""
+                                snippet_lines = [f"### Semantic Search Context for: '{prefix}{query}'"]
                                 for chunk, score in top:
                                     snippet_lines.append(
                                         f"```{chunk.chunk_type}\n# {chunk.file_path}:{chunk.start_line}-{chunk.end_line} (score: {score:.2f})\n{chunk.content}\n```"

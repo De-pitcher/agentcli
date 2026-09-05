@@ -305,6 +305,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="Force re-indexing of workspace code chunks before searching",
     )
 
+    mesh_p = sub.add_parser(
+        "mesh",
+        help="Manage and orchestrate monorepo mesh and multi-repository workspaces (Phase 25)",
+        parents=[sub_common_parser],
+    )
+    mesh_sub = mesh_p.add_subparsers(dest="mesh_command", required=True)
+
+    mesh_sub.add_parser(
+        "list",
+        help="List all discovered and configured workspace roots in the mesh",
+        parents=[sub_common_parser],
+    )
+
+    mesh_sub.add_parser(
+        "graph",
+        help="Display dependency DAG and topological build order for monorepo workspaces",
+        parents=[sub_common_parser],
+    )
+
+    mesh_search_p = mesh_sub.add_parser(
+        "search",
+        help="Perform cross-repository semantic vector search across the mesh",
+        parents=[sub_common_parser],
+    )
+    mesh_search_p.add_argument("query", help="Natural language query or symbol description")
+    mesh_search_p.add_argument("--repo", default=None, help="Scope search to a specific repository/workspace name")
+    mesh_search_p.add_argument("--top-k", type=int, default=None, help="Maximum number of search results to return")
+    mesh_search_p.add_argument("--threshold", type=float, default=None, help="Minimum cosine similarity threshold (0.0 to 1.0)")
+    mesh_search_p.add_argument("--index", action="store_true", help="Force re-indexing across all workspace roots")
+
+    mesh_run_p = mesh_sub.add_parser(
+        "run",
+        help="Execute an autonomous goal task across workspaces in topological dependency order",
+        parents=[sub_common_parser],
+    )
+    mesh_run_p.add_argument("task", help="Goal or task description to execute across projects")
+    mesh_run_p.add_argument("--repos", default=None, help="Comma-separated subset of workspace names to target")
+
     mcp_p = sub.add_parser(
         "mcp",
         help="Run agentcli as a Model Context Protocol (MCP) stdio JSON-RPC server",
@@ -1021,6 +1059,107 @@ async def run_search(args: argparse.Namespace, config: Config) -> int:
         store.close()
 
 
+async def run_mesh(args: argparse.Namespace, config: Config) -> int:
+    """Execute monorepo mesh command (Phase 25)."""
+    from .mesh import MultiRepoIndex, ProjectDependencyGraph, WorkspaceRegistry
+
+    mesh_cmd = getattr(args, "mesh_command", None)
+    registry = WorkspaceRegistry()
+    registry.load_from_config(config.mesh.workspaces)
+    if config.mesh.auto_discover and not registry.list_workspaces():
+        registry.auto_discover(max_depth=config.mesh.discovery_depth)
+
+    graph = ProjectDependencyGraph(registry)
+
+    if mesh_cmd == "list":
+        workspaces = registry.list_workspaces()
+        if not workspaces:
+            print("No workspaces discovered or configured in the monorepo mesh.")
+            return ExitCode.SUCCESS
+
+        print(f"\nMonorepo Mesh Workspaces ({len(workspaces)} registered):\n")
+        for ws in workspaces:
+            deps = ", ".join(ws.dependencies) if ws.dependencies else "-"
+            tags = f" [{', '.join(ws.tags)}]" if ws.tags else ""
+            print(f"  * {ws.name:<16} ({ws.workspace_type.value:<7}) -> {ws.path}{tags}")
+            if ws.dependencies:
+                print(f"      dependencies: {deps}")
+            if ws.description:
+                print(f"      description:  {ws.description}")
+        print()
+        return ExitCode.SUCCESS
+
+    elif mesh_cmd == "graph":
+        print(f"\n{graph.render_ascii_tree()}\n")
+        return ExitCode.SUCCESS
+
+    elif mesh_cmd == "search":
+        from .embeddings import EmbeddingEngine, VectorStore
+
+        query = getattr(args, "query", "")
+        repo = getattr(args, "repo", None)
+        top_k = getattr(args, "top_k", None) or config.embeddings.max_results
+        threshold = getattr(args, "threshold", None) or config.embeddings.similarity_threshold
+
+        store = VectorStore(db_path=config.embeddings.cache_path or None)
+        engine = EmbeddingEngine(config=config.openrouter, model=config.embeddings.model)
+        m_index = MultiRepoIndex(
+            registry=registry,
+            store=store,
+            engine=engine,
+            similarity_threshold=threshold,
+            max_results=top_k,
+        )
+
+        try:
+            if getattr(args, "index", False):
+                await m_index.index_all()
+
+            results = await m_index.search(query=query, repo=repo, top_k=top_k, threshold=threshold)
+            if not results:
+                target_str = f" in repository '{repo}'" if repo else " across monorepo mesh"
+                print(f"No semantic matches found for '{query}'{target_str} (similarity threshold: {threshold:.2f}).")
+                return ExitCode.SUCCESS
+
+            print(f"\nFound {len(results)} cross-repo semantic match(es) for '{query}':\n")
+            for i, res in enumerate(results, 1):
+                score_pct = f"{res.score * 100:.1f}%"
+                print(f"[{i}] [{res.workspace}] {res.file_path}:{res.result.start_line}-{res.result.end_line} ({res.result.chunk.chunk_type}, similarity: {score_pct})")
+                print(f"    {res.content.splitlines()[0] if res.content else ''}")
+            print()
+            return ExitCode.SUCCESS
+        finally:
+            store.close()
+
+    elif mesh_cmd == "run":
+        task_str = getattr(args, "task", "")
+        repos = getattr(args, "repos", None)
+        target_workspaces = [r.strip() for r in repos.split(",")] if repos else None
+
+        try:
+            build_order = graph.topological_sort(target_workspaces)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[mesh error] Dependency resolution failed: {exc}")
+            return ExitCode.GENERAL_ERROR
+
+        print(f"\nExecuting task across monorepo mesh in topological order: {' -> '.join(build_order)}\n")
+        from .session import AgentSession
+
+        for ws_name in build_order:
+            ws_obj = registry.get(ws_name)
+            ws_path = ws_obj.resolved_path if ws_obj else Path.cwd()
+            print(f"--- Running step for workspace: [{ws_name}] ({ws_path}) ---")
+            session = AgentSession(config=config)
+            scoped_task = f"In workspace '{ws_name}' ({ws_path}): {task_str}"
+            async for _event in session.run_loop(scoped_task):
+                pass
+            print(f"Completed workspace: [{ws_name}]\n")
+
+        return ExitCode.SUCCESS
+
+    return ExitCode.GENERAL_ERROR
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1054,6 +1193,11 @@ def main(argv: list[str] | None = None) -> int:
             reg.load_plugin_file(p)
         return run_mcp(registry=reg)
 
+    if args.command == "mesh":
+        try:
+            return asyncio.run(run_mesh(args, config))
+        except KeyboardInterrupt:
+            return ExitCode.USER_INTERRUPT
     if args.command == "search":
         try:
             return asyncio.run(run_search(args, config))

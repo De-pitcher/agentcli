@@ -52,6 +52,25 @@ class WorkspaceAgent(SubAgent):
         operation = payload.get("operation", "git_status")
         root_dir = Path(payload.get("path") or ".").resolve()
 
+        # Support scoped monorepo target workspace routing
+        target_ws = payload.get("target_workspace") or payload.get("workspace")
+        if target_ws and not payload.get("path"):
+            try:
+                from ..config import load_config
+                from ..mesh import WorkspaceRegistry
+
+                registry = WorkspaceRegistry()
+                cfg = load_config()
+                registry.load_from_config(cfg.mesh.workspaces)
+                if cfg.mesh.auto_discover and not registry.list_workspaces():
+                    registry.auto_discover(max_depth=cfg.mesh.discovery_depth)
+
+                ws_obj = registry.get(str(target_ws))
+                if ws_obj:
+                    root_dir = ws_obj.resolved_path
+            except Exception:  # noqa: BLE001,S110
+                pass
+
         if operation == "git_status":
             return await self._git_status(task.id, root_dir)
         elif operation == "search_files":
