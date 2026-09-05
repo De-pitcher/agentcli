@@ -207,6 +207,20 @@ See [docs/packaging.md](docs/packaging.md) for full deployment instructions.
 
 ---
 
+## 📚 Documentation & Technical Guides
+
+Comprehensive architecture and developer guides:
+- [Multi-Agent Swarm, Peer Delegation & Consensus Engine](docs/subagents_and_swarm.md)
+- [Full-Screen Interactive TUI Dashboard](docs/tui_dashboard.md)
+- [Autonomous Project Watcher & Continuous TDD Loop](docs/watcher_tdd.md)
+- [Production Readiness & Host Execution Guidelines](docs/production_readiness.md)
+- [Model Context Protocol (MCP) Integration](docs/mcp.md)
+- [Public API Reference](docs/api.md)
+- [Plugin Development Guide](docs/plugins.md)
+- [Performance & Benchmarks Report](docs/benchmarks.md)
+
+---
+
 ## 📚 Architecture Decision Records (ADRs)
 
 Key architectural decisions are documented in [docs/adr/](docs/adr/):
@@ -232,6 +246,9 @@ Key architectural decisions are documented in [docs/adr/](docs/adr/):
 - **Phase 19: MCP Client & Dynamic External Tool Integrations** ✅
 - **Phase 20: Multi-Agent Swarm & Peer Delegation** ✅
 - **Phase 21: Full-Screen Interactive TUI Dashboard** ✅
+- **Phase 22: Autonomous Project Watcher & Continuous TDD Loop** ✅
+- **Phase 23: Production Architecture Documentation & Ecosystem Guides** ✅
+- **Phases 24–26: Semantic Vector Search, Cross-Repo Mesh & Benchmark Arena** 🔜
 
 ---
 
