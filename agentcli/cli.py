@@ -276,6 +276,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip initial test execution on startup",
     )
 
+    search_p = sub.add_parser(
+        "search",
+        help="Perform semantic vector code search across the workspace (Phase 24)",
+        parents=[sub_common_parser],
+    )
+    search_p.add_argument("query", help="Natural language query or symbol description")
+    search_p.add_argument(
+        "--top-k",
+        type=int,
+        default=None,
+        help="Maximum number of search results to return",
+    )
+    search_p.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Minimum cosine similarity threshold (0.0 to 1.0)",
+    )
+    search_p.add_argument(
+        "--filter",
+        default=None,
+        help="Filter search results by file path or extension (e.g. .py, src/)",
+    )
+    search_p.add_argument(
+        "--index",
+        action="store_true",
+        help="Force re-indexing of workspace code chunks before searching",
+    )
+
     mcp_p = sub.add_parser(
         "mcp",
         help="Run agentcli as a Model Context Protocol (MCP) stdio JSON-RPC server",
@@ -928,8 +957,68 @@ def run_config(args: argparse.Namespace, config: Config) -> int:
         print(f"memory.budget_ratio     = {config.memory.budget_ratio}")
         print(f"memory.max_cache_entries = {config.memory.max_cache_entries}")
         print(f"memory.max_cache_bytes  = {config.memory.max_cache_bytes}")
+        print(f"embeddings.enabled      = {config.embeddings.enabled}")
+        print(f"embeddings.model        = {config.embeddings.model}")
+        print(f"embeddings.threshold    = {config.embeddings.similarity_threshold}")
+        print(f"embeddings.max_results  = {config.embeddings.max_results}")
         return ExitCode.SUCCESS
     return ExitCode.GENERAL_ERROR
+
+
+async def run_search(args: argparse.Namespace, config: Config) -> int:
+    """Execute semantic code search across workspace (Phase 24)."""
+    from .embeddings import EmbeddingEngine, VectorIndex, VectorStore
+
+    renderer = ConsoleRenderer(plain=getattr(args, "plain", False), no_color=getattr(args, "no_color", False))
+    query = getattr(args, "query", "")
+    top_k = getattr(args, "top_k", None) or config.embeddings.max_results
+    threshold = getattr(args, "threshold", None) or config.embeddings.similarity_threshold
+    file_filter = getattr(args, "filter", None)
+    force_index = getattr(args, "index", False)
+
+    db_path = config.embeddings.cache_path or None
+    store = VectorStore(db_path=db_path)
+    engine = EmbeddingEngine(
+        config=config.openrouter,
+        model=config.embeddings.model,
+        batch_size=config.embeddings.batch_size,
+    )
+    index = VectorIndex(
+        store=store,
+        engine=engine,
+        similarity_threshold=threshold,
+        max_results=top_k,
+    )
+
+    try:
+        with renderer.status_spinner("Indexing workspace code chunks..."):
+            newly_indexed = await index.index_workspace(root=".", force=force_index)
+        if newly_indexed > 0:
+            logger.info("Indexed %d new code chunks.", newly_indexed)
+
+        with renderer.status_spinner(f"Searching for: '{query}'..."):
+            results = await index.search(
+                query=query,
+                top_k=top_k,
+                threshold=threshold,
+                file_filter=file_filter,
+            )
+
+        if not results:
+            print(f"No semantic matches found for '{query}' (similarity threshold: {threshold:.2f}).")
+            return ExitCode.SUCCESS
+
+        print(f"\nFound {len(results)} semantic match(es) for '{query}':\n")
+        for i, res in enumerate(results, 1):
+            score_pct = f"{res.score * 100:.1f}%"
+            header = f"[{i}] {res.file_path}:{res.start_line}-{res.end_line} ({res.chunk.chunk_type}, similarity: {score_pct})"
+            print(header)
+            renderer.render_file_preview(res.file_path, res.content)
+            print()
+
+        return ExitCode.SUCCESS
+    finally:
+        store.close()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -965,6 +1054,11 @@ def main(argv: list[str] | None = None) -> int:
             reg.load_plugin_file(p)
         return run_mcp(registry=reg)
 
+    if args.command == "search":
+        try:
+            return asyncio.run(run_search(args, config))
+        except KeyboardInterrupt:
+            return ExitCode.USER_INTERRUPT
     if args.command == "run":
         try:
             return asyncio.run(run_goal(args, config))

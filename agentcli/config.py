@@ -261,6 +261,31 @@ class WatcherConfig:
 
 
 @dataclass
+class EmbeddingsConfig:
+    """Configuration for semantic code embeddings and vector search (Phase 24).
+
+    Fields:
+        enabled:              Whether semantic vector indexing is enabled.
+        model:                OpenRouter embeddings model (default: 'openai/text-embedding-3-small').
+        batch_size:           Batch size for API embedding requests.
+        cache_path:           Custom override path for SQLite vector database.
+        similarity_threshold: Minimum cosine similarity score (0.0 to 1.0) for search results.
+        max_results:          Default maximum number of search results to return.
+        chunk_max_lines:      Maximum line count per code chunk.
+        chunk_overlap_lines:  Overlap lines between consecutive code chunks.
+    """
+
+    enabled: bool = True
+    model: str = "openai/text-embedding-3-small"
+    batch_size: int = 32
+    cache_path: str = ""
+    similarity_threshold: float = 0.30
+    max_results: int = 5
+    chunk_max_lines: int = 60
+    chunk_overlap_lines: int = 10
+
+
+@dataclass
 class Config:
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     app: AppConfig = field(default_factory=AppConfig)
@@ -270,6 +295,7 @@ class Config:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
     watcher: WatcherConfig = field(default_factory=WatcherConfig)
+    embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
 
 
 def _platform_config_path() -> Path:
@@ -531,6 +557,22 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
             if isinstance(s_cfg, dict)
         },
         watcher=watcher_cfg,
+        embeddings=EmbeddingsConfig(
+            enabled=bool(raw.get("embeddings", {}).get("enabled", True)),
+            model=str(raw.get("embeddings", {}).get("model", "openai/text-embedding-3-small")),
+            batch_size=_parse_int(raw.get("embeddings", {}).get("batch_size"), "embeddings.batch_size", 32),
+            cache_path=str(raw.get("embeddings", {}).get("cache_path", "")),
+            similarity_threshold=_parse_float(
+                raw.get("embeddings", {}).get("similarity_threshold"), "embeddings.similarity_threshold", 0.30
+            ),
+            max_results=_parse_int(raw.get("embeddings", {}).get("max_results"), "embeddings.max_results", 5),
+            chunk_max_lines=_parse_int(
+                raw.get("embeddings", {}).get("chunk_max_lines"), "embeddings.chunk_max_lines", 60
+            ),
+            chunk_overlap_lines=_parse_int(
+                raw.get("embeddings", {}).get("chunk_overlap_lines"), "embeddings.chunk_overlap_lines", 10
+            ),
+        ),
     )
 
 

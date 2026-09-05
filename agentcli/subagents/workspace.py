@@ -90,6 +90,21 @@ class WorkspaceAgent(SubAgent):
             return await self._git_worktree(
                 task.id, root_dir, worktree_path, branch_name=branch_name, action=action
             )
+        elif operation == "semantic_search":
+            query = payload.get("query", "")
+            if not query:
+                return SubAgentResult(
+                    task_id=task.id,
+                    agent_type=self.agent_type,
+                    success=False,
+                    error="No search query provided for semantic_search",
+                )
+            top_k = int(payload.get("top_k", 5))
+            threshold = float(payload.get("threshold", 0.30))
+            file_filter = payload.get("file_filter")
+            return await self._semantic_search(
+                task.id, root_dir, query, top_k=top_k, threshold=threshold, file_filter=file_filter
+            )
         else:
             return SubAgentResult(
                 task_id=task.id,
@@ -410,4 +425,55 @@ class WorkspaceAgent(SubAgent):
                 success=False,
                 error=f"Git worktree execution failed: {exc}",
             )
+
+    async def _semantic_search(
+        self,
+        task_id: str,
+        root_dir: Path,
+        query: str,
+        top_k: int = 5,
+        threshold: float = 0.30,
+        file_filter: str | None = None,
+    ) -> SubAgentResult:
+        """Perform semantic code search using VectorIndex."""
+        from ..embeddings import VectorIndex, VectorStore
+
+        store = VectorStore()
+        try:
+            index = VectorIndex(store=store, similarity_threshold=threshold, max_results=top_k)
+            await index.index_workspace(root=root_dir)
+            matches = await index.search(
+                query=query, top_k=top_k, threshold=threshold, file_filter=file_filter
+            )
+            formatted_matches = [
+                {
+                    "file_path": m.file_path,
+                    "start_line": m.start_line,
+                    "end_line": m.end_line,
+                    "chunk_type": m.chunk.chunk_type,
+                    "similarity": round(m.score, 4),
+                    "content": m.content,
+                }
+                for m in matches
+            ]
+            return SubAgentResult(
+                task_id=task_id,
+                agent_type=self.agent_type,
+                success=True,
+                output={
+                    "query": query,
+                    "match_count": len(formatted_matches),
+                    "matches": formatted_matches,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            return SubAgentResult(
+                task_id=task_id,
+                agent_type=self.agent_type,
+                success=False,
+                error=f"Semantic search failed: {exc}",
+            )
+        finally:
+            store.close()
+
 
