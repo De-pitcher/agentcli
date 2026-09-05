@@ -286,6 +286,34 @@ class EmbeddingsConfig:
 
 
 @dataclass
+class WorkspaceConfig:
+    """Configured workspace within a monorepo mesh."""
+
+    name: str
+    path: str
+    dependencies: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    description: str = ""
+
+
+@dataclass
+class MeshConfig:
+    """Configuration for monorepo mesh and multi-repository orchestration (Phase 25).
+
+    Fields:
+        enabled:         Whether multi-repo mesh features are enabled.
+        auto_discover:   Whether to automatically scan for sub-projects with manifests.
+        discovery_depth: Maximum directory recursion depth for workspace auto-discovery.
+        workspaces:      Explicitly configured workspace roots.
+    """
+
+    enabled: bool = True
+    auto_discover: bool = True
+    discovery_depth: int = 3
+    workspaces: list[WorkspaceConfig] = field(default_factory=list)
+
+
+@dataclass
 class Config:
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     app: AppConfig = field(default_factory=AppConfig)
@@ -296,6 +324,7 @@ class Config:
     mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
     watcher: WatcherConfig = field(default_factory=WatcherConfig)
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
+    mesh: MeshConfig = field(default_factory=MeshConfig)
 
 
 def _platform_config_path() -> Path:
@@ -572,6 +601,32 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
             chunk_overlap_lines=_parse_int(
                 raw.get("embeddings", {}).get("chunk_overlap_lines"), "embeddings.chunk_overlap_lines", 10
             ),
+        ),
+        mesh=MeshConfig(
+            enabled=bool(raw.get("mesh", {}).get("enabled", True)),
+            auto_discover=bool(raw.get("mesh", {}).get("auto_discover", True)),
+            discovery_depth=_parse_int(
+                raw.get("mesh", {}).get("discovery_depth"), "mesh.discovery_depth", 3
+            ),
+            workspaces=[
+                WorkspaceConfig(
+                    name=str(w.get("name", "")),
+                    path=str(w.get("path", "")),
+                    dependencies=[str(d) for d in w.get("dependencies", [])],
+                    tags=[str(t) for t in w.get("tags", [])],
+                    description=str(w.get("description", "")),
+                )
+                for w in (
+                    raw.get("mesh", {}).get("workspaces", [])
+                    if isinstance(raw.get("mesh", {}).get("workspaces"), list)
+                    else (
+                        [{"name": k, **v} for k, v in raw.get("mesh", {}).get("workspaces", {}).items() if isinstance(v, dict)]
+                        if isinstance(raw.get("mesh", {}).get("workspaces"), dict)
+                        else []
+                    )
+                )
+                if isinstance(w, dict) and w.get("name") and w.get("path")
+            ],
         ),
     )
 
