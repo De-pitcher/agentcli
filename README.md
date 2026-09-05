@@ -94,9 +94,44 @@ agentcli --plugin examples/custom_tool_plugin.py chat
 
 ---
 
-## 🔌 Model Context Protocol (MCP) Server
+## 🖥️ Full-Screen Interactive TUI Dashboard (`agentcli tui`)
 
-`agentcli` can run as a zero-dependency **MCP JSON-RPC stdio server**, exposing built-in sub-agent tools (`file_ops`, `shell_execution`, `code_analyzer`, `web_search`, `workspace`) and custom plugins to external agent hosts like Claude Desktop, Antigravity, or Cursor:
+Launch an interactive split-pane terminal user interface with live sub-agent tree visualization, token speedometer, and budget progress gauge:
+
+```bash
+agentcli tui
+agentcli tui --budget medium --max-cost 0.50
+```
+
+- **Pane 1**: Conversation Stream with live markdown rendering
+- **Pane 2**: Live Sub-Agent Tree & Tool Execution
+- **Pane 3**: Speedometer & USD Budget Gauge
+- **Shortcuts**: `Tab` (focus pane), `Ctrl+O` (step diff view), `Ctrl+H` (session history), `Ctrl+C` (cancel/exit).
+
+---
+
+## 🔄 Autonomous Project Watcher & Continuous TDD Loop (`agentcli watch`)
+
+Run an autonomous continuous test runner that monitors your codebase, detects failing tests on save, and autonomously generates and verifies fixes inside an isolated Git worktree:
+
+```bash
+# Watch project, run pytest on changes, and preview verified repair patches
+agentcli watch
+
+# Automatically apply verified patches to the working tree
+agentcli watch --auto-apply --test-cmd "pytest tests/fast"
+
+# Configure debounce, thermal cooldown, and strict budget ceilings
+agentcli watch --debounce 2.0 --cooldown 5.0 --max-cost 0.25 --budget low
+```
+
+---
+
+## 🔌 Model Context Protocol (MCP) Server & Client
+
+`agentcli` provides full bidirectional **Model Context Protocol (MCP)** support:
+- **MCP Server (`agentcli mcp`)**: Exposes built-in tools and plugins via zero-dependency JSON-RPC stdio.
+- **MCP Client**: Connects dynamically to external MCP servers configured in `[mcp_servers.<name>]` in `agentcli.toml`.
 
 ```bash
 agentcli mcp

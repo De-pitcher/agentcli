@@ -215,6 +215,67 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum cumulative session cost budget in USD",
     )
 
+    watch_p = sub.add_parser(
+        "watch",
+        help="Run autonomous project watcher and continuous TDD repair daemon",
+        parents=[sub_common_parser],
+    )
+    watch_p.add_argument(
+        "--test-cmd",
+        default=None,
+        help="Test command to execute on change (default: 'python -m pytest')",
+    )
+    watch_p.add_argument(
+        "--debounce",
+        type=float,
+        default=None,
+        help="Debounce interval in seconds to coalesce rapid file saves (default: 1.5)",
+    )
+    watch_p.add_argument(
+        "--cooldown",
+        type=float,
+        default=None,
+        help="Thermal and rate-limit cooldown period in seconds between runs (default: 5.0)",
+    )
+    watch_p.add_argument(
+        "--auto-apply",
+        action="store_true",
+        help="Automatically apply verified repair patches to working tree",
+    )
+    watch_p.add_argument(
+        "--max-cost",
+        type=float,
+        default=None,
+        help="Maximum cumulative session cost budget in USD",
+    )
+    watch_p.add_argument(
+        "--budget",
+        choices=["low", "medium", "high"],
+        default=None,
+        help="Budget tier for model selection during repair (low=free/fast, medium=balanced, high=frontier)",
+    )
+    watch_p.add_argument(
+        "--model",
+        help="Force a specific model for repair, bypassing automatic routing",
+    )
+    watch_p.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help="Maximum repair agent loop iterations (default: 5)",
+    )
+    watch_p.add_argument(
+        "--paths",
+        action="append",
+        default=None,
+        help="Directories or files to watch (repeatable, default: current directory)",
+    )
+    watch_p.add_argument(
+        "--no-initial",
+        action="store_true",
+        help="Skip initial test execution on startup",
+    )
+
     mcp_p = sub.add_parser(
         "mcp",
         help="Run agentcli as a Model Context Protocol (MCP) stdio JSON-RPC server",
@@ -921,6 +982,13 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             return asyncio.run(run_tui(args, config))
+        except KeyboardInterrupt:
+            return ExitCode.USER_INTERRUPT
+    if args.command == "watch":
+        from .watcher import run_watch
+
+        try:
+            return asyncio.run(run_watch(args, config))
         except KeyboardInterrupt:
             return ExitCode.USER_INTERRUPT
     if args.command == "sessions":
