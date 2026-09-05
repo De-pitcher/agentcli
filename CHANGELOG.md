@@ -3,6 +3,18 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.0] - 2026-09-05
+
+### Added — Phase 20: Multi-Agent Swarm & Peer Delegation
+- **Recursive Peer Delegation Protocol (`agentcli.subagents.base`, `agentcli.subagents.bus`)**:
+  - Implemented `SubAgent.delegate()` enabling sub-agents to asynchronously dispatch tasks directly to sibling sub-agents via `MessageBus.delegate_task()`.
+  - Added bounded recursion (`depth`, `max_depth = 3`) and cycle detection (`delegation_path`) to `SubAgentTask` to eliminate runaway spawning loops.
+- **Spawner Event Dispatch (`agentcli.subagents.spawner`)**:
+  - Wired `PEER_DELEGATE` listener in `SubAgentSpawner` to execute peer requests through managed agent pools under single-worker concurrency guardrails.
+- **Multi-Agent Consensus & Peer Debate Engine (`agentcli.subagents.consensus`)**:
+  - Implemented `ConsensusEngine`, `AgentVote`, `ConsensusResult`, and `ConsensusStrategy` supporting `MAJORITY`, `SUPERMAJORITY`, `UNANIMOUS`, `WEIGHTED`, and `PLURALITY` voting.
+  - Implemented multi-round `debate_and_converge()` allowing agents to review prior round arguments and converge on optimal decisions.
+
 ## [2.1.0] - 2026-09-05
 
 ### Added — Phase 19: MCP Client & Dynamic External Tool Integrations

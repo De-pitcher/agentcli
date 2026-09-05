@@ -9,7 +9,7 @@ models, and is designed to run comfortably alongside other CLI agents
 - Single-model & auto-routed chat with fallback chains
 - Autonomous non-interactive execution via `agentcli run "<task>"`
 - Interactive in-session slash commands (`/help`, `/budget`, `/model`, `/goal`, `/tokens`, `/cost`, `/clear`, `/reset`, `/exit`)
-- Modular sub-agent system with Git branch & isolated worktree isolation
+- Modular sub-agent system with Git branch & worktree isolation, recursive peer delegation, and multi-agent consensus debate
 - In-process Plan → Act → Reflect agent loop with LLM-assisted goal reflection
 - Local SQLite conversation memory persistence with real-time token & cost tracking
 - Bounded LRU context caching and dynamic token budget reconciliation
@@ -194,6 +194,7 @@ Key architectural decisions are documented in [docs/adr/](docs/adr/):
 - **Phases 13–17: Autonomous Execution, Dynamic Budgeting & Resilient Agent Loops** ✅
 - **Phase 18: v2.0.0 Production Release & Developer Ergonomics** ✅
 - **Phase 19: MCP Client & Dynamic External Tool Integrations** ✅
+- **Phase 20: Multi-Agent Swarm & Peer Delegation** ✅
 
 ---
 
