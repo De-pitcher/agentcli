@@ -49,9 +49,8 @@ def read_file_for_context(path: str | Path, cache: ContextCache | None = None) -
 
 def expand_file_references(text: str, cache: ContextCache | None = None) -> str:
     """
-    Expands @path/to/file tokens in user input into fenced file content blocks
-    appended after the message text. Minimal v1: any whitespace-delimited
-    token starting with '@' (length > 1) is treated as a file reference.
+    Expands @path/to/file and @semantic:<query> tokens in user input into fenced
+    content blocks appended after the message text.
     Missing/oversized/binary references raise FileReadError so the caller can
     surface a clear message instead of silently dropping context.
     """
@@ -70,7 +69,34 @@ def expand_file_references(text: str, cache: ContextCache | None = None) -> str:
         for tok in tokens:
             if tok.startswith("@") and len(tok) > 1:
                 clean_tok = tok.rstrip(".,;:?!)]}\"'")
-                file_blocks.append(read_file_for_context(clean_tok[1:], cache=cache))
+                ref = clean_tok[1:]
+                if ref.startswith(("semantic:", "find:")):
+                    query = ref.split(":", 1)[1].replace("_", " ")
+                    try:
+                        from .embeddings import VectorIndex, VectorStore
+
+                        store = VectorStore()
+                        index = VectorIndex(store=store)
+                        records = store.get_all_for_model(index.engine.model)
+                        if records:
+                            # Synchronous dot-product search with fallback embedding
+                            q_vec = index.engine._deterministic_fallback_vector(query) if hasattr(index.engine, "_deterministic_fallback_vector") else None
+                            if q_vec:
+                                from .embeddings.index import _dot_product
+
+                                scored = [(chunk, _dot_product(q_vec, vec)) for chunk, vec in records]
+                                scored.sort(key=lambda s: s[1], reverse=True)
+                                top = scored[:3]
+                                snippet_lines = [f"### Semantic Search Context for: '{query}'"]
+                                for chunk, score in top:
+                                    snippet_lines.append(
+                                        f"```{chunk.chunk_type}\n# {chunk.file_path}:{chunk.start_line}-{chunk.end_line} (score: {score:.2f})\n{chunk.content}\n```"
+                                    )
+                                file_blocks.append("\n".join(snippet_lines))
+                    except Exception:  # noqa: BLE001,S110
+                        pass
+                else:
+                    file_blocks.append(read_file_for_context(ref, cache=cache))
                 has_file_ref = True
             else:
                 line_parts.append(tok)
