@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 from prompt_toolkit.document import Document
 
 from agentcli.cli import build_parser
@@ -22,6 +23,16 @@ def test_build_parser_plain_and_no_color_flags() -> None:
     args = parser.parse_args(["--plain", "--no-color", "chat"])
     assert args.plain is True
     assert args.no_color is True
+
+    # Also test passing flags after the subparser command
+    args_after = parser.parse_args(["chat", "--plain", "--no-color"])
+    assert args_after.plain is True
+    assert args_after.no_color is True
+
+    args_run = parser.parse_args(["run", "my goal", "--plain"])
+    assert args_run.plain is True
+    assert args_run.goal == "my goal"
+
 
 
 def test_get_history_file_path() -> None:
@@ -101,3 +112,14 @@ def test_console_renderer_status_spinner_rich(monkeypatch) -> None:
     with renderer.status_spinner("Testing spinner..."):
         executed = True
     assert executed is True
+
+
+@pytest.mark.asyncio
+async def test_interactive_prompt_async_fallback(monkeypatch, tmp_path: Path) -> None:
+    """Test get_input_async in fallback/non-interactive mode."""
+    prompt = InteractivePrompt(history_file=tmp_path / "hist", plain=True)
+    monkeypatch.setattr("builtins.input", lambda _: "async prompt input")
+    val = await prompt.get_input_async("you> ")
+    assert val == "async prompt input"
+
+

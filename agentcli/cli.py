@@ -38,37 +38,73 @@ logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="agentcli",
-        description="Budget-conscious, model-agnostic AI agent CLI (OpenRouter-backed).",
+    common_parser = argparse.ArgumentParser(add_help=False)
+    common_parser.add_argument(
+        "--verbose", action="store_true", help="Enable verbose (DEBUG) logging"
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
-    parser.add_argument(
+    common_parser.add_argument(
         "--plain",
         action="store_true",
         help="Disable rich formatting and interactive prompts",
     )
-    parser.add_argument(
+    common_parser.add_argument(
         "--no-color",
         action="store_true",
         help="Disable ANSI color output",
     )
-    parser.add_argument(
+    common_parser.add_argument(
         "--preset",
         choices=["coding", "chat", "minimal"],
         help="Apply a workflow preset (e.g. coding, chat, minimal)",
     )
-    parser.add_argument(
+    common_parser.add_argument(
         "--plugin",
         action="append",
         default=[],
         help="Load a custom tool plugin Python file (repeatable)",
     )
 
+    sub_common_parser = argparse.ArgumentParser(add_help=False)
+    sub_common_parser.add_argument(
+        "--verbose", action="store_true", default=argparse.SUPPRESS, help="Enable verbose (DEBUG) logging"
+    )
+    sub_common_parser.add_argument(
+        "--plain",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Disable rich formatting and interactive prompts",
+    )
+    sub_common_parser.add_argument(
+        "--no-color",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Disable ANSI color output",
+    )
+    sub_common_parser.add_argument(
+        "--preset",
+        choices=["coding", "chat", "minimal"],
+        default=argparse.SUPPRESS,
+        help="Apply a workflow preset (e.g. coding, chat, minimal)",
+    )
+    sub_common_parser.add_argument(
+        "--plugin",
+        action="append",
+        default=argparse.SUPPRESS,
+        help="Load a custom tool plugin Python file (repeatable)",
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="agentcli",
+        description="Budget-conscious, model-agnostic AI agent CLI (OpenRouter-backed).",
+        parents=[common_parser],
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+
     sub = parser.add_subparsers(dest="command", required=True)
 
-    chat_p = sub.add_parser("chat", help="Start an interactive chat session")
+    chat_p = sub.add_parser(
+        "chat", help="Start an interactive chat session", parents=[sub_common_parser]
+    )
     chat_p.add_argument("--model", help="Force a specific model, bypassing automatic routing")
     chat_p.add_argument(
         "--file",
@@ -109,7 +145,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum cumulative session cost budget in USD",
     )
 
-    run_p = sub.add_parser("run", help="Autonomously execute a multi-turn goal")
+    run_p = sub.add_parser(
+        "run", help="Autonomously execute a multi-turn goal", parents=[sub_common_parser]
+    )
     run_p.add_argument("goal", help="The goal or task description to accomplish")
     run_p.add_argument("--model", help="Force a specific model, bypassing automatic routing")
     run_p.add_argument(
@@ -148,7 +186,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     mcp_p = sub.add_parser(
-        "mcp", help="Run agentcli as a Model Context Protocol (MCP) stdio JSON-RPC server"
+        "mcp",
+        help="Run agentcli as a Model Context Protocol (MCP) stdio JSON-RPC server",
+        parents=[sub_common_parser],
     )
     mcp_p.add_argument(
         "--allow-write",
@@ -156,29 +196,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="Permit mutating file operations (write, create, delete, mkdir)",
     )
 
-    sessions_p = sub.add_parser("sessions", help="Manage persisted conversation sessions")
+    sessions_p = sub.add_parser(
+        "sessions", help="Manage persisted conversation sessions", parents=[sub_common_parser]
+    )
     sessions_sub = sessions_p.add_subparsers(dest="sessions_command", required=True)
 
-    list_p = sessions_sub.add_parser("list", help="List recent conversation sessions")
+    list_p = sessions_sub.add_parser(
+        "list", help="List recent conversation sessions", parents=[sub_common_parser]
+    )
     list_p.add_argument(
         "--limit", type=int, default=20, help="Maximum sessions to list (default: 20)"
     )
 
-    show_p = sessions_sub.add_parser("show", help="Show message history for a session")
+    show_p = sessions_sub.add_parser(
+        "show", help="Show message history for a session", parents=[sub_common_parser]
+    )
     show_p.add_argument("session_id", help="Session ID to inspect")
 
-    clear_p = sessions_sub.add_parser("clear", help="Clear all stored conversation sessions")
+    clear_p = sessions_sub.add_parser(
+        "clear", help="Clear all stored conversation sessions", parents=[sub_common_parser]
+    )
     clear_p.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
 
-    config_p = sub.add_parser("config", help="Manage agentcli configuration")
+    config_p = sub.add_parser(
+        "config", help="Manage agentcli configuration", parents=[sub_common_parser]
+    )
     config_sub = config_p.add_subparsers(dest="config_command", required=True)
-    init_p = config_sub.add_parser("init", help="Write a default config file")
+    init_p = config_sub.add_parser(
+        "init", help="Write a default config file", parents=[sub_common_parser]
+    )
     init_p.add_argument(
         "--local",
         action="store_true",
         help="Write config to agentcli.toml in the current working directory",
     )
-    config_sub.add_parser("show", help="Print the resolved configuration")
+    config_sub.add_parser(
+        "show", help="Print the resolved configuration", parents=[sub_common_parser]
+    )
 
     return parser
 
@@ -250,7 +304,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
     try:
         while True:
             try:
-                user_input = interactive_prompt.get_input("you> ").strip()
+                user_input = (await interactive_prompt.get_input_async("you> ")).strip()
             except EOFError:
                 break
             except KeyboardInterrupt:

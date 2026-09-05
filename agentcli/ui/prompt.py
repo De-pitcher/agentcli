@@ -6,6 +6,7 @@ commands and @file references, and seamless fallback for automated/non-TTY envir
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -101,14 +102,8 @@ class InteractivePrompt:
         """Return True if prompt_toolkit can run interactively on stdout/stdin."""
         return sys.stdin.isatty() and sys.stdout.isatty() and not self.plain
 
-    def get_input(self, prompt_text: str = "you> ") -> str:
-        """Prompt the user for input using prompt_toolkit or fallback to input()."""
-        if self._session is not None and self.is_interactive:
-            return self._session.prompt(
-                [("class:prompt", f"\n{prompt_text}")],
-            )
-
-        # Non-TTY / scripted fallback with multi-line trailing backslash support
+    def _fallback_input(self, prompt_text: str = "you> ") -> str:
+        """Non-TTY / scripted fallback with multi-line trailing backslash support."""
         lines: list[str] = []
         while True:
             prompt = f"\n{prompt_text}" if not lines else "... "
@@ -119,3 +114,20 @@ class InteractivePrompt:
             lines.append(line)
             break
         return "\n".join(lines)
+
+    async def get_input_async(self, prompt_text: str = "you> ") -> str:
+        """Prompt the user for input asynchronously using prompt_toolkit or fallback."""
+        if self._session is not None and self.is_interactive:
+            return await self._session.prompt_async(
+                [("class:prompt", f"\n{prompt_text}")],
+            )
+        return await asyncio.to_thread(self._fallback_input, prompt_text)
+
+    def get_input(self, prompt_text: str = "you> ") -> str:
+        """Prompt the user for input using prompt_toolkit (sync) or fallback."""
+        if self._session is not None and self.is_interactive:
+            return self._session.prompt(
+                [("class:prompt", f"\n{prompt_text}")],
+            )
+        return self._fallback_input(prompt_text)
+
