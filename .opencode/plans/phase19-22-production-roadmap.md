@@ -36,7 +36,7 @@ Enable `agentcli` to act not only as an MCP server, but as a full **MCP Client**
 
 ---
 
-## Phase 20: Multi-Agent Swarm & Peer Delegation
+## Phase 20: Multi-Agent Swarm & Peer Delegation [COMPLETED ✅]
 
 ### 🎯 Goal
 Elevate `agentcli`'s sub-agent architecture from a centralized hub-and-spoke loop (`AgentLoop` -> single sub-agent) to dynamic, recursive peer-to-peer delegation where specialized sub-agents can recruit sibling sub-agents to solve complex, multi-faceted problems.
