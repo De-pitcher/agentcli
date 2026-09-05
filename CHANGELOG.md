@@ -3,6 +3,20 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.1.0] - 2026-09-05
+
+### Added — Phase 19: MCP Client & Dynamic External Tool Integrations
+- **Asynchronous JSON-RPC 2.0 MCP Client (`agentcli.mcp.client`)**:
+  - Implemented `MCPClient` supporting stdio transport, lifecycle management, initialization handshake (`initialize`), dynamic tool discovery (`tools/list`), and execution (`tools/call`) with configurable timeouts and process teardown.
+- **MCP Tool Adapter (`agentcli.mcp.adapter`)**:
+  - Implemented `MCPToolAgent` sub-agent wrapper and `mcp_tool_to_openrouter_schema` for OpenAI/OpenRouter-compatible function calling schemas.
+- **MCP Client Manager (`agentcli.mcp.manager`)**:
+  - Implemented `MCPClientManager` managing multi-server lifecycle, registering external MCP tools into `ToolRegistry`, and providing function-calling schemas to `OpenRouterClient`.
+- **Configuration Support (`agentcli.config`)**:
+  - Added `[mcp_servers.<name>]` configuration parsing support.
+- **Session & CLI Lifecycle Wiring (`agentcli.session`, `agentcli.cli`)**:
+  - Wired MCP client initialization and cleanup into `AgentSession`, `run_chat`, and `run_goal`.
+
 ## [2.0.0] - 2026-09-05
 
 ### Added — Phase 18: v2.0.0 Production Release & Developer Ergonomics

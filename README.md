@@ -13,7 +13,7 @@ models, and is designed to run comfortably alongside other CLI agents
 - In-process Plan → Act → Reflect agent loop with LLM-assisted goal reflection
 - Local SQLite conversation memory persistence with real-time token & cost tracking
 - Bounded LRU context caching and dynamic token budget reconciliation
-- Model Context Protocol (MCP) JSON-RPC stdio server for host integration
+- Model Context Protocol (MCP) bidirectional JSON-RPC stdio server and client for dynamic external tool integrations
 - Custom tool plugins & workflow presets (`coding`, `chat`, `minimal`)
 - Automatic project instruction loading via `AGENTS.md`
 
@@ -193,6 +193,7 @@ Key architectural decisions are documented in [docs/adr/](docs/adr/):
 - **Phases 8–12: Advanced Memory, Multi-agent Benchmarks & Sandboxing** ✅
 - **Phases 13–17: Autonomous Execution, Dynamic Budgeting & Resilient Agent Loops** ✅
 - **Phase 18: v2.0.0 Production Release & Developer Ergonomics** ✅
+- **Phase 19: MCP Client & Dynamic External Tool Integrations** ✅
 
 ---
 
