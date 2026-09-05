@@ -3,6 +3,25 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.9.0] - 2026-09-05
+
+### Added — Phase 28: UI/UX Visual Modernization, Terminal Aesthetics Overhaul & Frame Snapshot Testing
+- **Unified Design Tokens & Color Palette (`agentcli.ui.theme`)**:
+  - Semantic ANSI 256 / 24-bit truecolor design tokens for role badges, tool indicators, telemetry metrics, diff views, and alerts.
+  - Box drawing utilities (`draw_box`) with automatic UTF-8 Unicode (`BOX_ROUNDED`, `BOX_SQUARE`, `BOX_DOUBLE`) and plain ASCII fallback for legacy/restricted terminals.
+  - Component badge rendering (`render_badge`) and visual progress bar formatting (`render_progress_bar`).
+- **Interactive TUI Modal Inspectors (`agentcli.ui.tui_app.TUIApplication`)**:
+  - Step Diff Inspector modal (`Ctrl+O`) displaying unified diffs for touched workspace files.
+  - Session Timeline Browser modal (`Ctrl+H`) for chronological conversation and step history review.
+  - Seamless keyboard navigation (`Escape` to close modals, `Tab` focus cycling).
+- **Rich Terminal Rendering Extensions (`agentcli.ui.render.ConsoleRenderer`)**:
+  - `render_step_tree()`: Hierarchical visual execution trees for multi-agent plan monitoring with status badges (`[DONE]`, `[RUNNING]`, `[PENDING]`).
+  - `render_diff_preview()`: Colored unified diff containers with line count summaries (`+N / -N`).
+  - `render_telemetry_banner()`: Compact token, latency, and budget status banner.
+- **Virtual Terminal Buffer & Frame Snapshot Testing (`agentcli.ui.snapshot`, `tests/test_ui_snapshots.py`)**:
+  - `VirtualTerminalBuffer` supporting line truncation, ANSI strip assertions, and column overflow verification (preventing horizontal wrapping on 80/120 column terminals).
+  - 9 automated frame layout and snapshot tests verifying UI component alignment and width constraints.
+
 ## [2.8.0] - 2026-09-05
 
 ### Added — Phase 27: Real-World Seam Audit & End-to-End Dataflow Hardening
