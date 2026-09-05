@@ -3,6 +3,29 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.5.0] - 2026-09-05
+
+### Added — Phase 24: Semantic Vector Search & Codebase Knowledge Embeddings (`agentcli search`)
+- **Language-Aware AST & Section Code Chunking (`agentcli.embeddings.chunker`)**:
+  - Python AST parser extracting functions, async functions, classes, and module docstrings with exact line ranges and SHA-256 content hashes.
+  - Markdown header section parser chunking documents by `#` headings (`#`, `##`, `###`).
+  - Generic sliding-window chunker with configurable lines and overlap for other languages (`.ts`, `.js`, `.rs`, `.go`, `.java`, `.cpp`, `.c`, `.rb`, `.php`, `.yaml`, `.json`).
+- **Persistent SQLite Vector Store (`agentcli.embeddings.store.VectorStore`)**:
+  - Thread-safe SQLite vector store with WAL mode, parameterized queries, and composite indices on `(chunk_id, sha256, model)`.
+  - Full CRUD operations, batch saves, staleness pruning (`delete_file_chunks`), and index statistics.
+- **Embedding Engine with Deterministic Fallbacks (`agentcli.embeddings.engine.EmbeddingEngine`)**:
+  - Async OpenRouter `/embeddings` API client (`openai/text-embedding-3-small`, batching, retries).
+  - Deterministic feature-hashing fallback embeddings for zero-network testing and offline development.
+- **Cosine Similarity Search Engine (`agentcli.embeddings.index.VectorIndex`)**:
+  - In-memory vector similarity ranking with configurable thresholds and top-k filtering.
+  - Workspace indexing with automatic cache hit skipping on unchanged SHA-256 hashes.
+- **CLI Subcommand `agentcli search` (`agentcli.cli`)**:
+  - Added `search` subcommand supporting natural language queries, `--top-k`, `--threshold`, `--filter`, `--index`, and colorized syntax previews.
+- **Context Injection Token `@semantic:<query>` (`agentcli.files`)**:
+  - Dynamic token expansion in chat prompts injecting the most relevant code chunks into context.
+- **Autonomous Sub-Agent Semantic Search (`agentcli.subagents.workspace.WorkspaceAgent`)**:
+  - Added `operation="semantic_search"` tool capability for multi-agent autonomous research and grounding.
+
 ## [2.4.0] - 2026-09-05
 
 ### Added — Phase 22: Autonomous Project Watcher & Continuous TDD Loop (`agentcli watch`)

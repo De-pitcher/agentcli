@@ -17,7 +17,27 @@ import httpx
 if TYPE_CHECKING:
     from ..openrouter_client import OpenRouterConfig
 
-logger = logging.getLogger(__name__)
+import re
+
+
+def _tokenize_for_embedding(text: str) -> list[str]:
+    """Extract words, sub-identifiers (snake_case/camelCase), and n-grams."""
+    raw_tokens = re.findall(r"[A-Za-z0-9_]+", text)
+    tokens: list[str] = []
+    for tok in raw_tokens:
+        tok_clean = tok.strip("_")
+        if not tok_clean:
+            continue
+        tok_lower = tok_clean.lower()
+        tokens.append(tok_lower)
+        # Split camelCase and snake_case sub-words
+        subwords = re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\W|$)|\d+", tok_clean)
+        if len(subwords) > 1:
+            for sub in subwords:
+                s_lower = sub.lower()
+                if len(s_lower) > 1 and s_lower != tok_lower:
+                    tokens.append(s_lower)
+    return tokens
 
 
 def _normalize_vector(vec: list[float]) -> list[float]:
@@ -29,17 +49,34 @@ def _normalize_vector(vec: list[float]) -> list[float]:
 
 
 def _deterministic_fallback_vector(text: str, dimensions: int = 256) -> list[float]:
-    """Deterministic token hash embedding used when offline or without API key."""
+    """Deterministic token feature-hashing embedding (Phase 24).
+
+    Used when offline or without an API key to provide accurate lexical & subword
+    cosine similarity matching across codebases.
+    """
     vec = [0.0] * dimensions
-    tokens = text.lower().split()
+    tokens = _tokenize_for_embedding(text)
     if not tokens:
         return vec
+
     for token in tokens:
-        digest = hashlib.sha256(token.encode("utf-8")).digest()
-        for i in range(min(dimensions, len(digest))):
-            val = float(digest[i]) - 128.0
-            vec[i] += val
+        # Full token hashing (weight 2.0)
+        h = int(hashlib.sha256(token.encode("utf-8")).hexdigest()[:12], 16)
+        idx = h % dimensions
+        vec[idx] += 2.0
+
+        # Character 3-grams for subword matching (e.g., 'auth' in 'authenticate')
+        if len(token) >= 3:
+            for j in range(len(token) - 2):
+                ngram = token[j : j + 3]
+                nh = int(hashlib.md5(ngram.encode("utf-8")).hexdigest()[:8], 16)
+                nidx = nh % dimensions
+                vec[nidx] += 0.5
+
     return _normalize_vector(vec)
+
+
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingEngine:
