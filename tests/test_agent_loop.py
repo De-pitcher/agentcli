@@ -701,3 +701,55 @@ class TestObservabilityAndCancellation:
             pass
 
         assert task.cancelled()
+
+
+class TestLLMReflector:
+    @pytest.mark.asyncio
+    async def test_llm_reflector_replan_decision(self) -> None:
+        from agentcli.agent.reflector import LLMReflector, ReflectDecision
+
+        class MockClient:
+            async def chat_stream(self, messages, model=None):
+                yield '{"decision": "REPLAN", "reason": "More file writes needed."}'
+
+        reflector = LLMReflector(client=MockClient())  # type: ignore[arg-type]
+        plan = [{"agent_type": "file_ops"}]
+        results = [_make_result(True)]
+
+        outcome = await reflector.areflect("Compound goal", plan, results)
+        assert outcome.decision == ReflectDecision.REPLAN
+        assert "More file writes needed." in outcome.reason
+
+    @pytest.mark.asyncio
+    async def test_llm_reflector_finish_decision(self) -> None:
+        from agentcli.agent.reflector import LLMReflector, ReflectDecision
+
+        class MockClient:
+            async def chat_stream(self, messages, model=None):
+                yield '```json\n{"decision": "FINISH", "reason": "All steps verified completely."}\n```'
+
+        reflector = LLMReflector(client=MockClient())  # type: ignore[arg-type]
+        plan = [{"agent_type": "file_ops"}]
+        results = [_make_result(True)]
+
+        outcome = await reflector.areflect("Single goal", plan, results)
+        assert outcome.decision == ReflectDecision.FINISH
+        assert "All steps verified completely." in outcome.reason
+
+    @pytest.mark.asyncio
+    async def test_llm_reflector_fallback_on_error(self) -> None:
+        from agentcli.agent.reflector import LLMReflector, ReflectDecision
+
+        class BrokenClient:
+            async def chat_stream(self, messages, model=None):
+                raise RuntimeError("API timeout")
+                yield ""  # pragma: no cover
+
+        reflector = LLMReflector(client=BrokenClient())  # type: ignore[arg-type]
+        plan = [{"agent_type": "file_ops"}]
+        results = [_make_result(True)]
+
+        # Should fall back to heuristic (which decides FINISH for 0 failures)
+        outcome = await reflector.areflect("Test goal", plan, results)
+        assert outcome.decision == ReflectDecision.FINISH
+

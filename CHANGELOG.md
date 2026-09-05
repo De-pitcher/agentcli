@@ -3,9 +3,27 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [2.0.0] - 2026-09-05
 
-### Added — Phase 12: Release Evidence & MVP Launch Gate
+### Added — Phase 18: v2.0.0 Production Release & Developer Ergonomics
+- **In-Session Interactive Slash Commands (`agentcli.ui.prompt`, `agentcli.cli`)**:
+  - Added `/help`, `/budget [tier]`, `/model [model|auto]`, `/goal <task>`, `/tokens`, `/cost`, `/clear`, `/reset`, `/exit`, `/quit`.
+  - Added dynamic completion in `SlashAndFileCompleter`.
+- **LLM-Assisted Compound Goal Reflector (`agentcli.agent.reflector`, `agentcli.agent.loop`)**:
+  - Implemented `LLMReflector` providing intelligent multi-turn evaluation of compound goals with seamless continuation across iterations.
+- **Git Branch & Isolated Worktree Tool Adapters (`agentcli.subagents.workspace`, `agentcli.tools_schema`)**:
+  - Added `git_branch` and `git_worktree` operations for isolated agent experimentation.
+- **Subparser Option Inheritance (`agentcli.cli`)**:
+  - Global flags (`--plain`, `--no-color`, `--verbose`, `--preset`, `--plugin`) are inherited with `default=SUPPRESS` across all subparsers.
+
+### Added — Phases 13–17: MVP to Production-Ready Autonomous CLI
+- **Native OpenRouter Function Calling & Dual-Engine Fallback (Phase 13)**: Direct tool payloads with system prompt JSON fallback for simpler models.
+- **Terminal UI Overhaul (Phase 14)**: Multiline editing, persistent history, syntax-aware cursor navigation via `prompt_toolkit` and `rich`.
+- **Autonomous Workspace Context & Git Grounding (Phase 15)**: Automatic `git status`/`git diff` context injection and `search_codebase` tool.
+- **Autonomous Goal Execution Loop `agentcli run` (Phase 16)**: Headless multi-turn Plan -> Act -> Reflect loop with `--allow-write` autonomy.
+- **Budget-Aware Multi-Agent Orchestration & Cost Tracking (Phase 17)**: `--budget {low,medium,high}`, `--max-cost <USD>`, token pricing matrix, and live cost calculation.
+
+## [1.0.0] - 2026-09-04
 
 - **MVP Contract Definition & Release Audit (`.workspace/10_phase12-release-evidence/RELEASE_EVIDENCE.md`)**:
   - Defined explicit v1.0.0 contract: supported OS matrix (Windows 11 & Linux), Python version bounds (3.11–3.14), default OpenRouter provider, tool capability boundaries (`file_ops`, `shell_execution`, `code_analyzer`, `web_search`), and safety guarantees.

@@ -62,12 +62,13 @@ class TestReleaseVersionAlignment:
             data = tomllib.load(f)
 
         project_version = data.get("project", {}).get("version")
-        assert project_version == "1.0.0"
-        assert agentcli.__version__ == "1.0.0"
+        assert project_version == "2.0.0"
+        assert agentcli.__version__ == "2.0.0"
 
         res = _run_cli(["--version"])
         assert res.returncode == 0
-        assert "1.0.0" in res.stdout
+        assert "2.0.0" in res.stdout
+
 
 
 class TestReleaseBuildArtifacts:

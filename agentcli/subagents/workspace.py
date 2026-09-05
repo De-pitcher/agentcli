@@ -79,6 +79,17 @@ class WorkspaceAgent(SubAgent):
         elif operation == "list_tree":
             max_depth = int(payload.get("max_depth", 2))
             return self._list_tree(task.id, root_dir, max_depth)
+        elif operation == "git_branch":
+            branch_name = payload.get("branch_name", "")
+            action = payload.get("action", "create")
+            return await self._git_branch(task.id, root_dir, branch_name, action=action)
+        elif operation == "git_worktree":
+            worktree_path = payload.get("worktree_path", "")
+            branch_name = payload.get("branch_name")
+            action = payload.get("action", "create")
+            return await self._git_worktree(
+                task.id, root_dir, worktree_path, branch_name=branch_name, action=action
+            )
         else:
             return SubAgentResult(
                 task_id=task.id,
@@ -283,3 +294,114 @@ class WorkspaceAgent(SubAgent):
                 "tree": tree,
             },
         )
+
+    async def _git_branch(
+        self, task_id: str, root_dir: Path, branch_name: str, action: str = "create"
+    ) -> SubAgentResult:
+        if not branch_name:
+            return SubAgentResult(
+                task_id=task_id,
+                agent_type=self.agent_type,
+                success=False,
+                error="No branch_name provided for git_branch",
+            )
+        try:
+            if action == "create":
+                cmd = ["git", "checkout", "-b", branch_name]
+            elif action == "delete":
+                cmd = ["git", "branch", "-D", branch_name]
+            else:
+                cmd = ["git", "checkout", branch_name]
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(root_dir),
+            )
+            out, err = await proc.communicate()
+            if proc.returncode == 0:
+                return SubAgentResult(
+                    task_id=task_id,
+                    agent_type=self.agent_type,
+                    success=True,
+                    output={
+                        "action": action,
+                        "branch": branch_name,
+                        "message": out.decode(errors="replace").strip()
+                        or f"Branch operation '{action}' succeeded.",
+                    },
+                )
+            return SubAgentResult(
+                task_id=task_id,
+                agent_type=self.agent_type,
+                success=False,
+                error=err.decode(errors="replace").strip() or "Git branch operation failed",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return SubAgentResult(
+                task_id=task_id,
+                agent_type=self.agent_type,
+                success=False,
+                error=f"Git branch execution failed: {exc}",
+            )
+
+    async def _git_worktree(
+        self,
+        task_id: str,
+        root_dir: Path,
+        worktree_path: str,
+        branch_name: str | None = None,
+        action: str = "create",
+    ) -> SubAgentResult:
+        if not worktree_path:
+            return SubAgentResult(
+                task_id=task_id,
+                agent_type=self.agent_type,
+                success=False,
+                error="No worktree_path provided for git_worktree",
+            )
+        try:
+            if action == "create":
+                cmd = ["git", "worktree", "add"]
+                if branch_name:
+                    cmd.extend(["-b", branch_name])
+                cmd.append(worktree_path)
+            elif action == "remove":
+                cmd = ["git", "worktree", "remove", "--force", worktree_path]
+            else:
+                cmd = ["git", "worktree", "list"]
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(root_dir),
+            )
+            out, err = await proc.communicate()
+            if proc.returncode == 0:
+                return SubAgentResult(
+                    task_id=task_id,
+                    agent_type=self.agent_type,
+                    success=True,
+                    output={
+                        "action": action,
+                        "worktree_path": worktree_path,
+                        "message": out.decode(errors="replace").strip()
+                        or f"Worktree operation '{action}' succeeded.",
+                    },
+                )
+            return SubAgentResult(
+                task_id=task_id,
+                agent_type=self.agent_type,
+                success=False,
+                error=err.decode(errors="replace").strip() or "Git worktree operation failed",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return SubAgentResult(
+                task_id=task_id,
+                agent_type=self.agent_type,
+                success=False,
+                error=f"Git worktree execution failed: {exc}",
+            )
+

@@ -21,13 +21,19 @@ from prompt_toolkit.styles import Style
 
 
 class SlashAndFileCompleter(Completer):
-    """Completer for slash commands (/exit, /quit, /help) and @file references."""
+    """Completer for slash commands (/exit, /quit, /help, /budget, /model, /goal, /tokens, /cost, /clear, /reset) and @file references."""
 
     SLASH_COMMANDS: ClassVar[list[tuple[str, str]]] = [
+        ("/help", "Show help, slash commands, and shortcuts"),
+        ("/budget", "View or set budget tier (low, medium, high)"),
+        ("/model", "View or switch active model (or 'auto')"),
+        ("/goal", "Run an autonomous multi-step goal loop"),
+        ("/tokens", "Show current session token usage breakdown"),
+        ("/cost", "Show current session estimated cost"),
+        ("/clear", "Clear terminal screen"),
+        ("/reset", "Reset session history and start fresh"),
         ("/exit", "Exit agentcli"),
         ("/quit", "Exit agentcli"),
-        ("/help", "Show help and shortcuts"),
-        ("/clear", "Clear screen"),
     ]
 
     def __init__(self) -> None:

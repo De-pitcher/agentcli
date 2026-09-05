@@ -180,3 +180,30 @@ async def test_planner_heuristic_workspace() -> None:
     assert res.success is True
     plan = res.output["plan"]
     assert any(step["agent_type"] == "workspace" for step in plan)
+
+
+@pytest.mark.asyncio
+async def test_workspace_git_branch_and_worktree_validation(tmp_path: Path) -> None:
+    """Test parameter validation for git_branch and git_worktree."""
+    agent = WorkspaceAgent()
+
+    # Empty branch name
+    res_b = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.WORKSPACE,
+            payload={"operation": "git_branch", "path": str(tmp_path)},
+        )
+    )
+    assert res_b.success is False
+    assert "No branch_name" in str(res_b.error)
+
+    # Empty worktree path
+    res_w = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.WORKSPACE,
+            payload={"operation": "git_worktree", "path": str(tmp_path)},
+        )
+    )
+    assert res_w.success is False
+    assert "No worktree_path" in str(res_w.error)
+

@@ -28,7 +28,7 @@ from .openrouter_client import (
     RateLimitedError,
 )
 from .routing.classifier import classify
-from .routing.router import NoAvailableModelError
+from .routing.router import NoAvailableModelError, Router
 from .session import AgentSession
 from .ui.prompt import InteractivePrompt
 from .ui.render import ConsoleRenderer
@@ -315,6 +315,122 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 continue
             if user_input in {"/exit", "/quit"}:
                 break
+
+            # --- IN-SESSION SLASH COMMANDS (Phase 18) ---------------------
+            if user_input == "/help":
+                if renderer.is_rich_enabled:
+                    renderer.console.print(
+                        "\n[bold cyan]Available Slash Commands:[/bold cyan]\n"
+                        "  [bold]/help[/bold]                 Show this help message\n"
+                        "  [bold]/budget [tier][/bold]        View or set budget tier ([green]low[/green], [yellow]medium[/yellow], [red]high[/red])\n"
+                        "  [bold]/model [model|auto][/bold]   View or switch active model (or return to auto-routing)\n"
+                        "  [bold]/goal <description>[/bold]   Run an autonomous multi-step goal loop directly in chat\n"
+                        "  [bold]/tokens[/bold]               Show current session token usage breakdown\n"
+                        "  [bold]/cost[/bold]                 Show current session estimated cost in USD\n"
+                        "  [bold]/clear[/bold]                Clear terminal screen\n"
+                        "  [bold]/reset[/bold]                Reset conversation history and start fresh\n"
+                        "  [bold]/exit, /quit[/bold]          Exit agentcli\n"
+                    )
+                else:
+                    print(
+                        "\nAvailable Slash Commands:\n"
+                        "  /help                 Show this help message\n"
+                        "  /budget [tier]        View or set budget tier (low, medium, high)\n"
+                        "  /model [model|auto]   View or switch active model (or auto routing)\n"
+                        "  /goal <description>   Run an autonomous multi-step goal loop\n"
+                        "  /tokens               Show current session token usage breakdown\n"
+                        "  /cost                 Show current session estimated cost in USD\n"
+                        "  /clear                Clear terminal screen\n"
+                        "  /reset                Reset conversation history and start fresh\n"
+                        "  /exit, /quit          Exit agentcli\n"
+                    )
+                continue
+
+            if user_input.startswith("/budget"):
+                parts = user_input.split(maxsplit=1)
+                if len(parts) == 1:
+                    current_tier = config.routing.budget_tier
+                    print(f"Current budget tier: {current_tier}")
+                else:
+                    tier = parts[1].strip().lower()
+                    if tier in {"low", "medium", "high"}:
+                        config.routing.budget_tier = tier
+                        if session.router is not None:
+                            session.router._budget_tier = tier
+                        print(f"Budget tier updated to: {tier}")
+                    else:
+                        print(f"Invalid budget tier '{tier}'. Choose from: low, medium, high")
+                continue
+
+            if user_input.startswith("/model"):
+                parts = user_input.split(maxsplit=1)
+                if len(parts) == 1:
+                    active = forced_model or "auto (task-based routing)"
+                    print(f"Current model: {active}")
+                else:
+                    target_model = parts[1].strip()
+                    if target_model.lower() == "auto":
+                        forced_model = None
+                        session.forced_model = None
+                        if session.registry is not None:
+                            session.router = Router(
+                                session.registry,
+                                config.routing.max_fallbacks,
+                                budget_tier=config.routing.budget_tier,
+                            )
+                        print("Switched to auto model routing.")
+                    else:
+                        forced_model = target_model
+                        session.forced_model = target_model
+                        session.router = None
+                        print(f"Forced model set to: {target_model}")
+                continue
+
+            if user_input in {"/tokens", "/cost"}:
+                stats = await session.get_session_stats()
+                cost = session.cumulative_cost_usd
+                print(
+                    f"Token Usage: {stats['total_tokens']} total "
+                    f"({stats['user_tokens']} prompt, {stats['assistant_tokens']} completion)"
+                )
+                print(f"Estimated Cost: ${cost:.6f} USD")
+                continue
+
+            if user_input == "/clear":
+                renderer.clear()
+                continue
+
+            if user_input == "/reset":
+                session.history.clear()
+                await session.auto_ground_workspace()
+                print("Session reset. Conversation history cleared.")
+                continue
+
+            if user_input.startswith("/goal"):
+                parts = user_input.split(maxsplit=1)
+                if len(parts) < 2 or not parts[1].strip():
+                    print("Usage: /goal <task description>")
+                    continue
+                goal_text = parts[1].strip()
+                loop_summary: str | None = None
+                try:
+                    with renderer.status_spinner("Running autonomous goal loop..."):
+                        async for event in session.run_loop(goal_text):
+                            renderer.render_loop_event(event, verbose=verbose)
+                            if isinstance(event, FinishEvent):
+                                loop_summary = event.summary
+                                if getattr(event, "output", None):
+                                    loop_summary = f"{event.summary}\n\n{event.output}"
+                            elif isinstance(event, LoopErrorEvent):
+                                loop_summary = f"[loop error] {event.error}"
+                    await session.async_add_assistant_message(
+                        f"[Autonomous Goal: {goal_text}]\n{loop_summary or '(completed)'}"
+                    )
+                except LoopIterationLimitError as exc:
+                    print(f"\n[agent-loop] Iteration limit reached: {exc}")
+                except KeyboardInterrupt:
+                    print("\n[interrupted]")
+                continue
 
             try:
                 expanded = expand_file_references(user_input)

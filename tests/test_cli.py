@@ -773,3 +773,72 @@ async def test_run_goal_budget_exceeded(monkeypatch, capsys):
     assert "Budget limit exceeded" in out
 
 
+@pytest.mark.asyncio
+async def test_run_chat_slash_commands(monkeypatch, capsys):
+    from agentcli.cli import run_chat
+
+    inputs = [
+        "/help",
+        "/budget",
+        "/budget medium",
+        "/model",
+        "/model custom/test-model",
+        "/model auto",
+        "/tokens",
+        "/clear",
+        "/reset",
+        "/goal Test inline goal",
+        "/exit",
+    ]
+
+    class MockPrompt:
+        def __init__(self, *args, **kwargs):
+            self.lines = list(inputs)
+
+        async def get_input_async(self, prompt="you> "):
+            if self.lines:
+                return self.lines.pop(0)
+            return "/exit"
+
+    monkeypatch.setattr("agentcli.cli.InteractivePrompt", MockPrompt)
+
+    class MockLoop:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run(self):
+            from agentcli.agent.events import FinishEvent
+            yield FinishEvent(iteration=1, run_id="r1", summary="Goal accomplished", duration_seconds=0.1)
+
+    monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
+    monkeypatch.setattr("agentcli.session.AgentLoop", MockLoop)
+
+    args = argparse.Namespace(
+        model=None,
+        file=[],
+        no_agents_md=True,
+        show_model=False,
+        resume=None,
+        allow_write=False,
+        plain=True,
+        no_color=True,
+        budget=None,
+        max_cost=None,
+    )
+    config = Config()
+
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-dummy"}):
+        exit_code = await run_chat(args, config)
+        assert exit_code == ExitCode.SUCCESS
+
+    out, _ = capsys.readouterr()
+    assert "Available Slash Commands" in out
+    assert "Budget tier updated to: medium" in out
+    assert "Forced model set to: custom/test-model" in out
+    assert "Switched to auto model routing" in out
+    assert "Token Usage" in out
+    assert "Session reset" in out
+    assert "Goal accomplished" in out
+
+
+

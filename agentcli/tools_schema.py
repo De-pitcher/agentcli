@@ -124,13 +124,20 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "type": "function",
         "function": {
             "name": "workspace",
-            "description": "Inspect git status, search for files, search code contents, or list directory tree across the workspace repository.",
+            "description": "Inspect git status, search for files, search code contents, list directory tree, or manage git branches and isolated worktrees across the repository.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "operation": {
                         "type": "string",
-                        "enum": ["git_status", "search_files", "search_code", "list_tree"],
+                        "enum": [
+                            "git_status",
+                            "search_files",
+                            "search_code",
+                            "list_tree",
+                            "git_branch",
+                            "git_worktree",
+                        ],
                         "description": "Operation to perform",
                     },
                     "query": {
@@ -144,6 +151,19 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                     "path": {
                         "type": "string",
                         "description": "Target root directory path (default: current workspace)",
+                    },
+                    "branch_name": {
+                        "type": "string",
+                        "description": "Branch name for git_branch or git_worktree operations",
+                    },
+                    "worktree_path": {
+                        "type": "string",
+                        "description": "Destination path for git_worktree operations",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["create", "remove", "delete", "checkout", "list"],
+                        "description": "Action for git_branch or git_worktree operations",
                     },
                     "max_depth": {
                         "type": "integer",

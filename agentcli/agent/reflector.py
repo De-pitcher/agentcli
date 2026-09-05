@@ -7,11 +7,19 @@ pure (no I/O, no async) so it can be unit-tested without any mocks.
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..subagents.base import SubAgentResult
+
+if TYPE_CHECKING:
+    from ..config import Config
+    from ..openrouter_client import OpenRouterClient
+
+logger = logging.getLogger(__name__)
 
 
 class ReflectDecision(str, Enum):
@@ -162,4 +170,77 @@ class DefaultReflector:
         return ""
 
 
-__all__ = ["DefaultReflector", "ReflectDecision", "ReflectOutcome"]
+class LLMReflector(DefaultReflector):
+    """LLM-assisted reflector evaluating compound multi-step goal completion."""
+
+    def __init__(
+        self,
+        client: OpenRouterClient | None = None,
+        model: str | None = None,
+        config: Config | None = None,
+    ) -> None:
+        super().__init__()
+        self.client = client
+        self.model = model
+        self.config = config
+
+    async def areflect(
+        self,
+        goal: str,
+        plan: list[dict[str, Any]],
+        results: list[SubAgentResult],
+    ) -> ReflectOutcome:
+        heuristic = self.reflect(goal, plan, results)
+        if heuristic.decision != ReflectDecision.FINISH or not self.client:
+            return heuristic
+
+        prompt = (
+            f"Original user goal:\n{goal}\n\n"
+            f"Executed steps and results so far:\n"
+        )
+        for i, (p, r) in enumerate(zip(plan, results)):
+            step_type = p.get("agent_type", "step")
+            out_summary = str(r.output)[:300] if r.output else "success"
+            prompt += f"Step {i + 1} ({step_type}): {out_summary}\n"
+
+        prompt += (
+            "\nEvaluate if the user's overall goal is completely satisfied or if subsequent steps "
+            "are needed to finish the task.\n"
+            "Respond in strictly valid JSON with:\n"
+            '{"decision": "FINISH" or "REPLAN", "reason": "<brief explanation>"}'
+        )
+
+        try:
+            from ..openrouter_client import ChatMessage
+
+            target_model = self.model or "google/gemma-4-31b-it:free"
+            messages = [
+                ChatMessage(
+                    role="system",
+                    content="You are an autonomous agent loop reflector. Evaluate goal completeness in JSON format.",
+                ),
+                ChatMessage(role="user", content=prompt),
+            ]
+            response_text = ""
+            async for delta in self.client.chat_stream(messages, model=target_model):
+                response_text += delta
+
+            clean = response_text.strip()
+            if "```json" in clean:
+                clean = clean.split("```json", 1)[1].split("```", 1)[0].strip()
+            elif "```" in clean:
+                clean = clean.split("```", 1)[1].split("```", 1)[0].strip()
+
+            data = json.loads(clean)
+            dec_str = str(data.get("decision", "FINISH")).upper()
+            reason = str(data.get("reason", "Goal evaluated by LLM reflector."))
+            if dec_str == "REPLAN":
+                return ReflectOutcome(decision=ReflectDecision.REPLAN, reason=reason)
+            return ReflectOutcome(decision=ReflectDecision.FINISH, reason=reason)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("LLM reflection fallback to heuristic: %s", exc)
+            return heuristic
+
+
+__all__ = ["DefaultReflector", "LLMReflector", "ReflectDecision", "ReflectOutcome"]
+
