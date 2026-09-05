@@ -267,6 +267,18 @@ class AgentSession:
 
         return SessionReply(stream=stream, requested_primary=requested_primary)
 
+    async def step(self, user_text: str) -> str:
+        """Execute a single user turn, streaming and persisting the response, and return full reply."""
+        await self.async_add_user_message(user_text)
+        reply = await self.send(user_text)
+        chunks: list[str] = []
+        async for delta in reply.stream:
+            chunks.append(delta)
+        full_reply = "".join(chunks)
+        await self.async_add_assistant_message(full_reply)
+        self.mark_success(reply.requested_primary)
+        return full_reply
+
     # ------------------------------------------------------------------
     # Phase 4: agentic loop integration
     # ------------------------------------------------------------------

@@ -185,6 +185,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum cumulative execution cost budget in USD",
     )
 
+    tui_p = sub.add_parser(
+        "tui",
+        help="Launch full-screen interactive multi-pane TUI dashboard",
+        parents=[sub_common_parser],
+    )
+    tui_p.add_argument("--model", help="Force a specific model, bypassing automatic routing")
+    tui_p.add_argument(
+        "--file",
+        action="append",
+        default=[],
+        help="Include a file's contents as context (repeatable)",
+    )
+    tui_p.add_argument(
+        "--allow-write",
+        action="store_true",
+        help="Permit mutating file operations (write, create, delete, mkdir)",
+    )
+    tui_p.add_argument(
+        "--budget",
+        choices=["low", "medium", "high"],
+        default=None,
+        help="Budget tier for model selection (low=free/fast, medium=balanced, high=frontier)",
+    )
+    tui_p.add_argument(
+        "--max-cost",
+        type=float,
+        default=None,
+        help="Maximum cumulative session cost budget in USD",
+    )
+
     mcp_p = sub.add_parser(
         "mcp",
         help="Run agentcli as a Model Context Protocol (MCP) stdio JSON-RPC server",
@@ -885,6 +915,13 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             # Real SIGINT can surface here (e.g. delivered during async cleanup
             # on Windows) after the REPL already handled the first press.
+            return ExitCode.USER_INTERRUPT
+    if args.command == "tui":
+        from .ui.tui_app import run_tui
+
+        try:
+            return asyncio.run(run_tui(args, config))
+        except KeyboardInterrupt:
             return ExitCode.USER_INTERRUPT
     if args.command == "sessions":
         return run_sessions(args, config)
