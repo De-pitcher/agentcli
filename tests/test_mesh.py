@@ -348,7 +348,12 @@ async def test_cli_mesh_search_and_run_subcommands(capsys):
             plain=True,
             no_color=True,
         )
-        with patch("agentcli.session.AgentSession.run_loop") as mock_run:
+        from unittest.mock import MagicMock
+
+        with (
+            patch("agentcli.session.OpenRouterClient", return_value=MagicMock()),
+            patch("agentcli.session.AgentSession.run_loop") as mock_run,
+        ):
             async def _empty_async_gen(*_args, **_kwargs):
                 if False:
                     yield None
