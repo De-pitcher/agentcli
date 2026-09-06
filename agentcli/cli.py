@@ -671,6 +671,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     safe_print(
                         "[agent-loop] Multi-step task detected -- running Plan->Act->Reflect loop"
                     )
+                loop_summary = None
                 try:
                     with renderer.status_spinner("Thinking and planning steps..."):
                         async for event in session.run_loop(expanded):
@@ -698,7 +699,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
 
             # Determine routing decision before try block so it's available for error handling
             decision = None
-            trimmed = session._trim_history()
+            trimmed = session.get_grounded_history()
             try:
                 if session.router is not None:
                     decision = session.router.decide(classify(expanded))

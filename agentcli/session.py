@@ -273,6 +273,16 @@ class AgentSession:
                 rate_limited=rate_limited,
             )
 
+    def get_grounded_history(self, max_context_tokens: int | None = None) -> list[ChatMessage]:
+        """Return trimmed history with environment grounding injected if no system instructions exist."""
+        trimmed = self._trim_history(max_context_tokens=max_context_tokens)
+        if not any(m.role == "system" for m in trimmed):
+            env_msg = ChatMessage(
+                role="system", content=build_environment_system_prompt(self.config)
+            )
+            return [env_msg, *trimmed]
+        return trimmed
+
     async def send(self, text_for_classification: str) -> SessionReply:
         decision = None
         if self.router is not None:
@@ -280,15 +290,7 @@ class AgentSession:
 
         requested_primary = decision.primary if decision is not None else self.forced_model
         context_window = self._resolve_context_window(requested_primary)
-        trimmed = self._trim_history(max_context_tokens=context_window)
-
-        # Inject environment grounding if trimmed history has no system instructions
-        has_system = any(m.role == "system" for m in trimmed)
-        if not has_system:
-            env_msg = ChatMessage(
-                role="system", content=build_environment_system_prompt(self.config)
-            )
-            trimmed = [env_msg, *trimmed]
+        trimmed = self.get_grounded_history(max_context_tokens=context_window)
 
         if decision is not None:
             stream = self.client.chat_stream(trimmed, models=decision.models)
@@ -356,6 +358,7 @@ class AgentSession:
             reflect_model=loop_cfg.reflect_model_override or None,
             config=self.config,
             run_id=run_id,
+            initial_context=build_environment_system_prompt(self.config),
         )
 
         async for event in loop.run():

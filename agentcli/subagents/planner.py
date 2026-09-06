@@ -164,14 +164,29 @@ class PlannerAgent(SubAgent):
                 }
             )
 
-        # File operations
+        # File and directory operations
         if any(
             keyword in query_lower
-            for keyword in ["read", "write", "create", "delete", "list", "file"]
+            for keyword in [
+                "read",
+                "write",
+                "create",
+                "delete",
+                "list",
+                "file",
+                "directory",
+                "folder",
+                "dir",
+                "ls",
+                "contents",
+                "content",
+                "pwd",
+                "cwd",
+            ]
         ):
             files = self._extract_file_paths(query)
             operation = self._infer_file_operation(query)
-            path = files[0] if files else ""
+            path = files[0] if files else ("." if operation == "list" else "")
             # Set goal_criterion based on operation
             if operation == "read":
                 criterion = path if path else "file content"
@@ -180,7 +195,7 @@ class PlannerAgent(SubAgent):
             elif operation == "delete":
                 criterion = "file deleted"
             elif operation == "list":
-                criterion = "directory listed"
+                criterion = "items"
             else:
                 criterion = operation
             raw_tasks.append(
@@ -555,14 +570,27 @@ Example output:
     def _infer_file_operation(self, text: str) -> str:
         """Infer the file operation from text."""
         text_lower = text.lower()
-        if any(w in text_lower for w in ["read", "view", "show", "cat"]):
+        if any(
+            w in text_lower
+            for w in [
+                "list",
+                "ls",
+                "dir",
+                "directory",
+                "folder",
+                "contents",
+                "content",
+                "pwd",
+                "cwd",
+            ]
+        ):
+            return "list"
+        elif any(w in text_lower for w in ["read", "view", "show", "cat"]):
             return "read"
         elif any(w in text_lower for w in ["write", "create", "save"]):
             return "write"
         elif any(w in text_lower for w in ["delete", "remove", "rm"]):
             return "delete"
-        elif any(w in text_lower for w in ["list", "ls", "dir"]):
-            return "list"
         return "read"
 
     def _extract_command(self, text: str) -> str:
