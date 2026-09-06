@@ -811,6 +811,7 @@ class TestAgentLoopFinishOutputExtraction:
         res3 = _make_result(True, output={"summary": "All tests passed"})
 
         extracted = AgentLoop._extract_finish_output([res1, res2, res3])
+        assert extracted is not None
         assert "C:\\my\\workspace\\project" in extracted
         assert "Directory contents of C:\\my\\workspace:" in extracted
         assert "- README.md" in extracted
