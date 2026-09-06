@@ -225,7 +225,8 @@ async def test_mcp_default_file_ops_happy_and_denial(tmp_path):
     test_file.write_text("file content", encoding="utf-8")
 
     # Read-only default (no allow_write)
-    server = MCPServer()
+    registry = ToolRegistry(tool_configs={"file_ops": {"working_dir": str(tmp_path)}})
+    server = MCPServer(registry=registry)
 
     # Happy path: read
     req_read = {

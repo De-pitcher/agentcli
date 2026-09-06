@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from .memory.cache import ContextCache, get_default_context_cache
 
@@ -175,3 +176,86 @@ def load_agents_md(start_dir: str | Path | None = None) -> str | None:
         return f"### Project Instructions ({target.name})\n{content}"
     except Exception:  # noqa: BLE001
         return None
+
+
+def _handle_remove_readonly(func: Any, path: str, exc_info: Any) -> None:
+    """Error handler for shutil.rmtree that removes read-only attributes and retries."""
+    import os
+    import stat
+
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:  # noqa: BLE001,S110
+        pass
+
+
+def safe_rmtree(target: str | Path, max_retries: int = 5, retry_delay: float = 0.05) -> None:
+    """Safely remove a directory tree handling Windows file locks (WinError 32) and permissions.
+
+    Strategies:
+      1. Explicit garbage collection (`gc.collect()`) to close unreferenced file handles.
+      2. `shutil.rmtree` with read-only attribute clearing handler.
+      3. Exponential backoff retry loop on Windows `PermissionError` / `WinError 32` / `WinError 5`.
+    """
+    import gc
+    import shutil
+    import time
+
+    p = Path(target)
+    if not p.exists():
+        return
+
+    gc.collect()
+    for attempt in range(max_retries):
+        try:
+            shutil.rmtree(p, onerror=_handle_remove_readonly)
+            return
+        except Exception:  # noqa: BLE001
+            gc.collect()
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (2**attempt))
+            else:
+                try:
+                    shutil.rmtree(p, ignore_errors=True)
+                except Exception:  # noqa: BLE001,S110
+                    pass
+
+
+def safe_unlink(target: str | Path, max_retries: int = 5, retry_delay: float = 0.05) -> bool:
+    """Safely remove a single file handling Windows file locks and read-only attributes."""
+    import gc
+    import os
+    import stat
+    import time
+
+    p = Path(target)
+    if not p.exists():
+        return True
+
+    gc.collect()
+    for attempt in range(max_retries):
+        try:
+            if not os.access(p, os.W_OK):
+                os.chmod(p, stat.S_IWRITE)
+            p.unlink(missing_ok=True)
+            return True
+        except Exception:  # noqa: BLE001
+            gc.collect()
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (2**attempt))
+
+    return not p.exists()
+
+
+__all__ = [
+    "MAX_FILE_BYTES",
+    "FileReadError",
+    "expand_file_references",
+    "find_agents_md",
+    "load_agents_md",
+    "read_file_for_context",
+    "safe_rmtree",
+    "safe_unlink",
+]
+

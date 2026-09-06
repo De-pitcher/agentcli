@@ -9,10 +9,8 @@ the target model's context window.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from ..openrouter_client import ChatMessage
+from ..openrouter_client import ChatMessage
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +38,164 @@ def estimate_message_tokens(message: ChatMessage) -> int:
 def estimate_history_tokens(messages: list[ChatMessage]) -> int:
     """Estimate total tokens across a list of ChatMessages."""
     return sum(estimate_message_tokens(m) for m in messages)
+
+
+def prune_tool_output(content: str, max_chars: int = 1000) -> str:
+    """Tier 1: Truncate large tool output preserving head and tail excerpts.
+
+    Args:
+        content: Raw output string (e.g. large file contents or command stdout).
+        max_chars: Maximum character limit before truncation is applied.
+
+    Returns:
+        Pruned string with omitted character count notice.
+    """
+    if not content or len(content) <= max_chars:
+        return content
+
+    half = max_chars // 2
+    omitted = len(content) - max_chars
+    return (
+        f"{content[:half]}\n"
+        f"\n[... {omitted:,} characters omitted for context window budget ...]\n\n"
+        f"{content[-half:]}"
+    )
+
+
+def compress_history_tier1(
+    messages: list[ChatMessage],
+    max_tool_chars: int = 1000,
+) -> list[ChatMessage]:
+    """Tier 1 Compression: Prune oversized tool and assistant response outputs."""
+    compressed: list[ChatMessage] = []
+    for msg in messages:
+        if msg.role in ("tool", "assistant") and len(msg.content or "") > max_tool_chars:
+            compressed.append(
+                ChatMessage(
+                    role=msg.role,
+                    content=prune_tool_output(msg.content or "", max_chars=max_tool_chars),
+                )
+            )
+        else:
+            compressed.append(msg)
+    return compressed
+
+
+def compress_history_tier2(
+    messages: list[ChatMessage],
+    keep_recent_turns: int = 3,
+) -> list[ChatMessage]:
+    """Tier 2 Compression: Synthesize older turn pairs into a condensed fact summary."""
+    if not messages:
+        return []
+
+    system_msg: ChatMessage | None = None
+    chat_msgs = list(messages)
+
+    if chat_msgs and chat_msgs[0].role == "system":
+        system_msg = chat_msgs.pop(0)
+
+    recent_msg_count = keep_recent_turns * 2
+    if len(chat_msgs) <= recent_msg_count:
+        if system_msg is not None:
+            return [system_msg, *chat_msgs]
+        return chat_msgs
+
+    older_msgs = chat_msgs[:-recent_msg_count]
+    recent_msgs = chat_msgs[-recent_msg_count:]
+
+    # Synthesize older messages
+    summaries: list[str] = []
+    for i, m in enumerate(older_msgs):
+        prefix = f"[{m.role.upper()}]"
+        preview = (m.content or "").strip().replace("\n", " ")
+        if len(preview) > 120:
+            preview = f"{preview[:120]}..."
+        summaries.append(f"{prefix} {preview}")
+
+    summary_text = (
+        "[Previous Conversation Summary]\n"
+        + "\n".join(f"- {s}" for s in summaries)
+        + "\n[End of Summary]"
+    )
+    summary_msg = ChatMessage(role="user", content=summary_text)
+
+    result: list[ChatMessage] = []
+    if system_msg is not None:
+        result.append(system_msg)
+    result.append(summary_msg)
+    result.extend(recent_msgs)
+    return result
+
+
+def emergency_context_reset(
+    messages: list[ChatMessage],
+    user_goal: str = "",
+    touched_files: list[str] | None = None,
+) -> list[ChatMessage]:
+    """Tier 3 Compression: Extreme context reset preserving system prompt, goal, and files."""
+    system_msg: ChatMessage | None = None
+    for msg in messages:
+        if msg.role == "system":
+            system_msg = msg
+            break
+
+    files_clause = ""
+    if touched_files:
+        files_clause = f"\nTouched Workspace Files: {', '.join(touched_files)}"
+
+    reset_notice = (
+        f"[Emergency Context Budget Reset]\n"
+        f"Active Goal: {user_goal or 'Continue executing current task'}{files_clause}\n"
+        f"Please proceed with the next step."
+    )
+
+    last_user_or_tool_msg = messages[-1] if messages else ChatMessage(role="user", content=user_goal)
+    result: list[ChatMessage] = []
+    if system_msg is not None:
+        result.append(system_msg)
+    result.append(ChatMessage(role="user", content=reset_notice))
+    if last_user_or_tool_msg != system_msg and last_user_or_tool_msg.content != reset_notice:
+        result.append(last_user_or_tool_msg)
+
+    return result
+
+
+def adaptive_budget_compress(
+    history: list[ChatMessage],
+    max_context_tokens: int,
+    user_goal: str = "",
+    touched_files: list[str] | None = None,
+    budget_ratio: float = DEFAULT_BUDGET_RATIO,
+) -> list[ChatMessage]:
+    """Progressively apply Tier 1 -> Tier 2 -> Tier 3 compression until history fits budget."""
+    target_tokens = int(max_context_tokens * budget_ratio)
+    current_tokens = estimate_history_tokens(history)
+
+    if current_tokens <= target_tokens:
+        return history
+
+    # Pass 1: Prune oversized tool/assistant outputs
+    t1_history = compress_history_tier1(history, max_tool_chars=1200)
+    if estimate_history_tokens(t1_history) <= target_tokens:
+        return t1_history
+
+    # Pass 2: Synthesize older turn history
+    t2_history = compress_history_tier2(t1_history, keep_recent_turns=3)
+    if estimate_history_tokens(t2_history) <= target_tokens:
+        return t2_history
+
+    # Pass 3: Tighter Tier 2 with only 1 recent turn
+    t2_tight = compress_history_tier2(t1_history, keep_recent_turns=1)
+    if estimate_history_tokens(t2_tight) <= target_tokens:
+        return t2_tight
+
+    # Pass 4: Tier 3 Emergency Context Reset
+    return emergency_context_reset(
+        messages=history,
+        user_goal=user_goal,
+        touched_files=touched_files,
+    )
 
 
 def trim_history_to_budget(
@@ -155,9 +311,14 @@ __all__ = [
     "DEFAULT_CONTEXT_WINDOW",
     "DEFAULT_PAID_RATES",
     "MODEL_PRICING",
+    "adaptive_budget_compress",
     "calculate_cost",
+    "compress_history_tier1",
+    "compress_history_tier2",
+    "emergency_context_reset",
     "estimate_history_tokens",
     "estimate_message_tokens",
     "estimate_tokens",
+    "prune_tool_output",
     "trim_history_to_budget",
 ]

@@ -7,12 +7,12 @@ pure (no I/O, no async) so it can be unit-tested without any mocks.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from ..parser import robust_json_loads
 from ..subagents.base import SubAgentResult
 
 if TYPE_CHECKING:
@@ -225,13 +225,9 @@ class LLMReflector(DefaultReflector):
             async for delta in self.client.chat_stream(messages, model=target_model):
                 response_text += delta
 
-            clean = response_text.strip()
-            if "```json" in clean:
-                clean = clean.split("```json", 1)[1].split("```", 1)[0].strip()
-            elif "```" in clean:
-                clean = clean.split("```", 1)[1].split("```", 1)[0].strip()
-
-            data = json.loads(clean)
+            data = robust_json_loads(response_text)
+            if not isinstance(data, dict):
+                raise TypeError("Reflector response must be a JSON object")
             dec_str = str(data.get("decision", "FINISH")).upper()
             reason = str(data.get("reason", "Goal evaluated by LLM reflector."))
             if dec_str == "REPLAN":

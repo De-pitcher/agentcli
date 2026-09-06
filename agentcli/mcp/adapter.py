@@ -6,6 +6,7 @@ import json
 import logging
 from typing import Any
 
+from ..parser import robust_json_loads
 from ..subagents.base import SubAgent, SubAgentResult, SubAgentTask, SubAgentType
 from .client import MCPClient, MCPClientError
 
@@ -86,8 +87,8 @@ class MCPToolAgent(SubAgent):
             # Try parsing as JSON dict if possible
             output_obj: Any = output_text
             try:
-                output_obj = json.loads(output_text)
-            except (json.JSONDecodeError, ValueError):
+                output_obj = robust_json_loads(output_text)
+            except (json.JSONDecodeError, ValueError, TypeError):
                 pass
 
             if is_error:
