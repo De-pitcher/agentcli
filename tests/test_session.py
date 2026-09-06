@@ -146,3 +146,15 @@ async def test_session_loads_agents_md(tmp_path, monkeypatch):
     assert session.history[0].role == "system"
     assert "Project instructions: always write unit tests." in session.history[0].content
     await session.aclose()
+
+
+def test_build_environment_system_prompt():
+    from agentcli.session import build_environment_system_prompt
+
+    config = Config()
+    prompt = build_environment_system_prompt(config)
+    assert "You are AgentCLI" in prompt
+    assert "Operating System:" in prompt
+    assert "Working Directory:" in prompt
+    assert "Never hallucinate fake command outputs" in prompt
+

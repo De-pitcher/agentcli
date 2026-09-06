@@ -477,20 +477,27 @@ _AGENTIC_KEYWORDS: tuple[str, ...] = (
     "then analyze",
 )
 
+_ACTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # Directory & Workspace inspection
+    re.compile(r"\b(print|show|get|what\s+is|display)\b.*\b(current\s+directory|working\s+directory|pwd|cwd|folder)\b", re.IGNORECASE),
+    re.compile(r"\b(list|show|what\s+of|print)\b.*\b(contents?|files?|directories|folders?|dir|ls)\b", re.IGNORECASE),
+    re.compile(r"^(pwd|cwd|ls|dir)(\s+.*)?$", re.IGNORECASE),
+    # File operations
+    re.compile(r"\b(read|open|inspect|check|view|cat|examine)\b.*\b(file|code|script|module|\.[a-z0-9]+)\b", re.IGNORECASE),
+    re.compile(r"\b(create|write|edit|modify|delete|remove|patch)\b.*\b(file|directory|folder|function|class)\b", re.IGNORECASE),
+    # Shell execution & testing
+    re.compile(r"\b(run|execute)\b.*\b(test|tests|pytest|command|script|suite|bench|build|lint|typecheck|mypy|ruff)\b", re.IGNORECASE),
+    # Git & code search
+    re.compile(r"\b(git\s+(status|diff|log|branch|commit|checkout)|grep|search\s+code|find\s+symbol)\b", re.IGNORECASE),
+)
+
 
 def is_agentic_task(text: str) -> bool:
-    """Return True if *text* looks like a multi-step task.
-
-    This is intentionally conservative: it only triggers the loop for
-    clearly multi-step imperative requests, avoiding false-positives on
-    simple questions like "write hello world" or "explain X".
-
-    Phase 5 (memory/context) may replace this with a lightweight
-    classifier using the session's conversation history.
-    """
-    lower = text.lower()
+    """Return True if *text* represents an action, tool execution, or multi-step task."""
+    lower = text.lower().strip()
     return (
         any(kw in lower for kw in _AGENTIC_KEYWORDS)
+        or any(bool(pat.search(lower)) for pat in _ACTION_PATTERNS)
         or bool(re.search(r"\bstep\s*\d+\b", lower))
         or bool(re.search(r"\b1[.)]\s+.*?\b2[.)]\s+", lower, re.DOTALL))
         or bool(re.search(r"\bfirst\b.*?\bthen\b", lower, re.DOTALL))

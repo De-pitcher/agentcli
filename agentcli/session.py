@@ -34,6 +34,28 @@ class SessionReply:
     requested_primary: str | None
 
 
+def build_environment_system_prompt(config: Config) -> str:
+    """Construct environment-grounded system instructions for developer workflows."""
+    import platform
+
+    os_name = platform.system()
+    shell_hint = "PowerShell" if os_name == "Windows" else "Bash/Zsh"
+    cwd_path = str(Path.cwd().resolve())
+    preset = getattr(config.app, "preset", "coding") or "coding"
+
+    return (
+        f"You are AgentCLI, an expert, budget-conscious AI developer assistant.\n"
+        f"Current Environment:\n"
+        f"- Operating System: {os_name} (Shell: {shell_hint})\n"
+        f"- Working Directory: {cwd_path}\n"
+        f"- Preset: {preset}\n"
+        f"Guidelines:\n"
+        f"- You are running live in a real terminal environment.\n"
+        f"- Never hallucinate fake command outputs or fake filesystem responses (such as mock /home/user or pretend bash outputs).\n"
+        f"- When the user requests actions (reading/writing files, inspecting directories, running commands/tests), state the plan clearly or explain what is being executed."
+    )
+
+
 class AgentSession:
     """Manages chat state, persistence, routing, and openrouter client interactions."""
 
@@ -259,6 +281,14 @@ class AgentSession:
         requested_primary = decision.primary if decision is not None else self.forced_model
         context_window = self._resolve_context_window(requested_primary)
         trimmed = self._trim_history(max_context_tokens=context_window)
+
+        # Inject environment grounding if trimmed history has no system instructions
+        has_system = any(m.role == "system" for m in trimmed)
+        if not has_system:
+            env_msg = ChatMessage(
+                role="system", content=build_environment_system_prompt(self.config)
+            )
+            trimmed = [env_msg, *trimmed]
 
         if decision is not None:
             stream = self.client.chat_stream(trimmed, models=decision.models)
