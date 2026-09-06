@@ -8,10 +8,14 @@ immediately. No persistence — that belongs to a later phase.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 from ..config import ConfigError, RoutingConfig
+
+logger = logging.getLogger(__name__)
 
 CODE = "code"
 REASONING = "reasoning"
@@ -32,10 +36,44 @@ def _validate_categories(categories: list[str], model_id: str) -> tuple[str, ...
 @dataclass(frozen=True)
 class ModelRecord:
     id: str
-    categories: tuple[str, ...]
-    priority: int
-    context_window: int
+    categories: tuple[str, ...] = (CHAT,)
+    priority: int = 1
+    context_window: int = 8192
     tier: str = "low"
+    name: str | None = None
+
+    @property
+    def is_free(self) -> bool:
+        """Return True if model is free of charge."""
+        return self.id.endswith(":free") or self.tier == "low"
+
+
+def format_models_text(
+    models: list[ModelRecord],
+    active_model: str | None = None,
+    filter_type: str | None = None,
+) -> str:
+    """Format model list into an aligned text table with [FREE] and [PAID] visual indicators."""
+    filtered = models
+    if filter_type == "free":
+        filtered = [m for m in models if m.is_free]
+    elif filter_type == "paid":
+        filtered = [m for m in models if not m.is_free]
+
+    lines: list[str] = []
+    lines.append(f"{'STATUS':<10} {'TYPE':<8} {'TIER':<8} {'CONTEXT':<10} {'MODEL ID'}")
+    lines.append("-" * 76)
+
+    for m in filtered:
+        status = "● ACTIVE" if active_model and (active_model == m.id or (active_model == "auto" and m.is_free)) else ""
+        type_tag = "[FREE]" if m.is_free else "[PAID]"
+        tier_tag = m.tier.upper()
+        ctx = f"{m.context_window // 1000}k" if m.context_window >= 1000 else str(m.context_window)
+        lines.append(f"{status:<10} {type_tag:<8} {tier_tag:<8} {ctx:<10} {m.id}")
+
+    lines.append("-" * 76)
+    lines.append("Tip: Switch active model using /model <model-id> or /model auto")
+    return "\n".join(lines)
 
 
 _BUILTIN_MODELS: tuple[ModelRecord, ...] = (
@@ -240,6 +278,39 @@ class ModelRegistry:
     def all_models(self) -> list[ModelRecord]:
         """Return all registered model records."""
         return list(self._state.models.values())
+
+    def get(self, model_id: str) -> ModelRecord | None:
+        """Get model record by ID if registered."""
+        return self._state.models.get(model_id)
+
+    async def refresh_from_openrouter(self, client: Any | None = None) -> list[ModelRecord]:
+        """Fetch remote OpenRouter models, merge into registry, and return updated list."""
+        if client is not None:
+            try:
+                raw_models = await client.get_models()
+                for item in raw_models:
+                    m_id = item.get("id")
+                    if not m_id:
+                        continue
+                    pricing = item.get("pricing", {})
+                    prompt_price = float(pricing.get("prompt", 0) or 0)
+                    comp_price = float(pricing.get("completion", 0) or 0)
+                    is_free = m_id.endswith(":free") or (prompt_price == 0.0 and comp_price == 0.0)
+                    tier = "low" if is_free else ("medium" if prompt_price < 0.000005 else "high")
+                    ctx = int(item.get("context_length", 32768) or 32768)
+                    name = item.get("name")
+                    if m_id not in self._state.models:
+                        self._state.models[m_id] = ModelRecord(
+                            id=m_id,
+                            categories=(CHAT, CODE, REASONING),
+                            priority=60 if is_free else 120,
+                            context_window=ctx,
+                            tier=tier,
+                            name=name,
+                        )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed refreshing models from OpenRouter: %s", exc)
+        return self.all_models()
 
     def healthy_models(self, budget_tier: str | None = None) -> list[ModelRecord]:
         """Return all currently non-cooling model records sorted by priority and budget tier."""

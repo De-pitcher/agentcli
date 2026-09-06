@@ -616,13 +616,15 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     renderer.console.print(
                         "\n[bold cyan]Available Slash Commands:[/bold cyan]\n"
                         "  [bold]/help[/bold]                 Show this help message\n"
+                        "  [bold]/models [free|paid][/bold]   List available models with [green][FREE][/green] / [yellow][PAID][/yellow] indicators\n"
+                        "  [bold]/model [model|auto][/bold]   View or switch active model (or return to auto-routing)\n"
                         "  [bold]/history[/bold]              View conversation history in current session\n"
                         "  [bold]/budget [tier][/bold]        View or set budget tier ([green]low[/green], [yellow]medium[/yellow], [red]high[/red])\n"
-                        "  [bold]/model [model|auto][/bold]   View or switch active model (or return to auto-routing)\n"
                         "  [bold]/goal <description>[/bold]   Run an autonomous multi-step goal loop directly in chat\n"
+                        "  [bold]/diff[/bold]                 Inspect file diffs generated during session\n"
                         "  [bold]/tokens[/bold]               Show current session token usage breakdown\n"
                         "  [bold]/cost[/bold]                 Show current session estimated cost in USD\n"
-                        "  [bold]/clear[/bold]                Clear terminal screen\n"
+                        "  [bold]/clear, /cls[/bold]          Clear terminal screen\n"
                         "  [bold]/reset[/bold]                Reset conversation history and start fresh\n"
                         "  [bold]/exit, /quit[/bold]          Exit agentcli\n"
                     )
@@ -630,13 +632,15 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print(
                         "\nAvailable Slash Commands:\n"
                         "  /help                 Show this help message\n"
+                        "  /models [free|paid]   List available models with [FREE] / [PAID] indicators\n"
+                        "  /model [model|auto]   View or switch active model (or auto routing)\n"
                         "  /history              View conversation history in current session\n"
                         "  /budget [tier]        View or set budget tier (low, medium, high)\n"
-                        "  /model [model|auto]   View or switch active model (or auto routing)\n"
                         "  /goal <description>   Run an autonomous multi-step goal loop\n"
+                        "  /diff                 Inspect file diffs generated during session\n"
                         "  /tokens               Show current session token usage breakdown\n"
                         "  /cost                 Show current session estimated cost in USD\n"
-                        "  /clear                Clear terminal screen\n"
+                        "  /clear, /cls          Clear terminal screen\n"
                         "  /reset                Reset conversation history and start fresh\n"
                         "  /exit, /quit          Exit agentcli\n"
                     )
@@ -693,28 +697,113 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                         print(f"Invalid budget tier '{tier}'. Choose from: low, medium, high")
                 continue
 
-            if user_input.startswith("/model"):
-                parts = user_input.split(maxsplit=1)
-                if len(parts) == 1:
-                    active = forced_model or "auto (task-based routing)"
-                    print(f"Current model: {active}")
-                else:
-                    target_model = parts[1].strip()
-                    if target_model.lower() == "auto":
-                        forced_model = None
-                        session.forced_model = None
-                        if session.registry is not None:
-                            session.router = Router(
-                                session.registry,
-                                config.routing.max_fallbacks,
-                                budget_tier=config.routing.budget_tier,
+            if user_input in {"/models", "/model"} or user_input.startswith(
+                ("/models", "/model list", "/model free", "/model paid")
+            ):
+                filter_type = (
+                    "free"
+                    if "free" in user_input
+                    else ("paid" if "paid" in user_input else None)
+                )
+                active_curr = forced_model or "auto"
+                if session.registry is None:
+                    from .routing.registry import ModelRegistry
+
+                    session.registry = ModelRegistry(config.routing)
+
+                if "--refresh" in user_input:
+                    await session.registry.refresh_from_openrouter(session.client)
+
+                all_models_list = session.registry.all_models()
+                filtered = all_models_list
+                if filter_type == "free":
+                    filtered = [m for m in all_models_list if m.is_free]
+                elif filter_type == "paid":
+                    filtered = [m for m in all_models_list if not m.is_free]
+
+                if renderer.is_rich_enabled:
+                    from rich.table import Table
+
+                    tbl = Table(
+                        title="Available OpenRouter Models (agentcli)",
+                        border_style="cyan",
+                    )
+                    tbl.add_column("Status", style="bold green", justify="center")
+                    tbl.add_column("Type", justify="center")
+                    tbl.add_column("Tier", justify="center")
+                    tbl.add_column("Context", justify="right")
+                    tbl.add_column("Model ID", style="bold white")
+
+                    for m in filtered:
+                        status_str = (
+                            "[bold green]● ACTIVE[/bold green]"
+                            if (
+                                active_curr == m.id
+                                or (active_curr == "auto" and m.id == "google/gemma-4-31b-it:free")
                             )
-                        print("Switched to auto model routing.")
-                    else:
-                        forced_model = target_model
-                        session.forced_model = target_model
-                        session.router = None
-                        print(f"Forced model set to: {target_model}")
+                            else ""
+                        )
+                        type_str = (
+                            "[bold green][FREE][/bold green]"
+                            if m.is_free
+                            else "[bold yellow][PAID][/bold yellow]"
+                        )
+                        tier_style = (
+                            "green"
+                            if m.tier == "low"
+                            else ("yellow" if m.tier == "medium" else "magenta")
+                        )
+                        tier_str = f"[{tier_style}]{m.tier.upper()}[/{tier_style}]"
+                        ctx_str = (
+                            f"{m.context_window // 1000}k"
+                            if m.context_window >= 1000
+                            else str(m.context_window)
+                        )
+                        tbl.add_row(status_str, type_str, tier_str, ctx_str, m.id)
+
+                    renderer.console.print(tbl)
+                    renderer.console.print(
+                        "[dim]Tip: Switch models using [bold]/model <model-id>[/bold] or [bold]/model auto[/bold][/dim]\n"
+                    )
+                else:
+                    from .routing.registry import format_models_text
+
+                    print(
+                        "\n"
+                        + format_models_text(
+                            all_models_list,
+                            active_model=active_curr,
+                            filter_type=filter_type,
+                        )
+                        + "\n"
+                    )
+                continue
+
+            if user_input.startswith("/model "):
+                parts = user_input.split(maxsplit=1)
+                target_model = parts[1].strip()
+                if target_model.lower() == "auto":
+                    forced_model = None
+                    session.forced_model = None
+                    if session.registry is not None:
+                        session.router = Router(
+                            session.registry,
+                            config.routing.max_fallbacks,
+                            budget_tier=config.routing.budget_tier,
+                        )
+                    print("Switched to auto model routing [FREE/PAID auto-selection].")
+                else:
+                    forced_model = target_model
+                    session.forced_model = target_model
+                    session.router = None
+                    is_free = target_model.endswith(":free") or (
+                        session.registry
+                        and any(
+                            m.id == target_model and m.is_free for m in session.registry.all_models()
+                        )
+                    )
+                    badge = "[FREE]" if is_free else "[PAID]"
+                    print(f"Forced model set to: {target_model} {badge}")
                 continue
 
             if user_input in {"/tokens", "/cost"}:

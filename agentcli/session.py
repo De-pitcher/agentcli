@@ -108,13 +108,14 @@ class AgentSession:
         self.router: Router | None = None
         self.mcp_manager: MCPClientManager = MCPClientManager(config=self.config)
 
-        if config.routing.enabled and not forced_model:
+        if config.routing.enabled:
             self.registry = ModelRegistry(config.routing)
-            self.router = Router(
-                self.registry,
-                config.routing.max_fallbacks,
-                budget_tier=getattr(config.routing, "budget_tier", "low"),
-            )
+            if not forced_model:
+                self.router = Router(
+                    self.registry,
+                    config.routing.max_fallbacks,
+                    budget_tier=getattr(config.routing, "budget_tier", "low"),
+                )
 
     async def initialize_mcp(self) -> None:
         """Initialize external MCP servers and discover tools."""
