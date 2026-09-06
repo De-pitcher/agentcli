@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..files import is_hidden_or_system
 from .base import SubAgent, SubAgentResult, SubAgentTask, SubAgentType
 
 if TYPE_CHECKING:
@@ -201,8 +202,11 @@ class FileOpsAgent(SubAgent):
                         success=False,
                         error=f"Not a directory: {path}",
                     )
+                include_hidden = bool(payload.get("include_hidden", payload.get("all", False)))
                 items = []
                 for item in resolved_path.iterdir():
+                    if not include_hidden and is_hidden_or_system(item):
+                        continue
                     items.append(
                         {
                             "name": item.name,

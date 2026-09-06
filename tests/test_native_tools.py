@@ -395,11 +395,12 @@ async def test_file_ops_absolute_directory_list_and_read(tmp_path) -> None:
     external_dir = tmp_path / "external"
     external_dir.mkdir()
     (external_dir / "item1.txt").write_text("hello", encoding="utf-8")
+    (external_dir / ".hidden_file").write_text("secret", encoding="utf-8")
     (external_dir / "subdir").mkdir()
 
     agent = FileOpsAgent(config={"working_dir": str(workspace_dir), "allow_write": False})
 
-    # Listing external directory via absolute path is permitted for read-only inspections
+    # Listing external directory excludes hidden items by default
     res = await agent.run(
         SubAgentTask(
             agent_type=SubAgentType.FILE_OPS,
@@ -410,6 +411,18 @@ async def test_file_ops_absolute_directory_list_and_read(tmp_path) -> None:
     names = {it["name"] for it in res.output["items"]}
     assert "item1.txt" in names
     assert "subdir" in names
+    assert ".hidden_file" not in names
+
+    # Listing with include_hidden=True includes hidden items
+    res_all = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.FILE_OPS,
+            payload={"operation": "list", "path": str(external_dir), "include_hidden": True},
+        )
+    )
+    assert res_all.success is True
+    names_all = {it["name"] for it in res_all.output["items"]}
+    assert ".hidden_file" in names_all
 
     # Reading external file via absolute path
     res_read = await agent.run(

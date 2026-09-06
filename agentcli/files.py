@@ -14,6 +14,21 @@ class FileReadError(Exception):
     pass
 
 
+def is_hidden_or_system(path: Path) -> bool:
+    """Check if a path is hidden, a system file/junction, or should be excluded from default listings."""
+    if path.name.startswith("."):
+        return True
+    try:
+        stat_info = path.lstat()
+        attrs = getattr(stat_info, "st_file_attributes", 0)
+        # 0x2 = FILE_ATTRIBUTE_HIDDEN, 0x4 = FILE_ATTRIBUTE_SYSTEM
+        if attrs & 0x6:
+            return True
+    except (AttributeError, OSError):
+        pass
+    return False
+
+
 def _read_file_uncached(p: Path) -> str:
     """Internal reader that reads and formats a file block without checking cache."""
     if not p.exists():
