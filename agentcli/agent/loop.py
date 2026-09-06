@@ -437,8 +437,29 @@ class AgentLoop:
             if isinstance(r.output, str) and r.output.strip():
                 extracted.append(r.output.strip())
             elif isinstance(r.output, dict):
+                # Check for stdout (shell_execution)
+                if (
+                    "stdout" in r.output
+                    and isinstance(r.output["stdout"], str)
+                    and r.output["stdout"].strip()
+                ):
+                    extracted.append(r.output["stdout"].strip())
+                    continue
+                # Check for items list (file_ops list / workspace)
+                if "items" in r.output and isinstance(r.output["items"], list):
+                    items_str = "\n".join(
+                        f"- {it.get('name', str(it))}" if isinstance(it, dict) else f"- {it}"
+                        for it in r.output["items"]
+                    )
+                    path_header = (
+                        f"Directory contents of {r.output.get('path', '.')}:\n"
+                        if r.output.get("path")
+                        else ""
+                    )
+                    extracted.append(f"{path_header}{items_str}".strip())
+                    continue
                 # Common sub-agent output fields
-                for key in ("summary", "content", "output", "analysis", "result"):
+                for key in ("summary", "content", "output", "analysis", "result", "message"):
                     val = r.output.get(key)
                     if isinstance(val, str) and val.strip():
                         extracted.append(val.strip())

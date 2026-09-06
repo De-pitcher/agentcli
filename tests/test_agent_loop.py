@@ -26,12 +26,16 @@ from agentcli.subagents.planner import PlannerAgent
 # ---------------------------------------------------------------------------
 
 
-def _make_result(success: bool, error: str | None = None) -> SubAgentResult:
+def _make_result(
+    success: bool, error: str | None = None, output: Any = None
+) -> SubAgentResult:
+    if output is None and success:
+        output = {"content": "done"}
     return SubAgentResult(
         task_id="t",
         agent_type=SubAgentType.FILE_OPS,
         success=success,
-        output={"content": "done"} if success else None,
+        output=output,
         error=error,
     )
 
@@ -765,4 +769,52 @@ class TestLLMReflector:
         # Should fall back to heuristic (which decides FINISH for 0 failures)
         outcome = await reflector.areflect("Test goal", plan, results)
         assert outcome.decision == ReflectDecision.FINISH
+
+
+class TestDefaultReflectorGoalCriteria:
+    def test_generic_goal_criteria_satisfied_when_step_succeeds(self) -> None:
+        reflector = DefaultReflector()
+        plan = [
+            {"agent_type": "shell_execution", "goal_criterion": "completed"},
+            {"agent_type": "file_ops", "goal_criterion": "done"},
+            {"agent_type": "workspace", "goal_criterion": "success"},
+        ]
+        results = [
+            _make_result(True, output={"stdout": "C:\\some\\path", "returncode": 0}),
+            _make_result(True, output={"items": ["file1.txt"]}),
+            _make_result(True, output={"status": "ok"}),
+        ]
+        outcome = reflector.reflect("Inspect directory and list files", plan, results)
+        assert outcome.decision == ReflectDecision.FINISH
+        assert "completed successfully" in outcome.reason
+
+    def test_unmet_specific_goal_criterion_triggers_replan(self) -> None:
+        reflector = DefaultReflector()
+        plan = [
+            {"agent_type": "file_ops", "goal_criterion": "specific_token_12345"},
+        ]
+        results = [
+            _make_result(True, output={"content": "other content without token"}),
+        ]
+        outcome = reflector.reflect("Find specific token", plan, results)
+        assert outcome.decision == ReflectDecision.REPLAN
+        assert "specific_token_12345" in outcome.reason
+
+
+class TestAgentLoopFinishOutputExtraction:
+    def test_extracts_stdout_and_items_correctly(self) -> None:
+        res1 = _make_result(True, output={"stdout": "C:\\my\\workspace\\project\n"})
+        res2 = _make_result(
+            True,
+            output={"items": [{"name": "README.md"}, "src"], "path": "C:\\my\\workspace"},
+        )
+        res3 = _make_result(True, output={"summary": "All tests passed"})
+
+        extracted = AgentLoop._extract_finish_output([res1, res2, res3])
+        assert extracted is not None
+        assert "C:\\my\\workspace\\project" in extracted
+        assert "Directory contents of C:\\my\\workspace:" in extracted
+        assert "- README.md" in extracted
+        assert "- src" in extracted
+        assert "All tests passed" in extracted
 

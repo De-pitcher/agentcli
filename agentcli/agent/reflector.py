@@ -160,12 +160,31 @@ class DefaultReflector:
         """Return a non-empty string describing the first unmet criterion,
         or an empty string if all criteria are satisfied.
         """
+        _GENERIC_CRITERIA: set[str] = {
+            "completed",
+            "done",
+            "success",
+            "command completed",
+            "finish",
+            "finished",
+            "ok",
+            "passed",
+            "items",
+            "analysis",
+            "explanation",
+            "workspace",
+            "file",
+        }
+
         for step, result in zip(plan, results):
             criterion: str = step.get("goal_criterion", "")
             if not criterion:
                 continue
+            crit_lower = criterion.lower().strip()
+            if crit_lower in _GENERIC_CRITERIA and result.success:
+                continue
             output_str = str(result.output or "").lower()
-            if criterion.lower() not in output_str:
+            if crit_lower not in output_str:
                 return criterion
         return ""
 
