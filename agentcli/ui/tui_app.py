@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.filters import Condition
+from prompt_toolkit.filters import Condition, has_completions
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent, merge_key_bindings
 from prompt_toolkit.key_binding.defaults import load_key_bindings
@@ -29,10 +29,11 @@ from prompt_toolkit.layout.containers import (
 )
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
+from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style
 
 from .. import __version__
-from .prompt import SlashAndFileCompleter
+from .prompt import SlashAndFileCompleter, resolve_slash_command
 
 if TYPE_CHECKING:
     import argparse
@@ -90,6 +91,7 @@ class TUIApplication:
 
         self.input_buffer = Buffer(
             completer=SlashAndFileCompleter(),
+            complete_while_typing=True,
             multiline=False,
             name="input_buffer",
         )
@@ -121,7 +123,7 @@ class TUIApplication:
         def _exit(event: KeyPressEvent) -> None:
             event.app.exit()
 
-        @self.kb.add("tab")
+        @self.kb.add("tab", filter=~has_completions)
         def _cycle_focus(event: KeyPressEvent) -> None:
             panes = ["input", "chat", "agents", "metrics"]
             try:
@@ -130,6 +132,30 @@ class TUIApplication:
             except ValueError:
                 self.state.focused_pane = "input"
             self.state.status_line = f"Focused Pane: {self.state.focused_pane.upper()} | [Tab] Switch Focus | [Ctrl+C] Exit"
+            event.app.invalidate()
+
+        @self.kb.add("tab", filter=has_completions)
+        def _next_completion(event: KeyPressEvent) -> None:
+            if self.input_buffer.complete_state:
+                self.input_buffer.complete_next()
+            event.app.invalidate()
+
+        @self.kb.add("s-tab", filter=has_completions)
+        def _prev_completion(event: KeyPressEvent) -> None:
+            if self.input_buffer.complete_state:
+                self.input_buffer.complete_previous()
+            event.app.invalidate()
+
+        @self.kb.add("down", filter=has_completions)
+        def _down_completion(event: KeyPressEvent) -> None:
+            if self.input_buffer.complete_state:
+                self.input_buffer.complete_next()
+            event.app.invalidate()
+
+        @self.kb.add("up", filter=has_completions)
+        def _up_completion(event: KeyPressEvent) -> None:
+            if self.input_buffer.complete_state:
+                self.input_buffer.complete_previous()
             event.app.invalidate()
 
         @self.kb.add("c-o")
@@ -169,9 +195,21 @@ class TUIApplication:
                 event.app.invalidate()
                 return
 
+            if self.input_buffer.complete_state is not None:
+                if self.input_buffer.complete_state.current_completion:
+                    self.input_buffer.apply_completion(
+                        self.input_buffer.complete_state.current_completion
+                    )
+                elif self.input_buffer.complete_state.completions:
+                    self.input_buffer.apply_completion(
+                        self.input_buffer.complete_state.completions[0]
+                    )
+
             text = self.input_buffer.text.strip()
             if not text:
                 return
+
+            text = resolve_slash_command(text)
 
             if self._is_processing:
                 self.state.status_line = (
@@ -199,7 +237,12 @@ class TUIApplication:
         """Process slash commands directly inside the TUI dashboard."""
         cmd = text.split()[0].lower()
 
-        if cmd == "/help":
+        if cmd in {"/exit", "/quit", "/exist", "/q"}:
+            if event and event.app:
+                event.app.exit()
+            return
+
+        if cmd in {"/help", "/h"}:
             help_text = (
                 "Available Slash Commands:\n"
                 "  /help                 Show this help message\n"
@@ -297,7 +340,7 @@ class TUIApplication:
                 )
             return
 
-        if cmd == "/clear":
+        if cmd in {"/clear", "/cls"}:
             self.state.messages.clear()
             self.state.subagent_logs.clear()
             self.state.subagent_status.clear()
@@ -650,7 +693,13 @@ class TUIApplication:
                     left=4,
                     right=4,
                     hide_when_covering_content=False,
-                )
+                ),
+                Float(
+                    attach_to_window=input_win,
+                    content=CompletionsMenu(max_height=8),
+                    ycursor=True,
+                    xcursor=True,
+                ),
             ],
         )
 
@@ -678,6 +727,13 @@ class TUIApplication:
                 "modal_title": "bg:#005577 #ffffff bold",
                 "modal_content": "#d0d0d0",
                 "bar": "#00ffaf",
+                "completion-menu": "bg:#262626 #ffffff",
+                "completion-menu.completion": "bg:#262626 #ffffff",
+                "completion-menu.completion.current": "bg:#005f87 #ffffff bold",
+                "completion-menu.meta": "bg:#303030 #87d7ff",
+                "completion-menu.meta.completion.current": "bg:#005f87 #87ffff bold",
+                "scrollbar.background": "bg:#262626",
+                "scrollbar.button": "bg:#585858",
             }
         )
 

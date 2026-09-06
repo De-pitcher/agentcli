@@ -31,7 +31,7 @@ from .openrouter_client import (
 from .routing.classifier import classify
 from .routing.router import NoAvailableModelError, Router
 from .session import AgentSession
-from .ui.prompt import InteractivePrompt
+from .ui.prompt import InteractivePrompt, resolve_slash_command
 from .ui.render import ConsoleRenderer
 from .ui.theme import draw_box
 from .unicode import safe_print
@@ -598,6 +598,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         while True:
             try:
                 user_input = (await interactive_prompt.get_input_async("you> ")).strip()
+                user_input = resolve_slash_command(user_input)
             except EOFError:
                 break
             except KeyboardInterrupt:
@@ -606,11 +607,11 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
 
             if not user_input:
                 continue
-            if user_input in {"/exit", "/quit"}:
+            if user_input in {"/exit", "/quit", "/exist", "/q"}:
                 break
 
             # --- IN-SESSION SLASH COMMANDS (Phase 18) ---------------------
-            if user_input == "/help":
+            if user_input in {"/help", "/h"}:
                 if renderer.is_rich_enabled:
                     renderer.console.print(
                         "\n[bold cyan]Available Slash Commands:[/bold cyan]\n"
@@ -747,7 +748,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print("(No uncommitted changes in workspace)")
                 continue
 
-            if user_input == "/clear":
+            if user_input in {"/clear", "/cls"}:
                 renderer.clear()
                 continue
 

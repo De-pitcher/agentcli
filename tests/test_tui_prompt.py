@@ -120,3 +120,87 @@ async def test_interactive_prompt_async_fallback(monkeypatch, tmp_path: Path) ->
     monkeypatch.setattr("builtins.input", lambda _: "async prompt input")
     val = await prompt.get_input_async("you> ")
     assert val == "async prompt input"
+
+
+def test_resolve_slash_command_variations() -> None:
+    """Test resolve_slash_command handles backslashes, aliases, typos, and prefixes."""
+    from agentcli.ui.prompt import resolve_slash_command
+
+    # Backslashes
+    assert resolve_slash_command(r"\model") == "/model"
+    assert resolve_slash_command(r"\model gpt-4") == "/model gpt-4"
+    assert resolve_slash_command(r"\exit") == "/exit"
+    assert resolve_slash_command(r"\quit") == "/exit"
+
+    # Typos & aliases
+    assert resolve_slash_command("/exist") == "/exit"
+    assert resolve_slash_command(r"\exist") == "/exit"
+    assert resolve_slash_command("/messages") == "/history"
+    assert resolve_slash_command("/hist") == "/history"
+    assert resolve_slash_command("/diffs") == "/diff"
+    assert resolve_slash_command("/cls") == "/clear"
+    assert resolve_slash_command("/h") == "/help"
+    assert resolve_slash_command("/q") == "/exit"
+
+    # Prefix expansion
+    assert resolve_slash_command("/mod") == "/model"
+    assert (
+        resolve_slash_command("/mod anthropic/claude-3.5-sonnet")
+        == "/model anthropic/claude-3.5-sonnet"
+    )
+    assert resolve_slash_command("/ex") == "/exit"
+    assert resolve_slash_command("/bud high") == "/budget high"
+    assert resolve_slash_command("/tok") == "/tokens"
+    assert resolve_slash_command("/cos") == "/cost"
+    assert resolve_slash_command("/cle") == "/clear"
+    assert resolve_slash_command("/res") == "/reset"
+
+    # Non-slash text unchanged
+    assert resolve_slash_command("hello world") == "hello world"
+    assert resolve_slash_command("@file.py") == "@file.py"
+    assert resolve_slash_command("") == ""
+
+
+def test_slash_and_file_completer_backslash_and_aliases() -> None:
+    """Test SlashAndFileCompleter works with backslashes and aliases."""
+    completer = SlashAndFileCompleter()
+
+    # Backslash prefix
+    doc_mod = Document(r"\mod")
+    comp_mod = list(completer.get_completions(doc_mod, None))  # type: ignore[arg-type]
+    assert len(comp_mod) == 1
+    assert comp_mod[0].text == "/model"
+
+    # Alias / typo
+    doc_exist = Document(r"\exist")
+    comp_exist = list(completer.get_completions(doc_exist, None))  # type: ignore[arg-type]
+    assert len(comp_exist) == 1
+    assert comp_exist[0].text == "/exit"
+
+    # Full list on slash and backslash
+    doc_slash = Document("/")
+    comp_slash = list(completer.get_completions(doc_slash, None))  # type: ignore[arg-type]
+    assert len(comp_slash) == len(SlashAndFileCompleter.SLASH_COMMANDS)
+
+    doc_bslash = Document("\\")
+    comp_bslash = list(completer.get_completions(doc_bslash, None))  # type: ignore[arg-type]
+    assert len(comp_bslash) == len(SlashAndFileCompleter.SLASH_COMMANDS)
+
+
+def test_interactive_prompt_session_configuration(monkeypatch, tmp_path: Path) -> None:
+    """Test InteractivePrompt configures completion and styles in interactive mode."""
+    from prompt_toolkit.input import DummyInput
+    from prompt_toolkit.output import DummyOutput
+
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    prompt = InteractivePrompt(
+        history_file=tmp_path / "hist",
+        plain=False,
+        input=DummyInput(),
+        output=DummyOutput(),
+    )
+    assert prompt._session is not None
+    assert prompt._session.completer is not None
+    assert prompt._session.complete_while_typing is not None
