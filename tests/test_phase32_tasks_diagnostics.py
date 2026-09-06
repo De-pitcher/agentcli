@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
+from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
 from agentcli.agent.registry import ToolRegistry
@@ -37,13 +39,14 @@ async def test_task_manager_lifecycle(tmp_path: Path) -> None:
     assert task.cwd == str(tmp_path.resolve())
 
     # Wait for the reader task to capture output
-    logs = {"lines": []}
+    logs: dict[str, Any] = {"lines": []}
     for _ in range(30):
         await asyncio.sleep(0.1)
         logs = mgr.get_logs(task.id)
-        if any("STARTED_TASK" in line for line in logs["lines"]):
+        if any("STARTED_TASK" in line for line in logs.get("lines", [])):
             break
-    assert any("STARTED_TASK" in line for line in logs["lines"])
+    assert any("STARTED_TASK" in line for line in logs.get("lines", []))
+
 
 
     # Offset & tail
@@ -88,13 +91,14 @@ async def test_task_manager_stdin_and_failed_start(tmp_path: Path) -> None:
     assert send_res["success"] is True
 
     # Allow task to process and finish
-    logs = {"lines": []}
+    logs: dict[str, Any] = {"lines": []}
     for _ in range(30):
         await asyncio.sleep(0.1)
         logs = mgr.get_logs(task.id)
-        if any("ECHO:hello_agentcli" in line for line in logs["lines"]):
+        if any("ECHO:hello_agentcli" in line for line in logs.get("lines", [])):
             break
-    assert any("ECHO:hello_agentcli" in line for line in logs["lines"])
+    assert any("ECHO:hello_agentcli" in line for line in logs.get("lines", []))
+
 
     # Test unknown task errors
     assert "error" in mgr.get_status("invalid_id")
@@ -439,5 +443,6 @@ def test_ui_slash_tasks_resolution() -> None:
 
     completer = SlashAndFileCompleter()
     doc = Document("/tas")
-    completions = [c.text for c in completer.get_completions(doc, None)]
+    completions = [c.text for c in completer.get_completions(doc, CompleteEvent())]
     assert "/tasks" in completions
+
