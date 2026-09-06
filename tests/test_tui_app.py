@@ -464,6 +464,8 @@ async def test_run_tui_entrypoint(monkeypatch) -> None:
 
     from agentcli.ui.tui_app import run_tui
 
+    monkeypatch.setenv("OPENROUTER_API_KEY", "mock-openrouter-key")
+
     mock_app_instance = MagicMock()
     mock_app_instance.run_async = AsyncMock(return_value=None)
 
