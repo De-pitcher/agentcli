@@ -33,6 +33,7 @@ from .routing.router import NoAvailableModelError, Router
 from .session import AgentSession
 from .ui.prompt import InteractivePrompt
 from .ui.render import ConsoleRenderer
+from .ui.theme import draw_box
 from .unicode import safe_print
 
 logger = logging.getLogger(__name__)
@@ -503,11 +504,27 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
     if ws_summary and (verbose or show_model):
         safe_print(f"[workspace] {ws_summary}")
 
-    if session.router is not None:
-        print("agentcli -- model: auto (task-based routing)  (Ctrl+C or /exit to quit)")
+    active_model_str = (
+        "auto (task-routed)"
+        if session.router is not None
+        else (forced_model or config.openrouter.default_model or "auto")
+    )
+    budget_tier_str = getattr(config.routing, "budget_tier", "medium")
+    preset_str = getattr(config.app, "preset", "coding") or "coding"
+    cwd_name = Path.cwd().name
+
+    if renderer.is_rich_enabled:
+        banner_content = (
+            f"Version: v{__version__} | Model: {active_model_str} | Budget: {budget_tier_str}\n"
+            f"Workspace: {cwd_name} | Preset: {preset_str}\n"
+            f"Type your prompt, @file references, or /help (Ctrl+C to quit)"
+        )
+        safe_print(draw_box(title="agentcli chat", content=banner_content, width=72, rounded=True))
     else:
-        actual_model = forced_model or config.openrouter.default_model
-        print(f"agentcli -- model: {actual_model}  (Ctrl+C or /exit to quit)")
+        if session.router is not None:
+            print("agentcli -- model: auto (task-based routing)  (Ctrl+C or /exit to quit)")
+        else:
+            print(f"agentcli -- model: {active_model_str}  (Ctrl+C or /exit to quit)")
 
     interrupted = False
     try:
@@ -706,7 +723,10 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     except StopAsyncIteration:
                         first_chunk = None
 
-                print("assistant> ", end="", flush=True)
+                if renderer.is_rich_enabled:
+                    renderer.console.print("[bold green]assistant[/bold green] [bold cyan]❯[/bold cyan] ", end="")
+                else:
+                    print("assistant> ", end="", flush=True)
                 if first_chunk is not None:
                     try:
                         print(first_chunk, end="", flush=True)

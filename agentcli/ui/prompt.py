@@ -16,6 +16,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion, PathCompleter
 from prompt_toolkit.document import Document
+from prompt_toolkit.formatted_text import StyleAndTextTuples, to_formatted_text
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 
@@ -92,8 +93,9 @@ class InteractivePrompt:
         if self.is_interactive:
             style = Style.from_dict(
                 {
-                    "prompt": "ansicyan bold",
-                    "continuation": "ansibrightblack",
+                    "prompt": "#00d7ff bold",
+                    "prompt_symbol": "#00ffaf bold",
+                    "continuation": "#585858 italic",
                 }
             )
             self._session = PromptSession(
@@ -124,16 +126,22 @@ class InteractivePrompt:
     async def get_input_async(self, prompt_text: str = "you> ") -> str:
         """Prompt the user for input asynchronously using prompt_toolkit or fallback."""
         if self._session is not None and self.is_interactive:
-            return await self._session.prompt_async(
-                [("class:prompt", f"\n{prompt_text}")],
-            )
+            formatted_prompt: StyleAndTextTuples
+            if prompt_text in ("you> ", "you ❯ "):
+                formatted_prompt = [("class:prompt", "\nyou "), ("class:prompt_symbol", "❯ ")]
+            else:
+                formatted_prompt = [("class:prompt", f"\n{prompt_text}")]
+            return await self._session.prompt_async(to_formatted_text(formatted_prompt))
         return await asyncio.to_thread(self._fallback_input, prompt_text)
 
     def get_input(self, prompt_text: str = "you> ") -> str:
         """Prompt the user for input using prompt_toolkit (sync) or fallback."""
         if self._session is not None and self.is_interactive:
-            return self._session.prompt(
-                [("class:prompt", f"\n{prompt_text}")],
-            )
+            formatted_prompt: StyleAndTextTuples
+            if prompt_text in ("you> ", "you ❯ "):
+                formatted_prompt = [("class:prompt", "\nyou "), ("class:prompt_symbol", "❯ ")]
+            else:
+                formatted_prompt = [("class:prompt", f"\n{prompt_text}")]
+            return self._session.prompt(to_formatted_text(formatted_prompt))
         return self._fallback_input(prompt_text)
 
