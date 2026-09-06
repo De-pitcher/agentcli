@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .agent.checkpoints import CheckpointManager
 from .agent.events import LoopEvent
 from .agent.loop import AgentLoop, is_agentic_task
 from .agent.registry import ToolRegistry
@@ -107,6 +108,7 @@ class AgentSession:
         self.registry: ModelRegistry | None = None
         self.router: Router | None = None
         self.mcp_manager: MCPClientManager = MCPClientManager(config=self.config)
+        self.checkpoint_manager: CheckpointManager = CheckpointManager()
 
         if config.routing.enabled:
             self.registry = ModelRegistry(config.routing)

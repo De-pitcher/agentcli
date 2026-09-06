@@ -141,6 +141,8 @@ def test_resolve_slash_command_variations() -> None:
     assert resolve_slash_command("/cls") == "/clear"
     assert resolve_slash_command("/h") == "/help"
     assert resolve_slash_command("/q") == "/exit"
+    assert resolve_slash_command("/rollback") == "/undo"
+    assert resolve_slash_command("/revert") == "/undo"
 
     # Prefix expansion
     assert resolve_slash_command("/mod") == "/model"
@@ -149,6 +151,7 @@ def test_resolve_slash_command_variations() -> None:
         == "/model anthropic/claude-3.5-sonnet"
     )
     assert resolve_slash_command("/ex") == "/exit"
+    assert resolve_slash_command("/und") == "/undo"
     assert resolve_slash_command("/bud high") == "/budget high"
     assert resolve_slash_command("/tok") == "/tokens"
     assert resolve_slash_command("/cos") == "/cost"

@@ -32,6 +32,8 @@ class SubAgentType(str, Enum):
     FILE_OPS = "file_ops"
     SHELL_EXECUTION = "shell_execution"
     WEB_SEARCH = "web_search"
+    WEB_FETCH = "web_fetch"
+    GREP_SEARCH = "grep_search"
     PLANNER = "planner"
     WORKSPACE = "workspace"
     CONSENSUS = "consensus"

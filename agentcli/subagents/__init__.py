@@ -9,9 +9,11 @@ from .bus import Message, MessageBus, MessageType
 from .code_analyzer import CodeAnalyzerAgent
 from .consensus import AgentVote, ConsensusEngine, ConsensusResult, ConsensusStrategy
 from .file_ops import FileOpsAgent
+from .grep_search import GrepSearchAgent
 from .planner import PlannerAgent
 from .shell import ShellExecutionAgent
 from .spawner import SubAgentPool, SubAgentSpawner
+from .web_fetch import HTMLToMarkdownConverter, WebFetchAgent, html_to_markdown
 from .web_search import WebSearchAgent
 from .workspace import WorkspaceAgent
 
@@ -22,6 +24,8 @@ __all__ = [
     "ConsensusResult",
     "ConsensusStrategy",
     "FileOpsAgent",
+    "GrepSearchAgent",
+    "HTMLToMarkdownConverter",
     "Message",
     "MessageBus",
     "MessageType",
@@ -33,6 +37,8 @@ __all__ = [
     "SubAgentSpawner",
     "SubAgentTask",
     "SubAgentType",
+    "WebFetchAgent",
     "WebSearchAgent",
     "WorkspaceAgent",
+    "html_to_markdown",
 ]

@@ -837,6 +837,34 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print("(No uncommitted changes in workspace)")
                 continue
 
+            if user_input.startswith(("/undo", "/rollback", "/revert")):
+                undo_parts = user_input.split(maxsplit=1)
+                sub_action = undo_parts[1].strip().lower() if len(undo_parts) > 1 else ""
+                if sub_action == "diff":
+                    diff_res = session.checkpoint_manager.get_diff()
+                    print(f"\n--- Checkpoint Diff ---\n{diff_res}\n-----------------------\n")
+                elif sub_action in ("list", "history"):
+                    cps = session.checkpoint_manager.list_checkpoints()
+                    if not cps:
+                        print("No checkpoints recorded in this session.")
+                    else:
+                        print("\nAvailable Checkpoints:")
+                        for cp in cps:
+                            print(f"  [{cp['id']}] {cp['description']} ({cp['file_count']} file(s) tracked)")
+                else:
+                    rollback_res = session.checkpoint_manager.rollback()
+                    if rollback_res["success"]:
+                        reverted = rollback_res.get("reverted_files", [])
+                        if reverted:
+                            print(f"Rollback successful (Checkpoint {rollback_res.get('checkpoint_id')}). Reverted {len(reverted)} file(s):")
+                            for f in reverted:
+                                print(f"  - {f}")
+                        else:
+                            print(f"Rollback completed. No modified files to revert for checkpoint {rollback_res.get('checkpoint_id')}.")
+                    else:
+                        print(f"Rollback failed: {rollback_res.get('error', 'Unknown error')}")
+                continue
+
             if user_input in {"/clear", "/cls"}:
                 renderer.clear()
                 continue
