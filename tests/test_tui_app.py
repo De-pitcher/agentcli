@@ -233,3 +233,87 @@ async def test_tui_spinner_animation_frames() -> None:
     await tui._process_user_query("Calculate slow operation")
     assert mock_app.invalidate.call_count >= 2
     assert "Ready" in tui.state.status_line
+
+
+@pytest.mark.asyncio
+async def test_tui_slash_commands_handling() -> None:
+    config = Config()
+    mock_session = MagicMock()
+    mock_session.get_session_stats = AsyncMock(
+        return_value={"total_tokens": 300, "user_tokens": 200, "assistant_tokens": 100}
+    )
+    mock_session.cumulative_cost_usd = 0.005
+    mock_session.history = []
+    mock_session.auto_ground_workspace = AsyncMock(return_value=None)
+    mock_session.forced_model = None
+    mock_session.router = MagicMock()
+
+    tui = TUIApplication(config=config, session=mock_session)
+    mock_event = MagicMock()
+
+    # 1. /help
+    await tui._handle_slash_command("/help", "12:00:00", mock_event)
+    assert any("Available Slash Commands:" in m[1] for m in tui.state.messages)
+
+    # 2. /budget
+    await tui._handle_slash_command("/budget medium", "12:00:01", mock_event)
+    assert config.routing.budget_tier == "medium"
+
+    # 3. /model
+    await tui._handle_slash_command("/model openai/gpt-4o", "12:00:02", mock_event)
+    assert tui.state.active_model == "openai/gpt-4o"
+    assert mock_session.forced_model == "openai/gpt-4o"
+
+    # 4. /tokens & /cost
+    await tui._handle_slash_command("/tokens", "12:00:03", mock_event)
+    assert tui.state.prompt_tokens == 200
+    assert tui.state.completion_tokens == 100
+
+    # 5. /clear
+    await tui._handle_slash_command("/clear", "12:00:04", mock_event)
+    assert len(tui.state.messages) == 1
+    assert "cleared" in tui.state.messages[0][1]
+
+    # 6. /reset
+    await tui._handle_slash_command("/reset", "12:00:05", mock_event)
+    mock_session.auto_ground_workspace.assert_awaited_once()
+
+    # 7. /history
+    await tui._handle_slash_command("/history", "12:00:06", mock_event)
+    assert tui.state.is_history_modal_open is True
+
+
+@pytest.mark.asyncio
+async def test_tui_cancellation_on_ctrl_c() -> None:
+    import asyncio
+
+    config = Config()
+    mock_session = MagicMock()
+
+    async def hanging_step(text: str) -> str:
+        await asyncio.sleep(10.0)
+        return "Done"
+
+    mock_session.step = AsyncMock(side_effect=hanging_step)
+    tui = TUIApplication(config=config, session=mock_session)
+    mock_app = MagicMock()
+    tui._app = mock_app
+
+    query_task = asyncio.create_task(tui._process_user_query("Long hanging query"))
+    tui._current_task = query_task
+
+    await asyncio.sleep(0.05)
+    assert tui._is_processing is True
+
+    # Simulate Ctrl+C keypress handler
+    handlers = {b.handler.__name__: b.handler for b in tui.kb.bindings}
+    ctrl_c_handler = handlers["_handle_ctrl_c"]
+    mock_event = MagicMock()
+    ctrl_c_handler(mock_event)
+
+    # App exit should NOT be called; instead task should be cancelled
+    mock_event.app.exit.assert_not_called()
+    await asyncio.sleep(0.05)
+    assert query_task.done() or query_task.cancelled()
+    assert tui._is_processing is False
+    assert any("cancelled" in m[1].lower() for m in tui.state.messages)
