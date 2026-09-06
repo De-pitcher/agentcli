@@ -5,7 +5,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [2.12.0] - 2026-09-06
 
-### Fixed & Enhanced — TUI Keybindings Restoration, Backspace Fix & Interactive Loading Spinners
+### Fixed & Enhanced — Terminal Chat UI Modernization, Real-Time Loop Step Visibility & TUI Keybindings
+- **Real-Time Step & Tool Execution Progress (`agentcli.ui.render`)**:
+  - Overhauled `ConsoleRenderer.render_loop_event()` so multi-step coding loops, sub-agent tool executions, and step results are rendered in real-time by default (eliminating the silent void where non-verbose mode hid all intermediate activity).
+  - Added elapsed step durations (`(0.35s)`), active tool indicators (`⚡ [step 1/3] running file_ops…`), and compact result summaries (`✓ succeeded — loaded 42 lines`).
+  - Added formatted Markdown output rendering for completed multi-step coding responses.
+- **Modernized Chat Session Welcome & Prompt Styling (`agentcli.cli`, `agentcli.ui.prompt`)**:
+  - Rendered a structured, framed welcome card on chat session startup displaying model routing, budget tier, workspace directory, and keyboard shortcuts.
+  - Upgraded prompt styling with distinct color badges (`you ❯ ` and `assistant ❯ `) with prompt_toolkit styled tuples.
 - **TUI Keybindings & Backspace Interception Fix (`agentcli.ui.tui_app`)**:
   - Remapped History Timeline modal shortcut from `Ctrl+H` to `Ctrl+Y` and `F2` to eliminate byte collision (`0x08`) that intercepted Backspace in terminal environments.
   - Merged standard `load_key_bindings()` with application key bindings, restoring full editing ergonomics (Backspace, Delete, cursor navigation arrows, Home, End, word jumps, and deletion).
@@ -13,8 +20,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - **Visual Loading States & Animated Spinners (`agentcli.ui.tui_app`, `agentcli.cli`)**:
   - Added real-time animated status spinner loop (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) in the TUI status bar during asynchronous LLM query execution.
   - Integrated animated `renderer.status_spinner("Thinking...")` during initial stream connection and first token arrival in interactive single-turn chat REPL.
-- **Automated UX Verification Suite (`tests/test_tui_app.py`)**:
-  - Added automated assertions verifying Backspace (`c-h`) non-interception, merged keybindings length, and live spinner animation invalidation.
+- **Automated UX Verification Suite (`tests/test_ui.py`, `tests/test_tui_app.py`)**:
+  - Added automated assertions verifying non-verbose real-time step rendering, prompt formatting, Backspace (`c-h`) non-interception, merged keybindings length, and live spinner animation invalidation.
 
 ## [2.11.0] - 2026-09-06
 

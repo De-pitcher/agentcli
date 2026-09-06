@@ -106,26 +106,27 @@ class ConsoleRenderer:
         else:
             print(f"[loaded @{path}]")
 
-    def render_loop_event(self, event: Any, *, verbose: bool) -> None:
+    def render_loop_event(self, event: Any, *, verbose: bool = False) -> None:
         """Render structured agent-loop events with distinct visual styling."""
         event_name = type(event).__name__
         if self.is_rich_enabled:
             if event_name == "PlanEvent":
                 label = "🔄 Re-plan" if getattr(event, "is_replan", False) else "📋 Plan"
                 self.console.print(
-                    f"\n[bold cyan]{label}[/bold cyan] [dim]iteration {event.iteration}:[/dim] "
+                    f"\n[bold cyan]{label}[/bold cyan] [dim](iteration {event.iteration}):[/dim] "
                     f"[bold]{len(event.plan)} step(s) planned[/bold]"
                 )
-                if verbose:
-                    for i, step in enumerate(event.plan):
-                        self.console.print(
-                            f"  [dim]step {i + 1}:[/dim] [cyan]{step.get('agent_type')}[/cyan] — {step.get('payload', {})}"
-                        )
-            elif event_name == "StepStartEvent" and verbose:
+                for i, step in enumerate(event.plan):
+                    agent = step.get("agent_type", "tool")
+                    goal = step.get("goal_criterion") or step.get("payload", {})
+                    goal_str = " ".join(f"{k}={v}" for k, v in goal.items()) if isinstance(goal, dict) else str(goal)
+                    self.console.print(f"  [dim]{i + 1}.[/dim] [cyan][{agent}][/cyan] {goal_str}")
+            elif event_name == "StepStartEvent":
+                agent = getattr(event, "agent_type", "tool")
                 self.console.print(
-                    f"  [yellow]⚡ step {event.step_index + 1}[/yellow] running [bold]{event.agent_type}[/bold]…"
+                    f"  [yellow]⚡ step {event.step_index + 1}[/yellow] running [bold cyan]{agent}[/bold cyan]…"
                 )
-            elif event_name == "StepResultEvent" and verbose:
+            elif event_name == "StepResultEvent":
                 r = event.result
                 duration_str = (
                     f" ({getattr(event, 'duration_seconds', 0.0):.2f}s)"
@@ -133,15 +134,23 @@ class ConsoleRenderer:
                     else ""
                 )
                 if r and r.success:
+                    summary = ""
+                    if r.output:
+                        if isinstance(r.output, str):
+                            summary = f" — {r.output[:60]}..." if len(r.output) > 60 else f" — {r.output}"
+                        elif isinstance(r.output, dict):
+                            res_val = r.output.get("result") or r.output.get("summary") or ""
+                            if res_val:
+                                summary = f" — {str(res_val)[:60]}"
                     self.console.print(
-                        f"  [green]✓ step {event.step_index + 1}[/green] [dim]succeeded{duration_str}[/dim]"
+                        f"  [green]✓ step {event.step_index + 1}[/green] [dim]succeeded{duration_str}[/dim]{summary}"
                     )
                 else:
                     err = f": {r.error}" if (r and r.error) else ""
                     self.console.print(
                         f"  [red]✗ step {event.step_index + 1}[/red] [bold red]failed{err}{duration_str}[/bold red]"
                     )
-            elif event_name == "ReflectEvent" and verbose:
+            elif event_name == "ReflectEvent":
                 self.console.print(
                     f"  [magenta]🔍 reflect[/magenta] [bold]{event.decision}[/bold] [dim]— {event.reason}[/dim]"
                 )
@@ -149,7 +158,12 @@ class ConsoleRenderer:
                 self.console.print(f"\n[bold green]✨ Done:[/bold green] {event.summary}")
                 out = getattr(event, "output", None)
                 if out:
-                    self.console.print(f"\n{out}")
+                    if "```" in out or "\n#" in out:
+                        from rich.markdown import Markdown
+
+                        self.console.print(Markdown(out))
+                    else:
+                        self.console.print(f"\n{out}")
             elif event_name == "LoopErrorEvent":
                 self.console.print(f"\n[bold red]❌ Loop Error:[/bold red] {event.error}")
 
@@ -158,14 +172,13 @@ class ConsoleRenderer:
             if event_name == "PlanEvent":
                 label = "[re-plan]" if getattr(event, "is_replan", False) else "[plan]"
                 print(f"\n{label} iteration {event.iteration}: {len(event.plan)} step(s) planned")
-                if verbose:
-                    for i, step in enumerate(event.plan):
-                        print(
-                            f"  step {i + 1}: {step.get('agent_type')} — {step.get('payload', {})}"
-                        )
-            elif event_name == "StepStartEvent" and verbose:
+                for i, step in enumerate(event.plan):
+                    agent = step.get("agent_type", "tool")
+                    goal = step.get("goal_criterion") or step.get("payload", {})
+                    print(f"  {i + 1}. [{agent}] {goal}")
+            elif event_name == "StepStartEvent":
                 print(f"  [step {event.step_index + 1}] running {event.agent_type}…", flush=True)
-            elif event_name == "StepResultEvent" and verbose:
+            elif event_name == "StepResultEvent":
                 r = event.result
                 status = "✓" if (r and r.success) else "✗"
                 err = f" ({r.error})" if (r and not r.success and r.error) else ""
@@ -175,7 +188,7 @@ class ConsoleRenderer:
                     else ""
                 )
                 print(f"  [step {event.step_index + 1}] {status}{err}{timing}")
-            elif event_name == "ReflectEvent" and verbose:
+            elif event_name == "ReflectEvent":
                 print(f"  [reflect] {event.decision} — {event.reason}")
             elif event_name == "FinishEvent":
                 print(f"\n[done] {event.summary}")

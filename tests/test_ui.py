@@ -217,3 +217,47 @@ def test_renderer_token_usage(capsys, monkeypatch):
     r_rich = ConsoleRenderer(plain=False)
     r_rich.render_token_usage({"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30})
     assert "tokens:" in capsys.readouterr().out
+
+
+def test_renderer_loop_events_non_verbose_default(capsys, monkeypatch):
+    """Ensure non-verbose runs still render step progression, goals, and results in real time."""
+    plan_ev = PlanEvent(
+        iteration=1,
+        plan=[{"agent_type": "file_ops", "goal_criterion": "Read config.toml"}],
+    )
+    start_ev = StepStartEvent(iteration=1, step_index=0, agent_type="file_ops")
+    res_ev = StepResultEvent(
+        iteration=1,
+        step_index=0,
+        result=SubAgentResult(task_id="t1", agent_type=SubAgentType.FILE_OPS, success=True, output="read 50 lines"),
+        duration_seconds=0.45,
+    )
+    reflect_ev = ReflectEvent(iteration=1, decision="CONTINUE", reason="all goals met")
+    finish_ev = FinishEvent(iteration=1, summary="Done processing")
+
+    # Rich mode non-verbose
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("TERM", raising=False)
+    r_rich = ConsoleRenderer(plain=False)
+
+    for ev in [plan_ev, start_ev, res_ev, reflect_ev, finish_ev]:
+        r_rich.render_loop_event(ev, verbose=False)
+
+    out_rich = capsys.readouterr().out
+    assert "Plan" in out_rich
+    assert "Read config.toml" in out_rich
+    assert "step 1" in out_rich
+    assert "succeeded" in out_rich
+    assert "read 50 lines" in out_rich
+    assert "reflect" in out_rich
+    assert "Done" in out_rich
+
+
+def test_interactive_prompt_custom_and_default_fallback():
+    from agentcli.ui.prompt import InteractivePrompt
+
+    prompt = InteractivePrompt(plain=True)
+    assert not prompt.is_interactive
+    # Fallback string
+    assert prompt._session is None
