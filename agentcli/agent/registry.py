@@ -24,11 +24,14 @@ from pathlib import Path
 from typing import Any
 
 from ..subagents.base import SubAgent, SubAgentResult, SubAgentTask, SubAgentType
+from ..subagents.clarification import ClarificationAgent
 from ..subagents.code_analyzer import CodeAnalyzerAgent
 from ..subagents.consensus import ConsensusAgent
+from ..subagents.diagnostics import DiagnosticsAgent
 from ..subagents.file_ops import FileOpsAgent
 from ..subagents.grep_search import GrepSearchAgent
 from ..subagents.shell import ShellExecutionAgent
+from ..subagents.task_manager import TaskManagerAgent
 from ..subagents.web_fetch import WebFetchAgent
 from ..subagents.web_search import WebSearchAgent
 from ..subagents.workspace import WorkspaceAgent
@@ -219,6 +222,14 @@ class ToolRegistry:
         self.register(SubAgentType.WORKSPACE.value, lambda: WorkspaceAgent(config=ws_cfg))
         consensus_cfg = self._tool_configs.get(SubAgentType.CONSENSUS.value)
         self.register(SubAgentType.CONSENSUS.value, lambda: ConsensusAgent(config=consensus_cfg))
+        task_cfg = self._tool_configs.get(SubAgentType.TASK_MANAGER.value)
+        self.register(SubAgentType.TASK_MANAGER.value, lambda: TaskManagerAgent(config=task_cfg))
+        ask_cfg = self._tool_configs.get(SubAgentType.ASK_QUESTION.value)
+        self.register(SubAgentType.ASK_QUESTION.value, lambda: ClarificationAgent(config=ask_cfg))
+        diag_cfg = self._tool_configs.get(SubAgentType.DIAGNOSTICS_CHECK.value)
+        self.register(
+            SubAgentType.DIAGNOSTICS_CHECK.value, lambda: DiagnosticsAgent(config=diag_cfg)
+        )
 
     @staticmethod
     def _safe_type(agent_type: str) -> SubAgentType:

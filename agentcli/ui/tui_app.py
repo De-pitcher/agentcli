@@ -330,7 +330,11 @@ class TUIApplication:
                                 budget_tier=self.config.routing.budget_tier,
                             )
                     self.state.active_model = "auto"
-                    self.add_message("system", "Switched to auto model routing [FREE/PAID auto-selection].", timestamp)
+                    self.add_message(
+                        "system",
+                        "Switched to auto model routing [FREE/PAID auto-selection].",
+                        timestamp,
+                    )
                 else:
                     if self.session:
                         self.session.forced_model = target_model
@@ -338,7 +342,9 @@ class TUIApplication:
                     self.state.active_model = target_model
                     is_free = target_model.endswith(":free")
                     tag = "[FREE]" if is_free else "[PAID]"
-                    self.add_message("system", f"Forced model set to: {target_model} {tag}", timestamp)
+                    self.add_message(
+                        "system", f"Forced model set to: {target_model} {tag}", timestamp
+                    )
             return
 
         if cmd in {"/tokens", "/cost"}:
@@ -391,11 +397,15 @@ class TUIApplication:
                 elif sub in ("list", "history"):
                     cps = self.session.checkpoint_manager.list_checkpoints()
                     if not cps:
-                        self.add_message("system", "No checkpoints recorded in this session.", timestamp)
+                        self.add_message(
+                            "system", "No checkpoints recorded in this session.", timestamp
+                        )
                     else:
                         lines = ["Available Checkpoints:"]
                         for cp in cps:
-                            lines.append(f"  [{cp['id']}] {cp['description']} ({cp['file_count']} files)")
+                            lines.append(
+                                f"  [{cp['id']}] {cp['description']} ({cp['file_count']} files)"
+                            )
                         self.add_message("system", "\n".join(lines), timestamp)
                 else:
                     res = self.session.checkpoint_manager.rollback()
@@ -406,9 +416,78 @@ class TUIApplication:
                             msg += "\n" + "\n".join(f"  - {f}" for f in reverted)
                         self.add_message("system", msg, timestamp)
                     else:
-                        self.add_message("system", f"Rollback failed: {res.get('error')}", timestamp)
+                        self.add_message(
+                            "system", f"Rollback failed: {res.get('error')}", timestamp
+                        )
             else:
-                self.add_message("system", "No active session checkpoint manager available.", timestamp)
+                self.add_message(
+                    "system", "No active session checkpoint manager available.", timestamp
+                )
+            return
+
+        if cmd in {"/tasks", "/task", "/bg"}:
+            if self.session and hasattr(self.session, "task_manager"):
+                parts = text.split(maxsplit=2)
+                sub = parts[1].lower() if len(parts) > 1 else "list"
+                target_id = parts[2].strip() if len(parts) > 2 else ""
+
+                if sub in ("list", "ls") or (len(parts) == 1):
+                    tasks = self.session.task_manager.list_tasks()
+                    if not tasks:
+                        self.add_message(
+                            "system", "No background tasks currently active.", timestamp
+                        )
+                    else:
+                        lines = [f"Background Tasks ({len(tasks)} active):"]
+                        for t in tasks:
+                            lines.append(
+                                f"  [{t['id']}] {t['command']} ({t['status']}, {t['uptime_seconds']}s, {t['total_lines']} lines)"
+                            )
+                        self.add_message("system", "\n".join(lines), timestamp)
+                elif sub == "status":
+                    if not target_id:
+                        self.add_message("system", "Usage: /tasks status <task_id>", timestamp)
+                    else:
+                        status_info = self.session.task_manager.get_status(target_id)
+                        if "error" in status_info:
+                            self.add_message("system", f"Error: {status_info['error']}", timestamp)
+                        else:
+                            lines = [f"Task [{target_id}] Status:"]
+                            for k, v in status_info.items():
+                                lines.append(f"  {k}: {v}")
+                            self.add_message("system", "\n".join(lines), timestamp)
+                elif sub in ("logs", "log"):
+                    if not target_id:
+                        self.add_message("system", "Usage: /tasks logs <task_id>", timestamp)
+                    else:
+                        log_info = self.session.task_manager.get_logs(target_id, tail=20)
+                        if "error" in log_info:
+                            self.add_message("system", f"Error: {log_info['error']}", timestamp)
+                        else:
+                            lines = [f"--- Logs for [{target_id}] ---"]
+                            lines.extend(log_info.get("lines", []))
+                            self.add_message("system", "\n".join(lines), timestamp)
+                elif sub in ("kill", "stop"):
+                    if not target_id:
+                        self.add_message("system", "Usage: /tasks kill <task_id>", timestamp)
+                    else:
+                        res = await self.session.task_manager.kill_task(target_id)
+                        if res.get("success"):
+                            self.add_message("system", f"Task [{target_id}] terminated.", timestamp)
+                        else:
+                            self.add_message(
+                                "system",
+                                f"Failed to terminate [{target_id}]: {res.get('error')}",
+                                timestamp,
+                            )
+                else:
+                    self.add_message(
+                        "system",
+                        "Usage: /tasks [list | status <id> | logs <id> | kill <id>]",
+                        timestamp,
+                    )
+            else:
+                self.add_message("system", "No active session task manager available.", timestamp)
             return
 
         if cmd == "/goal":

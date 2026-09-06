@@ -176,7 +176,9 @@ class GrepSearchAgent(SubAgent):
                         match_data = data.get("data", {})
                         path_text = match_data.get("path", {}).get("text", "")
                         try:
-                            rel_file = str(Path(path_text).relative_to(self.working_dir)).replace("\\", "/")
+                            rel_file = str(Path(path_text).relative_to(self.working_dir)).replace(
+                                "\\", "/"
+                            )
                         except ValueError:
                             rel_file = path_text.replace("\\", "/")
 
@@ -257,7 +259,9 @@ class GrepSearchAgent(SubAgent):
         else:
             file_candidates = []
             for root, dirs, files in os.walk(target_path):
-                dirs[:] = [d for d in dirs if d not in DEFAULT_IGNORES and not d.endswith(".egg-info")]
+                dirs[:] = [
+                    d for d in dirs if d not in DEFAULT_IGNORES and not d.endswith(".egg-info")
+                ]
                 for f in files:
                     file_candidates.append(Path(root, f))
 

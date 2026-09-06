@@ -37,6 +37,9 @@ class SubAgentType(str, Enum):
     PLANNER = "planner"
     WORKSPACE = "workspace"
     CONSENSUS = "consensus"
+    TASK_MANAGER = "task_manager"
+    ASK_QUESTION = "ask_question"
+    DIAGNOSTICS_CHECK = "diagnostics_check"
 
 
 class SubAgentStatus(str, Enum):

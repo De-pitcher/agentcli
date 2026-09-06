@@ -108,7 +108,12 @@ async def test_web_fetch_agent_content_offset_and_raw() -> None:
 
     task = SubAgentTask(
         agent_type=SubAgentType.WEB_FETCH,
-        payload={"url": "https://example.com/data.txt", "content_offset": 100, "max_bytes": 200, "raw": True},
+        payload={
+            "url": "https://example.com/data.txt",
+            "content_offset": 100,
+            "max_bytes": 200,
+            "raw": True,
+        },
     )
 
     with patch("httpx.AsyncClient", return_value=mock_client):
@@ -148,7 +153,9 @@ async def test_web_fetch_agent_errors() -> None:
 
     with patch("httpx.AsyncClient", return_value=mock_client_404):
         r_404 = await agent.run(
-            SubAgentTask(agent_type=SubAgentType.WEB_FETCH, payload={"url": "https://example.com/missing"})
+            SubAgentTask(
+                agent_type=SubAgentType.WEB_FETCH, payload={"url": "https://example.com/missing"}
+            )
         )
         assert r_404.success is False
         assert "HTTP 404" in str(r_404.error)
@@ -164,7 +171,9 @@ async def test_grep_search_python_engine(tmp_path: Path) -> None:
     """Test GrepSearchAgent fallback Python engine with line numbers, regex, and glob filters."""
     src_dir = tmp_path / "src"
     src_dir.mkdir()
-    (src_dir / "app.py").write_text("def find_token():\n    return 'secret_xyz'\n", encoding="utf-8")
+    (src_dir / "app.py").write_text(
+        "def find_token():\n    return 'secret_xyz'\n", encoding="utf-8"
+    )
     (src_dir / "utils.py").write_text("def helper():\n    pass\n", encoding="utf-8")
     (tmp_path / "config.toml").write_text('token = "secret_xyz"\n', encoding="utf-8")
 
@@ -221,9 +230,7 @@ async def test_grep_search_ripgrep_mocked(tmp_path: Path) -> None:
     agent.rg_path = "rg"
 
     # Mock ripgrep stdout JSON stream
-    rg_output = (
-        '{"type":"match","data":{"path":{"text":"src/app.py"},"lines":{"text":"import logging\\n"},"line_number":1}}\n'
-    )
+    rg_output = '{"type":"match","data":{"path":{"text":"src/app.py"},"lines":{"text":"import logging\\n"},"line_number":1}}\n'
 
     mock_proc = AsyncMock()
     mock_proc.communicate.return_value = (rg_output.encode("utf-8"), b"")

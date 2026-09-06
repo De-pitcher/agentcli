@@ -11,6 +11,7 @@ from .agent.checkpoints import CheckpointManager
 from .agent.events import LoopEvent
 from .agent.loop import AgentLoop, is_agentic_task
 from .agent.registry import ToolRegistry
+from .agent.tasks import TaskManager
 from .config import Config
 from .files import load_agents_md
 from .mcp.manager import MCPClientManager
@@ -109,6 +110,7 @@ class AgentSession:
         self.router: Router | None = None
         self.mcp_manager: MCPClientManager = MCPClientManager(config=self.config)
         self.checkpoint_manager: CheckpointManager = CheckpointManager()
+        self.task_manager: TaskManager = TaskManager()
 
         if config.routing.enabled:
             self.registry = ModelRegistry(config.routing)
@@ -146,6 +148,8 @@ class AgentSession:
     async def aclose(self) -> None:
         await self.client.aclose()
         await self.mcp_manager.aclose()
+        if hasattr(self, "task_manager") and self.task_manager is not None:
+            await self.task_manager.cleanup_all()
         self.close()
 
     def __del__(self) -> None:

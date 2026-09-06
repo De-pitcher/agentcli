@@ -701,9 +701,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 ("/models", "/model list", "/model free", "/model paid")
             ):
                 filter_type = (
-                    "free"
-                    if "free" in user_input
-                    else ("paid" if "paid" in user_input else None)
+                    "free" if "free" in user_input else ("paid" if "paid" in user_input else None)
                 )
                 active_curr = forced_model or "auto"
                 if session.registry is None:
@@ -799,7 +797,8 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     is_free = target_model.endswith(":free") or (
                         session.registry
                         and any(
-                            m.id == target_model and m.is_free for m in session.registry.all_models()
+                            m.id == target_model and m.is_free
+                            for m in session.registry.all_models()
                         )
                     )
                     badge = "[FREE]" if is_free else "[PAID]"
@@ -850,19 +849,77 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     else:
                         print("\nAvailable Checkpoints:")
                         for cp in cps:
-                            print(f"  [{cp['id']}] {cp['description']} ({cp['file_count']} file(s) tracked)")
+                            print(
+                                f"  [{cp['id']}] {cp['description']} ({cp['file_count']} file(s) tracked)"
+                            )
                 else:
                     rollback_res = session.checkpoint_manager.rollback()
                     if rollback_res["success"]:
                         reverted = rollback_res.get("reverted_files", [])
                         if reverted:
-                            print(f"Rollback successful (Checkpoint {rollback_res.get('checkpoint_id')}). Reverted {len(reverted)} file(s):")
+                            print(
+                                f"Rollback successful (Checkpoint {rollback_res.get('checkpoint_id')}). Reverted {len(reverted)} file(s):"
+                            )
                             for f in reverted:
                                 print(f"  - {f}")
                         else:
-                            print(f"Rollback completed. No modified files to revert for checkpoint {rollback_res.get('checkpoint_id')}.")
+                            print(
+                                f"Rollback completed. No modified files to revert for checkpoint {rollback_res.get('checkpoint_id')}."
+                            )
                     else:
                         print(f"Rollback failed: {rollback_res.get('error', 'Unknown error')}")
+                continue
+
+            if user_input.startswith(("/tasks", "/task", "/bg")):
+                task_parts = user_input.split(maxsplit=2)
+                task_subcmd = task_parts[1].lower() if len(task_parts) > 1 else "list"
+                target_id = task_parts[2].strip() if len(task_parts) > 2 else ""
+
+                if task_subcmd in ("list", "ls") or (len(task_parts) == 1):
+                    all_tasks = session.task_manager.list_tasks()
+                    if not all_tasks:
+                        print("No background tasks currently active.")
+                    else:
+                        print(f"\n--- Background Tasks ({len(all_tasks)}) ---")
+                        for t in all_tasks:
+                            print(
+                                f"  [{t['id']}] {t['command']} (status: {t['status']}, uptime: {t['uptime_seconds']}s, lines: {t['total_lines']})"
+                            )
+                        print("------------------------------------\n")
+                elif task_subcmd == "status":
+                    if not target_id:
+                        print("Usage: /tasks status <task_id>")
+                    else:
+                        status_info = session.task_manager.get_status(target_id)
+                        if "error" in status_info:
+                            print(f"Error: {status_info['error']}")
+                        else:
+                            print(f"\nTask [{target_id}] Status:")
+                            for k, v in status_info.items():
+                                print(f"  {k}: {v}")
+                elif task_subcmd in ("logs", "log"):
+                    if not target_id:
+                        print("Usage: /tasks logs <task_id> [tail]")
+                    else:
+                        log_info = session.task_manager.get_logs(target_id, tail=30)
+                        if "error" in log_info:
+                            print(f"Error: {log_info['error']}")
+                        else:
+                            print(f"\n--- Logs for [{target_id}] ({log_info['status']}) ---")
+                            for line in log_info.get("lines", []):
+                                print(line)
+                            print("------------------------------------\n")
+                elif task_subcmd in ("kill", "stop"):
+                    if not target_id:
+                        print("Usage: /tasks kill <task_id>")
+                    else:
+                        kill_res = await session.task_manager.kill_task(target_id)
+                        if kill_res.get("success"):
+                            print(f"Task [{target_id}] terminated.")
+                        else:
+                            print(f"Failed to terminate [{target_id}]: {kill_res.get('error')}")
+                else:
+                    print("Usage: /tasks [list | status <id> | logs <id> | kill <id>]")
                 continue
 
             if user_input in {"/clear", "/cls"}:

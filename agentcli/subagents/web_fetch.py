@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_SECONDS = 15.0
 DEFAULT_MAX_BYTES = 50_000
-USER_AGENT = "AgentCLI/2.13.0 (Autonomous Developer Assistant; +https://github.com/De-pitcher/agentcli)"
+USER_AGENT = (
+    "AgentCLI/2.13.0 (Autonomous Developer Assistant; +https://github.com/De-pitcher/agentcli)"
+)
 
 
 class HTMLToMarkdownConverter(HTMLParser):

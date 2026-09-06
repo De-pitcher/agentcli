@@ -297,6 +297,104 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             },
         },
     },
+    SubAgentType.TASK_MANAGER.value: {
+        "type": "function",
+        "function": {
+            "name": "manage_task",
+            "description": "Manage background processes and daemon tasks: run/start, list, status, logs, send_input, or kill.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["run", "list", "status", "logs", "send_input", "kill"],
+                        "description": "Action to perform on background task(s)",
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "Command to run in the background (required for action='run')",
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "Task ID to inspect, send input to, or kill (e.g. 'task_1')",
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "Working directory for the background task",
+                    },
+                    "input": {
+                        "type": "string",
+                        "description": "Input text to write to stdin of the task (for action='send_input')",
+                    },
+                    "tail": {
+                        "type": "integer",
+                        "description": "Number of recent log lines to retrieve (default: 50)",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+    SubAgentType.ASK_QUESTION.value: {
+        "type": "function",
+        "function": {
+            "name": "ask_question",
+            "description": "Prompt the user for clarification, confirmation, or to select from multiple proposed options.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "Clarifying question or prompt to present to the user",
+                    },
+                    "options": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of multiple choice options for the user",
+                    },
+                    "is_multi_select": {
+                        "type": "boolean",
+                        "description": "Whether the user can select multiple options (default: false)",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Additional context or background explaining why clarification is needed",
+                    },
+                },
+                "required": ["question"],
+            },
+        },
+    },
+    SubAgentType.DIAGNOSTICS_CHECK.value: {
+        "type": "function",
+        "function": {
+            "name": "diagnostics_check",
+            "description": "Run linters, compilers, or test suites and extract structured diagnostic error spans for automated self-repair.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Command to run and check diagnostics for (e.g. 'pytest', 'ruff check .', 'mypy .')",
+                    },
+                    "output": {
+                        "type": "string",
+                        "description": "Raw compiler/linter output text to parse directly without running a subprocess",
+                    },
+                    "framework": {
+                        "type": "string",
+                        "enum": ["auto", "pytest", "ruff", "mypy", "tsc", "eslint", "cargo"],
+                        "default": "auto",
+                        "description": "Framework parser format hint",
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "Working directory",
+                    },
+                },
+            },
+        },
+    },
 }
 
 
