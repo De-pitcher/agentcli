@@ -77,7 +77,14 @@ class FileOpsAgent(SubAgent):
         """
         payload = task.payload
         operation = payload.get("operation", "").lower()
-        path = payload.get("path", "")
+        path = (
+            payload.get("path")
+            or payload.get("file_path")
+            or payload.get("filename")
+            or payload.get("file")
+            or payload.get("target")
+            or ""
+        )
 
         if not operation:
             return SubAgentResult(
@@ -98,7 +105,7 @@ class FileOpsAgent(SubAgent):
         try:
             resolved_path = self._resolve_path(path)
 
-            if self.read_only and operation in ("write", "delete", "mkdir", "create"):
+            if self.read_only and operation in ("write", "delete", "mkdir", "create", "append"):
                 return SubAgentResult(
                     task_id=task.id,
                     agent_type=self.agent_type,
@@ -127,7 +134,7 @@ class FileOpsAgent(SubAgent):
                 content = payload.get("content", "")
                 encoding = payload.get("encoding", "utf-8")
                 resolved_path.parent.mkdir(parents=True, exist_ok=True)
-                resolved_path.write_text(content, encoding=encoding)
+                resolved_path.write_text(content, encoding=encoding, newline="")
                 return SubAgentResult(
                     task_id=task.id,
                     agent_type=self.agent_type,
@@ -135,6 +142,22 @@ class FileOpsAgent(SubAgent):
                     output={
                         "path": str(resolved_path),
                         "bytes_written": len(content.encode(encoding)),
+                    },
+                )
+
+            elif operation == "append":
+                content = payload.get("content", "")
+                encoding = payload.get("encoding", "utf-8")
+                resolved_path.parent.mkdir(parents=True, exist_ok=True)
+                with resolved_path.open("a", encoding=encoding, newline="") as f:
+                    f.write(content)
+                return SubAgentResult(
+                    task_id=task.id,
+                    agent_type=self.agent_type,
+                    success=True,
+                    output={
+                        "path": str(resolved_path),
+                        "bytes_appended": len(content.encode(encoding)),
                     },
                 )
 
@@ -196,6 +219,24 @@ class FileOpsAgent(SubAgent):
                     agent_type=self.agent_type,
                     success=True,
                     output={"path": str(resolved_path), "created": True},
+                )
+
+            elif operation in ("exists", "stat"):
+                exists = resolved_path.exists()
+                is_file = resolved_path.is_file() if exists else False
+                is_dir = resolved_path.is_dir() if exists else False
+                size = resolved_path.stat().st_size if is_file else None
+                return SubAgentResult(
+                    task_id=task.id,
+                    agent_type=self.agent_type,
+                    success=True,
+                    output={
+                        "path": str(resolved_path),
+                        "exists": exists,
+                        "is_file": is_file,
+                        "is_dir": is_dir,
+                        "size": size,
+                    },
                 )
 
             else:

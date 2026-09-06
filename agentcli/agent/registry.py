@@ -25,6 +25,7 @@ from typing import Any
 
 from ..subagents.base import SubAgent, SubAgentResult, SubAgentTask, SubAgentType
 from ..subagents.code_analyzer import CodeAnalyzerAgent
+from ..subagents.consensus import ConsensusAgent
 from ..subagents.file_ops import FileOpsAgent
 from ..subagents.shell import ShellExecutionAgent
 from ..subagents.web_search import WebSearchAgent
@@ -206,6 +207,8 @@ class ToolRegistry:
         self.register(SubAgentType.WEB_SEARCH.value, lambda: WebSearchAgent(config=web_cfg))
         ws_cfg = self._tool_configs.get(SubAgentType.WORKSPACE.value)
         self.register(SubAgentType.WORKSPACE.value, lambda: WorkspaceAgent(config=ws_cfg))
+        consensus_cfg = self._tool_configs.get(SubAgentType.CONSENSUS.value)
+        self.register(SubAgentType.CONSENSUS.value, lambda: ConsensusAgent(config=consensus_cfg))
 
     @staticmethod
     def _safe_type(agent_type: str) -> SubAgentType:

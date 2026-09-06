@@ -458,6 +458,39 @@ class AgentLoop:
                     )
                     extracted.append(f"{path_header}{items_str}".strip())
                     continue
+                # Check for directory tree list (workspace list_tree)
+                if "tree" in r.output and isinstance(r.output["tree"], list):
+                    extracted.append("\n".join(str(line) for line in r.output["tree"]))
+                    continue
+                # Check for search matches (workspace search_files / search_code)
+                if "matches" in r.output and isinstance(r.output["matches"], list):
+                    matches_lines = [
+                        f"- {it.get('file', '')}:{it.get('line', '')} {it.get('content', '')}".strip()
+                        if isinstance(it, dict)
+                        else f"- {it}"
+                        for it in r.output["matches"]
+                    ]
+                    query_hdr = (
+                        f"Matches for '{r.output.get('query') or r.output.get('pattern', '')}':\n"
+                        if (r.output.get("query") or r.output.get("pattern"))
+                        else ""
+                    )
+                    extracted.append(f"{query_hdr}" + "\n".join(matches_lines))
+                    continue
+                # Check for search results (web_search)
+                if "results" in r.output and isinstance(r.output["results"], list):
+                    res_lines = [
+                        f"- [{it.get('title', '')}]({it.get('url', '')}): {it.get('snippet', '')}".strip()
+                        if isinstance(it, dict)
+                        else f"- {it}"
+                        for it in r.output["results"]
+                    ]
+                    extracted.append("\n".join(res_lines))
+                    continue
+                # Check for code diffs
+                if "diff" in r.output and isinstance(r.output["diff"], str) and r.output["diff"].strip():
+                    extracted.append(r.output["diff"].strip())
+                    continue
                 # Common sub-agent output fields
                 for key in ("summary", "content", "output", "analysis", "result", "message"):
                     val = r.output.get(key)

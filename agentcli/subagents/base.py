@@ -34,6 +34,7 @@ class SubAgentType(str, Enum):
     WEB_SEARCH = "web_search"
     PLANNER = "planner"
     WORKSPACE = "workspace"
+    CONSENSUS = "consensus"
 
 
 class SubAgentStatus(str, Enum):

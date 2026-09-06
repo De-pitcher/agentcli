@@ -287,3 +287,102 @@ async def test_planner_native_tool_calling_fallback_to_prompt(monkeypatch) -> No
     assert len(plan) == 1
     assert plan[0]["agent_type"] == "code_analyzer"
     assert plan[0]["payload"]["files"] == ["lib.py"]
+
+
+@pytest.mark.asyncio
+async def test_file_ops_append_and_stat(tmp_path) -> None:
+    from agentcli.subagents.file_ops import FileOpsAgent
+
+    agent = FileOpsAgent(config={"working_dir": str(tmp_path), "allow_write": True})
+    test_file = tmp_path / "notes.txt"
+
+    # Write initial
+    w_res = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.FILE_OPS,
+            payload={"operation": "write", "file_path": str(test_file), "content": "Line 1\n"},
+        )
+    )
+    assert w_res.success is True
+
+    # Append
+    a_res = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.FILE_OPS,
+            payload={"operation": "append", "target": str(test_file), "content": "Line 2\n"},
+        )
+    )
+    assert a_res.success is True
+    assert test_file.read_text(encoding="utf-8") == "Line 1\nLine 2\n"
+
+    # Exists & stat
+    s_res = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.FILE_OPS,
+            payload={"operation": "exists", "filename": str(test_file)},
+        )
+    )
+    assert s_res.success is True
+    assert s_res.output["exists"] is True
+    assert s_res.output["is_file"] is True
+    assert s_res.output["size"] == len("Line 1\nLine 2\n")
+
+
+@pytest.mark.asyncio
+async def test_code_analyzer_file_aliases(tmp_path) -> None:
+    from agentcli.subagents.code_analyzer import CodeAnalyzerAgent
+
+    py_file = tmp_path / "sample.py"
+    py_file.write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+
+    agent = CodeAnalyzerAgent()
+    res = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.CODE_ANALYZER,
+            payload={"file": str(py_file)},
+        )
+    )
+    assert res.success is True
+    assert "def add" in res.output["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_web_search_query_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from agentcli.subagents.web_search import WebSearchAgent
+
+    agent = WebSearchAgent()
+    monkeypatch.setattr(agent.providers["duckduckgo"], "search", AsyncMock(return_value=[]))
+
+    res = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.WEB_SEARCH,
+            payload={"search_query": "python asyncio"},
+        )
+    )
+    assert res.success is True
+    assert res.output["query"] == "python asyncio"
+
+
+@pytest.mark.asyncio
+async def test_consensus_agent_tool_registry() -> None:
+    from agentcli.agent.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    assert "consensus" in registry.registered_types()
+
+    votes = [
+        {"voter_id": "agent-1", "choice": "refactor", "confidence": 0.9, "rationale": "Cleaner code"},
+        {"voter_id": "agent-2", "choice": "refactor", "confidence": 0.8, "rationale": "Better modularity"},
+        {"voter_id": "agent-3", "choice": "keep", "confidence": 0.5, "rationale": "Less risk"},
+    ]
+
+    result = await registry.execute(
+        "consensus",
+        {"votes": votes, "strategy": "majority"},
+    )
+    assert result.success is True
+    assert result.output["decision"] == "refactor"
+    assert result.output["consensus_reached"] is True
+    assert result.output["agreement_ratio"] == pytest.approx(2 / 3)

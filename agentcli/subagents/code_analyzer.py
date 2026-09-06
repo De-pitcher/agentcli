@@ -53,7 +53,8 @@ class CodeAnalyzerAgent(SubAgent):
             - models: optional list of model fallbacks for LLM-based analysis
         """
         payload = task.payload
-        files = payload.get("files", [])
+        raw_files = payload.get("files") or payload.get("file") or payload.get("path") or []
+        files = [raw_files] if isinstance(raw_files, str) else list(raw_files)
         focus = payload.get("focus", "general")
         context = payload.get("context", "")
         model = payload.get("model")
