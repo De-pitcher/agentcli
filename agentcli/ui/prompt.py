@@ -51,6 +51,8 @@ def resolve_slash_command(text: str) -> str:
         "/h": "/help",
         "/rollback": "/undo",
         "/revert": "/undo",
+        "/task": "/tasks",
+        "/bg": "/tasks",
     }
 
     if raw_cmd in aliases:
@@ -65,6 +67,7 @@ def resolve_slash_command(text: str) -> str:
         "/goal",
         "/diff",
         "/undo",
+        "/tasks",
         "/tokens",
         "/cost",
         "/clear",
@@ -83,7 +86,7 @@ def resolve_slash_command(text: str) -> str:
 
 
 class SlashAndFileCompleter(Completer):
-    """Completer for slash commands (/models, /model, /undo, /budget, /history, /exit, etc.), model arguments, and @file references."""
+    """Completer for slash commands (/models, /model, /undo, /tasks, /budget, /history, /exit, etc.), model arguments, and @file references."""
 
     SLASH_COMMANDS: ClassVar[list[tuple[str, str]]] = [
         ("/help", "Show help, slash commands, and shortcuts"),
@@ -94,6 +97,7 @@ class SlashAndFileCompleter(Completer):
         ("/goal", "Run an autonomous multi-step goal loop"),
         ("/diff", "Inspect file diffs generated during session"),
         ("/undo", "Revert latest file changes or inspect turn rollback (/undo diff)"),
+        ("/tasks", "List or manage background tasks (/tasks, /tasks kill <id>)"),
         ("/tokens", "Show current session token usage breakdown"),
         ("/cost", "Show current session estimated cost"),
         ("/clear", "Clear terminal screen"),
@@ -108,6 +112,8 @@ class SlashAndFileCompleter(Completer):
         "/diffs": "/diff",
         "/cls": "/clear",
         "/h": "/help",
+        "/task": "/tasks",
+        "/bg": "/tasks",
     }
 
     def __init__(self) -> None:
@@ -135,7 +141,11 @@ class SlashAndFileCompleter(Completer):
             for m in _BUILTIN_MODELS:
                 if m.id.lower().startswith(arg_lower):
                     tag = "[FREE]" if m.is_free else "[PAID]"
-                    ctx = f"{m.context_window // 1000}k" if m.context_window >= 1000 else str(m.context_window)
+                    ctx = (
+                        f"{m.context_window // 1000}k"
+                        if m.context_window >= 1000
+                        else str(m.context_window)
+                    )
                     yield Completion(
                         m.id,
                         start_position=-len(arg),

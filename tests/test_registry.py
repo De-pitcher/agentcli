@@ -167,4 +167,3 @@ async def test_registry_refresh_from_openrouter() -> None:
     rec_gpt = registry.get("openai/gpt-4o")
     assert rec_gpt is not None
     assert rec_gpt.is_free is False
-

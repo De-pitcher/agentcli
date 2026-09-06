@@ -65,7 +65,11 @@ def format_models_text(
     lines.append("-" * 76)
 
     for m in filtered:
-        status = "● ACTIVE" if active_model and (active_model == m.id or (active_model == "auto" and m.is_free)) else ""
+        status = (
+            "● ACTIVE"
+            if active_model and (active_model == m.id or (active_model == "auto" and m.is_free))
+            else ""
+        )
         type_tag = "[FREE]" if m.is_free else "[PAID]"
         tier_tag = m.tier.upper()
         ctx = f"{m.context_window // 1000}k" if m.context_window >= 1000 else str(m.context_window)

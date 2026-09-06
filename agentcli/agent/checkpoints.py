@@ -65,15 +65,21 @@ class CheckpointManager:
 
         try:
             if full_path.stat().st_size > MAX_SNAPSHOT_FILE_BYTES:
-                target_cp.files[norm_path] = FileSnapshot(rel_path=norm_path, exists=True, is_binary=True)
+                target_cp.files[norm_path] = FileSnapshot(
+                    rel_path=norm_path, exists=True, is_binary=True
+                )
                 return
 
             text = full_path.read_text(encoding="utf-8", errors="replace")
             target_cp.files[norm_path] = FileSnapshot(rel_path=norm_path, exists=True, content=text)
         except OSError:
-            target_cp.files[norm_path] = FileSnapshot(rel_path=norm_path, exists=True, is_binary=True)
+            target_cp.files[norm_path] = FileSnapshot(
+                rel_path=norm_path, exists=True, is_binary=True
+            )
 
-    def create_checkpoint(self, description: str = "Turn checkpoint", metadata: dict[str, Any] | None = None) -> str:
+    def create_checkpoint(
+        self, description: str = "Turn checkpoint", metadata: dict[str, Any] | None = None
+    ) -> str:
         """Create a new checkpoint tracking session mutations."""
         cp_id = uuid.uuid4().hex[:8]
         cp = Checkpoint(
@@ -139,7 +145,11 @@ class CheckpointManager:
         """Revert all file changes recorded in the specified (or latest) checkpoint."""
         cp = self._get_checkpoint(checkpoint_id)
         if cp is None:
-            return {"success": False, "error": "No checkpoint available to restore", "reverted_files": []}
+            return {
+                "success": False,
+                "error": "No checkpoint available to restore",
+                "reverted_files": [],
+            }
 
         reverted: list[str] = []
         errors: list[str] = []

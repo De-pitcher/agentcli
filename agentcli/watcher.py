@@ -372,11 +372,17 @@ class ContinuousTDDRunner:
         self.watcher_config = watcher_config or config.watcher
         self.root_dir = (root_dir or Path.cwd()).resolve()
         self.renderer = renderer or ConsoleRenderer()
+        effective_paths = (
+            [self.root_dir]
+            if (self.watcher_config.paths == ["."] and root_dir is not None)
+            else self.watcher_config.paths
+        )
         self.watcher = FileWatcher(
-            paths=self.watcher_config.paths,
+            paths=effective_paths,
             ignored_dirs=DEFAULT_IGNORED_DIRS,
             debounce_seconds=self.watcher_config.debounce_seconds,
         )
+
         self.worktree_manager = WorktreeManager(self.root_dir)
         self.cumulative_cost_usd: float = 0.0
         self._is_running: bool = False

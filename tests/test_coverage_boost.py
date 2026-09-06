@@ -39,7 +39,9 @@ async def test_shell_cd_commands(tmp_path: Path) -> None:
     assert str(Path.home()) in r_home.output["cwd"]
 
     # 3. cd to non-existent directory
-    t_nonexist = SubAgentTask(agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "cd non_existent_folder_xyz"})
+    t_nonexist = SubAgentTask(
+        agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "cd non_existent_folder_xyz"}
+    )
     r_nonexist = await agent.run(t_nonexist)
     assert r_nonexist.success is False
     assert r_nonexist.error is not None and "no such file or directory" in r_nonexist.error
@@ -75,13 +77,17 @@ async def test_shell_fallback_shims(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert "nested_dir/" in r_ls.output["stdout"]
 
     # 1b. Fallback ls with subdirectory argument
-    t_ls_sub = SubAgentTask(agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "ls nested_dir"})
+    t_ls_sub = SubAgentTask(
+        agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "ls nested_dir"}
+    )
     r_ls_sub = await agent.run(t_ls_sub)
     assert r_ls_sub.success is True
     assert "inner.txt" in r_ls_sub.output["stdout"]
 
     # 2. Fallback cat valid file
-    t_cat = SubAgentTask(agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "cat test1.txt"})
+    t_cat = SubAgentTask(
+        agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "cat test1.txt"}
+    )
     r_cat = await agent.run(t_cat)
     assert r_cat.success is True
     assert r_cat.output["stdout"] == "content 1"
@@ -93,12 +99,16 @@ async def test_shell_fallback_shims(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert r_cat_noargs.error is not None and "Usage: cat" in r_cat_noargs.error
 
     # 4. Fallback cat on non-existent file
-    t_cat_missing = SubAgentTask(agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "cat missing.txt"})
+    t_cat_missing = SubAgentTask(
+        agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "cat missing.txt"}
+    )
     r_cat_missing = await agent.run(t_cat_missing)
     assert r_cat_missing.success is False
 
     # 5. which command when tool is missing
-    t_which = SubAgentTask(agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "which non_existent_tool_abc"})
+    t_which = SubAgentTask(
+        agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "which non_existent_tool_abc"}
+    )
     r_which = await agent.run(t_which)
     assert r_which.success is False
     assert r_which.error is not None and "not found" in r_which.error
@@ -171,7 +181,9 @@ async def test_workspace_agent_branches(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_session_extended_telemetry_and_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_session_extended_telemetry_and_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test AgentSession extended methods, cost calculation, and history compaction."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     config = Config()

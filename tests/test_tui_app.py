@@ -421,7 +421,9 @@ async def test_tui_submit_input_branches(monkeypatch: pytest.MonkeyPatch) -> Non
     submit_handler(mock_event)
     await asyncio.sleep(0.01)
     # Applied completion and executed /model
-    assert any("Available Models Catalog" in m[1] or "Current model" in m[1] for m in tui.state.messages)
+    assert any(
+        "Available Models Catalog" in m[1] or "Current model" in m[1] for m in tui.state.messages
+    )
     tui.input_buffer.complete_state = None
 
     # 4. Busy processing warning
@@ -483,7 +485,9 @@ async def test_tui_more_slash_commands() -> None:
 
     # /model without args
     await tui._handle_slash_command("/model", "12:00:02", mock_event)
-    assert any("Available Models Catalog" in m[1] or "Current model" in m[1] for m in tui.state.messages)
+    assert any(
+        "Available Models Catalog" in m[1] or "Current model" in m[1] for m in tui.state.messages
+    )
 
     # /model auto
     await tui._handle_slash_command("/model auto", "12:00:03", mock_event)
@@ -505,8 +509,14 @@ async def test_tui_more_slash_commands() -> None:
     # /undo commands
     mock_session.checkpoint_manager = MagicMock()
     mock_session.checkpoint_manager.get_diff.return_value = "--- a/test.py\n+++ b/test.py"
-    mock_session.checkpoint_manager.list_checkpoints.return_value = [{"id": "cp1", "description": "test", "file_count": 1}]
-    mock_session.checkpoint_manager.rollback.return_value = {"success": True, "checkpoint_id": "cp1", "reverted_files": ["test.py"]}
+    mock_session.checkpoint_manager.list_checkpoints.return_value = [
+        {"id": "cp1", "description": "test", "file_count": 1}
+    ]
+    mock_session.checkpoint_manager.rollback.return_value = {
+        "success": True,
+        "checkpoint_id": "cp1",
+        "reverted_files": ["test.py"],
+    }
 
     await tui._handle_slash_command("/undo diff", "12:00:07", mock_event)
     assert tui.state.is_diff_modal_open is True
@@ -516,6 +526,40 @@ async def test_tui_more_slash_commands() -> None:
 
     await tui._handle_slash_command("/undo", "12:00:09", mock_event)
     assert any("Rollback successful" in m[1] for m in tui.state.messages)
+
+    # /tasks commands
+    mock_session.task_manager = MagicMock()
+    mock_session.task_manager.list_tasks.return_value = [
+        {
+            "id": "task_1",
+            "command": "pytest",
+            "status": "running",
+            "uptime_seconds": 1.2,
+            "total_lines": 5,
+        }
+    ]
+    mock_session.task_manager.get_status.return_value = {
+        "id": "task_1",
+        "status": "running",
+        "command": "pytest",
+    }
+    mock_session.task_manager.get_logs.return_value = {
+        "status": "running",
+        "lines": ["line 1", "line 2"],
+    }
+    mock_session.task_manager.kill_task = AsyncMock(return_value={"success": True})
+
+    await tui._handle_slash_command("/tasks", "12:00:10", mock_event)
+    assert any("Background Tasks" in m[1] for m in tui.state.messages)
+
+    await tui._handle_slash_command("/tasks status task_1", "12:00:11", mock_event)
+    assert any("Task [task_1] Status:" in m[1] for m in tui.state.messages)
+
+    await tui._handle_slash_command("/tasks logs task_1", "12:00:12", mock_event)
+    assert any("--- Logs for [task_1] ---" in m[1] for m in tui.state.messages)
+
+    await tui._handle_slash_command("/tasks kill task_1", "12:00:13", mock_event)
+    assert any("Task [task_1] terminated." in m[1] for m in tui.state.messages)
 
 
 @pytest.mark.asyncio

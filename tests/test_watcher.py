@@ -126,15 +126,16 @@ async def test_file_watcher_async_watch_debouncing(tmp_path: Path):
         f1.write_text("x = 3", encoding="utf-8")
         os.utime(f1, (time.time() + 3.0, time.time() + 3.0))
 
-    task = asyncio.create_task(trigger_changes())
+    batches: list[set[Path]] = []
 
-    batches = []
-    async for change_batch in watcher.watch(poll_interval=0.02):
-        batches.append(change_batch)
-        if len(batches) >= 1:
-            watcher.stop()
+    async def run_watcher():
+        async for change_batch in watcher.watch(poll_interval=0.02):
+            batches.append(change_batch)
+            if len(batches) >= 1:
+                watcher.stop()
+                break
 
-    await task
+    await asyncio.wait_for(asyncio.gather(run_watcher(), trigger_changes()), timeout=3.0)
     assert len(batches) >= 1
     assert f1.resolve() in batches[0]
 
@@ -153,11 +154,11 @@ async def test_worktree_manager_git_lifecycle(tmp_path: Path):
         assert mgr.is_git_repo() is False
 
     # Mock create_worktree and remove_worktree
-    mock_proc = AsyncMock()
-    mock_proc.communicate.return_value = (b"", b"")
+    mock_proc = MagicMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
     mock_proc.returncode = 0
 
-    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+    with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
         wt_dir, branch = await mgr.create_worktree(branch_prefix="test-repair")
         assert "test-repair" in branch
         assert wt_dir.parent == (tmp_path / ".agentcli_worktrees")
@@ -176,21 +177,35 @@ async def test_worktree_manager_git_lifecycle(tmp_path: Path):
 async def test_continuous_tdd_runner_test_execution(tmp_path: Path):
     """Test ContinuousTDDRunner test command execution and failure summaries."""
     config = Config()
-    config.watcher.test_command = "echo passed"
-
     runner = ContinuousTDDRunner(config=config, root_dir=tmp_path)
 
     # Mock passing test
-    res = await runner.run_tests()
-    assert res.passed is True
-    assert res.return_code == 0
+    mock_proc = MagicMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"passed\n", b""))
+    mock_proc.returncode = 0
+
+    with patch("asyncio.create_subprocess_shell", AsyncMock(return_value=mock_proc)):
+        res = await runner.run_tests()
+        assert res.passed is True
+        assert res.return_code == 0
 
     # Mock failing test
-    runner.watcher_config.test_command = "python -c \"import sys; sys.stderr.write('FAILED tests/test_app.py::test_fail - AssertionError'); sys.exit(1)\""
-    fail_res = await runner.run_tests()
-    assert fail_res.passed is False
-    assert fail_res.return_code == 1
-    assert "FAILED" in fail_res.failure_summary or "AssertionError" in fail_res.failure_summary
+    mock_fail = MagicMock()
+    mock_fail.communicate = AsyncMock(
+        return_value=(
+            b"",
+            b"FAILED tests/test_app.py::test_fail - AssertionError\n",
+        )
+    )
+    mock_fail.returncode = 1
+
+    with patch("asyncio.create_subprocess_shell", AsyncMock(return_value=mock_fail)):
+        fail_res = await runner.run_tests()
+        assert fail_res.passed is False
+        assert fail_res.return_code == 1
+        assert "FAILED" in fail_res.failure_summary or "AssertionError" in fail_res.failure_summary
+
+
 
 
 @pytest.mark.asyncio
@@ -354,7 +369,7 @@ def test_cli_build_parser_watch_subcommand():
 
 
 @pytest.mark.asyncio
-async def test_run_watch_entrypoint(monkeypatch):
+async def test_run_watch_entrypoint(tmp_path: Path):
     """Test run_watch entrypoint sets up runner and executes."""
     args = argparse.Namespace(
         command="watch",
@@ -366,12 +381,13 @@ async def test_run_watch_entrypoint(monkeypatch):
         budget="medium",
         model=None,
         max_iterations=4,
-        paths=["."],
+        paths=[str(tmp_path)],
         no_initial=True,
         plain=True,
         no_color=True,
     )
     config = Config()
+
 
     with patch.object(ContinuousTDDRunner, "run", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = ExitCode.SUCCESS
@@ -480,12 +496,12 @@ async def test_worktree_manager_create_error(tmp_path: Path):
     """Test WorktreeManager raises RuntimeError when git worktree creation fails."""
     mgr = WorktreeManager(root_dir=tmp_path)
 
-    mock_proc = AsyncMock()
-    mock_proc.communicate.return_value = (b"", b"fatal: git worktree add failed")
+    mock_proc = MagicMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"", b"fatal: git worktree add failed"))
     mock_proc.returncode = 1
 
     with (
-        patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+        patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)),
         pytest.raises(RuntimeError, match="Failed to create git worktree"),
     ):
         await mgr.create_worktree()
