@@ -532,17 +532,18 @@ _AGENTIC_KEYWORDS: tuple[str, ...] = (
 )
 
 _ACTION_PATTERNS: tuple[re.Pattern[str], ...] = (
-    # Directory & Workspace inspection
+    # Directory & Workspace inspection & navigation
     re.compile(r"\b(print|show|get|what\s+is|display)\b.*\b(current\s+directory|working\s+directory|pwd|cwd|folder)\b", re.IGNORECASE),
     re.compile(r"\b(list|show|what\s+of|print)\b.*\b(contents?|files?|directories|folders?|dir|ls)\b", re.IGNORECASE),
-    re.compile(r"^(pwd|cwd|ls|dir)(\s+.*)?$", re.IGNORECASE),
+    re.compile(r"\b(cd|change\s+directory|navigate\s+to|switch\s+directory|go\s+to\s+folder|go\s+to\s+directory)\b(\s+.*)?", re.IGNORECASE),
+    re.compile(r"^(cd|pwd|cwd|ls|dir|whoami|echo|which|where|cat|type|head|tail|git|python|pytest|node|npm|cargo|find|grep)(\s+.*)?$", re.IGNORECASE),
     # File operations
     re.compile(r"\b(read|open|inspect|check|view|cat|examine)\b.*\b(file|code|script|module|\.[a-z0-9]+)\b", re.IGNORECASE),
-    re.compile(r"\b(create|write|edit|modify|delete|remove|patch)\b.*\b(file|directory|folder|function|class)\b", re.IGNORECASE),
+    re.compile(r"\b(create|write|edit|modify|delete|remove|patch)\b.*\b(file|directory|folder|script|\.[a-z0-9]+)\b", re.IGNORECASE),
     # Shell execution & testing
     re.compile(r"\b(run|execute)\b.*\b(test|tests|pytest|command|script|suite|bench|build|lint|typecheck|mypy|ruff)\b", re.IGNORECASE),
     # Git & code search
-    re.compile(r"\b(git\s+(status|diff|log|branch|commit|checkout)|grep|search\s+code|find\s+symbol)\b", re.IGNORECASE),
+    re.compile(r"\b(git\s+(status|diff|log|branch|commit|checkout|add|show|pull|push)|grep|search\s+code|find\s+symbol)\b", re.IGNORECASE),
 )
 
 

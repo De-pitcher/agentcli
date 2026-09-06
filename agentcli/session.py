@@ -313,6 +313,23 @@ class AgentSession:
         """Execute a single user turn, streaming and persisting the response, and return full reply."""
         expanded_text = self.prepare_prompt(user_text)
         await self.async_add_user_message(expanded_text)
+
+        if self.should_use_loop(expanded_text):
+            finish_output = None
+            loop_summary = None
+            async for event in self.run_loop(expanded_text):
+                from .agent.events import FinishEvent, LoopErrorEvent
+
+                if isinstance(event, FinishEvent):
+                    finish_output = getattr(event, "output", None)
+                    loop_summary = event.summary
+                elif isinstance(event, LoopErrorEvent):
+                    loop_summary = f"[loop error] {event.error}"
+
+            full_reply = finish_output if finish_output else (loop_summary or "(loop completed)")
+            await self.async_add_assistant_message(full_reply)
+            return full_reply
+
         reply = await self.send(expanded_text)
         chunks: list[str] = []
         async for delta in reply.stream:

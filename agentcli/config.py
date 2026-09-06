@@ -51,7 +51,7 @@ default_timeout_seconds = 30
 max_output_bytes = 1048576  # 1MB
 
 [agent_loop]
-enabled = false        # set to true to enable Plan→Act→Reflect for multi-step tasks
+enabled = true         # Plan→Act→Reflect enabled for tool execution and multi-step tasks
 max_iterations = 5     # hard ceiling on plan/act/reflect cycles (prevents runaway loops)
 reflection_enabled = true
 # plan_model_override = ""    # optional: force a specific model for the planning step
@@ -159,7 +159,7 @@ class AgentLoopConfig:
         reflect_model_override: Force a specific model for reflection.
     """
 
-    enabled: bool = False
+    enabled: bool = True
     max_iterations: int = 5
     reflection_enabled: bool = True
     plan_model_override: str = ""

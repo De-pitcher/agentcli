@@ -164,9 +164,7 @@ class TUIApplication:
 
         spinner_task = asyncio.create_task(_spinner_loop())
         try:
-            self.add_subagent_event("loop", f"Dispatched turn: {text[:40]}...")
-            if self._app is not None:
-                self._app.invalidate()
+            self.add_subagent_event("session", f"Processing: {text[:40]}...")
             reply = await self.session.step(text)
             self.add_message("assistant", reply or "(empty response)", t_now)
             self.state.status_line = (

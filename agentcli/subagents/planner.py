@@ -166,11 +166,29 @@ class PlannerAgent(SubAgent):
 
         # Shell execution
         is_pure_shell = False
-        if any(
+        cmd = self._extract_command(query)
+        if cmd or any(
             keyword in query_lower
-            for keyword in ["run", "execute", "exec", "shell", "terminal", "pytest", "python -m", "npm", "cargo"]
+            for keyword in [
+                "run",
+                "execute",
+                "exec",
+                "shell",
+                "terminal",
+                "pytest",
+                "python -m",
+                "npm",
+                "cargo",
+                "cd",
+                "pwd",
+                "cwd",
+                "whoami",
+                "which",
+                "where",
+            ]
         ):
-            cmd = self._extract_command(query)
+            if not cmd:
+                cmd = self._extract_command(query)
             if cmd:
                 # Extract a meaningful criterion from the command
                 if "test" in cmd.lower() or "pytest" in cmd.lower():
@@ -179,6 +197,10 @@ class PlannerAgent(SubAgent):
                     criterion = "build successful"
                 elif "lint" in cmd.lower() or "format" in cmd.lower():
                     criterion = "lint passed"
+                elif cmd.lower().startswith(("cd ", "cd")):
+                    criterion = "directory changed"
+                elif cmd.lower() in ("pwd", "cwd"):
+                    criterion = "path output"
                 else:
                     criterion = "command completed"
                 raw_tasks.append(
@@ -192,7 +214,7 @@ class PlannerAgent(SubAgent):
                         "goal_criterion": criterion,
                     }
                 )
-                if query_lower.startswith(("run ", "execute ", "exec ", "cmd: ", "shell: ")):
+                if query_lower.startswith(("run ", "execute ", "exec ", "cmd: ", "shell: ", "cd ", "cd", "pwd", "cwd", "whoami", "echo ", "git ")):
                     is_pure_shell = True
 
         # File and directory operations (skip if query is purely a shell command)
@@ -691,7 +713,7 @@ Example output:
         # Check for direct command invocation without run/execute prefix
         text_clean = text.strip()
         if re.match(
-            r"^(?:pytest|python\s+-m\s+pytest|ruff|mypy|git|npm|cargo|go\s+test)\b",
+            r"^(?:cd|pwd|cwd|whoami|echo|which|where|git|pytest|python|ruff|mypy|npm|cargo|go|cat|type)\b",
             text_clean,
             re.IGNORECASE,
         ):
