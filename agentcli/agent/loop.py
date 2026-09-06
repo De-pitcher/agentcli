@@ -317,7 +317,22 @@ class AgentLoop:
 
     async def _plan(self, previous_plan: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
         """Invoke Planner and return the plan step list."""
-        payload: dict[str, Any] = {"query": self.goal}
+        available_tools: list[str] = []
+        if hasattr(self.registry, "registered_types"):
+            res = self.registry.registered_types()
+            if isinstance(res, list):
+                available_tools = [str(x) for x in res]
+        elif hasattr(self.registry, "list_tools"):
+            res = self.registry.list_tools()
+            if isinstance(res, list):
+                available_tools = [str(x) for x in res]
+        if not available_tools:
+            available_tools = [t.value for t in SubAgentType]
+
+        payload: dict[str, Any] = {
+            "query": self.goal,
+            "available_agents": available_tools,
+        }
 
         if self.plan_model:
             payload["model"] = self.plan_model
@@ -331,12 +346,39 @@ class AgentLoop:
         if self.initial_context:
             context_parts.append(self.initial_context)
 
-        if previous_plan:
-            # Give the planner context about what was already tried.
-            context_parts.append(
-                f"Previous plan had {len(previous_plan)} step(s). Re-planning because "
-                "some steps failed or the goal was not met."
+        if previous_plan or self._all_results:
+            # Provide rich execution feedback so the planner knows exactly what succeeded/failed
+            feedback_lines = [
+                f"Previous execution attempt had {len(previous_plan or [])} planned step(s) and {len(self._all_results)} executed step(s).",
+                "Execution History & Outcomes:",
+            ]
+            for idx, res in enumerate(self._all_results, 1):
+                agent_name = (
+                    res.agent_type.value
+                    if hasattr(res.agent_type, "value")
+                    else str(res.agent_type)
+                )
+                status = "SUCCESS" if res.success else "FAILED"
+                detail = ""
+                if res.output and isinstance(res.output, dict):
+                    if res.output.get("stdout"):
+                        detail = f"stdout: {str(res.output['stdout'])[:300]}"
+                    elif res.output.get("analysis"):
+                        detail = f"analysis: {str(res.output['analysis'])[:300]}"
+                    elif res.output.get("findings"):
+                        detail = f"findings: {str(res.output['findings'])[:300]}"
+                    elif "items" in res.output:
+                        detail = f"found {len(res.output['items'])} items"
+                    elif res.output.get("content"):
+                        detail = f"content ({len(str(res.output['content']))} chars)"
+                if res.error:
+                    detail = f"error: {res.error}"
+                feedback_lines.append(f"  Step {idx} [{agent_name}] ({status}): {detail}")
+
+            feedback_lines.append(
+                "Please formulate a revised plan that builds on successful results and fixes the underlying root cause of any failures."
             )
+            context_parts.append("\n".join(feedback_lines))
 
         if context_parts:
             payload["context"] = "\n\n".join(context_parts)
@@ -488,11 +530,23 @@ class AgentLoop:
                     extracted.append("\n".join(res_lines))
                     continue
                 # Check for code diffs
-                if "diff" in r.output and isinstance(r.output["diff"], str) and r.output["diff"].strip():
+                if (
+                    "diff" in r.output
+                    and isinstance(r.output["diff"], str)
+                    and r.output["diff"].strip()
+                ):
                     extracted.append(r.output["diff"].strip())
                     continue
-                # Common sub-agent output fields
-                for key in ("summary", "content", "output", "analysis", "result", "message"):
+                # Common sub-agent output fields (prioritize substantive findings before generic status summary)
+                for key in (
+                    "analysis",
+                    "findings",
+                    "content",
+                    "result",
+                    "output",
+                    "summary",
+                    "message",
+                ):
                     val = r.output.get(key)
                     if isinstance(val, str) and val.strip():
                         extracted.append(val.strip())
@@ -533,17 +587,41 @@ _AGENTIC_KEYWORDS: tuple[str, ...] = (
 
 _ACTION_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Directory & Workspace inspection & navigation
-    re.compile(r"\b(print|show|get|what\s+is|display)\b.*\b(current\s+directory|working\s+directory|pwd|cwd|folder)\b", re.IGNORECASE),
-    re.compile(r"\b(list|show|what\s+of|print)\b.*\b(contents?|files?|directories|folders?|dir|ls)\b", re.IGNORECASE),
-    re.compile(r"\b(cd|change\s+directory|navigate\s+to|switch\s+directory|go\s+to\s+folder|go\s+to\s+directory)\b(\s+.*)?", re.IGNORECASE),
-    re.compile(r"^(cd|pwd|cwd|ls|dir|whoami|echo|which|where|cat|type|head|tail|git|python|pytest|node|npm|cargo|find|grep)(\s+.*)?$", re.IGNORECASE),
+    re.compile(
+        r"\b(print|show|get|what\s+is|display)\b.*\b(current\s+directory|working\s+directory|pwd|cwd|folder)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(list|show|what\s+of|print)\b.*\b(contents?|files?|directories|folders?|dir|ls)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(cd|change\s+directory|navigate\s+to|switch\s+directory|go\s+to\s+folder|go\s+to\s+directory)\b(\s+.*)?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^(cd|pwd|cwd|ls|dir|whoami|echo|which|where|cat|type|head|tail|git|python|pytest|node|npm|cargo|find|grep)(\s+.*)?$",
+        re.IGNORECASE,
+    ),
     # File operations
-    re.compile(r"\b(read|open|inspect|check|view|cat|examine)\b.*\b(file|code|script|module|\.[a-z0-9]+)\b", re.IGNORECASE),
-    re.compile(r"\b(create|write|edit|modify|delete|remove|patch)\b.*\b(file|directory|folder|script|\.[a-z0-9]+)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(read|open|inspect|check|view|cat|examine)\b.*\b(file|code|script|module|\.[a-z0-9]+)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(create|write|edit|modify|delete|remove|patch)\b.*\b(file|directory|folder|script|\.[a-z0-9]+)\b",
+        re.IGNORECASE,
+    ),
     # Shell execution & testing
-    re.compile(r"\b(run|execute)\b.*\b(test|tests|pytest|command|script|suite|bench|build|lint|typecheck|mypy|ruff)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(run|execute)\b.*\b(test|tests|pytest|command|script|suite|bench|build|lint|typecheck|mypy|ruff)\b",
+        re.IGNORECASE,
+    ),
     # Git & code search
-    re.compile(r"\b(git\s+(status|diff|log|branch|commit|checkout|add|show|pull|push)|grep|search\s+code|find\s+symbol)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(git\s+(status|diff|log|branch|commit|checkout|add|show|pull|push)|grep|search\s+code|find\s+symbol)\b",
+        re.IGNORECASE,
+    ),
 )
 
 

@@ -85,7 +85,9 @@ def test_emergency_context_reset_preserves_root_context() -> None:
     assert len(reset_msgs) >= 2
     assert reset_msgs[0].role == "system"
     assert "Emergency Context Budget Reset" in (reset_msgs[1].content or "")
-    assert "Touched Workspace Files: src/auth.py, tests/test_auth.py" in (reset_msgs[1].content or "")
+    assert "Touched Workspace Files: src/auth.py, tests/test_auth.py" in (
+        reset_msgs[1].content or ""
+    )
 
 
 def test_adaptive_budget_compress_tiered_progression() -> None:

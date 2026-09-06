@@ -199,7 +199,12 @@ class ShellExecutionAgent(SubAgent):
                     task_id=task_id,
                     agent_type=self.agent_type,
                     success=False,
-                    output={"stdout": "", "stderr": f"cd: no such file or directory: {target_str}\n", "returncode": 1, "truncated": False},
+                    output={
+                        "stdout": "",
+                        "stderr": f"cd: no such file or directory: {target_str}\n",
+                        "returncode": 1,
+                        "truncated": False,
+                    },
                     error=f"cd: no such file or directory: {target_str}",
                 )
             if not dest_path.is_dir():
@@ -207,7 +212,12 @@ class ShellExecutionAgent(SubAgent):
                     task_id=task_id,
                     agent_type=self.agent_type,
                     success=False,
-                    output={"stdout": "", "stderr": f"cd: not a directory: {target_str}\n", "returncode": 1, "truncated": False},
+                    output={
+                        "stdout": "",
+                        "stderr": f"cd: not a directory: {target_str}\n",
+                        "returncode": 1,
+                        "truncated": False,
+                    },
                     error=f"cd: not a directory: {target_str}",
                 )
 
@@ -237,7 +247,12 @@ class ShellExecutionAgent(SubAgent):
                     task_id=task_id,
                     agent_type=self.agent_type,
                     success=False,
-                    output={"stdout": "", "stderr": "Usage: which <command>\n", "returncode": 1, "truncated": False},
+                    output={
+                        "stdout": "",
+                        "stderr": "Usage: which <command>\n",
+                        "returncode": 1,
+                        "truncated": False,
+                    },
                     error="Usage: which <command>",
                 )
             target = args[0]
@@ -247,13 +262,23 @@ class ShellExecutionAgent(SubAgent):
                     task_id=task_id,
                     agent_type=self.agent_type,
                     success=True,
-                    output={"stdout": f"{loc}\n", "stderr": "", "returncode": 0, "truncated": False},
+                    output={
+                        "stdout": f"{loc}\n",
+                        "stderr": "",
+                        "returncode": 0,
+                        "truncated": False,
+                    },
                 )
             return SubAgentResult(
                 task_id=task_id,
                 agent_type=self.agent_type,
                 success=False,
-                output={"stdout": "", "stderr": f"{target} not found\n", "returncode": 1, "truncated": False},
+                output={
+                    "stdout": "",
+                    "stderr": f"{target} not found\n",
+                    "returncode": 1,
+                    "truncated": False,
+                },
                 error=f"{target} not found",
             )
 
@@ -292,7 +317,12 @@ class ShellExecutionAgent(SubAgent):
                     task_id=task_id,
                     agent_type=self.agent_type,
                     success=False,
-                    output={"stdout": "", "stderr": "Usage: cat <file>\n", "returncode": 1, "truncated": False},
+                    output={
+                        "stdout": "",
+                        "stderr": "Usage: cat <file>\n",
+                        "returncode": 1,
+                        "truncated": False,
+                    },
                     error="Usage: cat <file>",
                 )
             file_path = Path(working_dir) / args[0]
@@ -303,21 +333,36 @@ class ShellExecutionAgent(SubAgent):
                         task_id=task_id,
                         agent_type=self.agent_type,
                         success=True,
-                        output={"stdout": content, "stderr": "", "returncode": 0, "truncated": False},
+                        output={
+                            "stdout": content,
+                            "stderr": "",
+                            "returncode": 0,
+                            "truncated": False,
+                        },
                     )
                 except (OSError, UnicodeDecodeError, ValueError) as exc:
                     return SubAgentResult(
                         task_id=task_id,
                         agent_type=self.agent_type,
                         success=False,
-                        output={"stdout": "", "stderr": str(exc), "returncode": 1, "truncated": False},
+                        output={
+                            "stdout": "",
+                            "stderr": str(exc),
+                            "returncode": 1,
+                            "truncated": False,
+                        },
                         error=str(exc),
                     )
             return SubAgentResult(
                 task_id=task_id,
                 agent_type=self.agent_type,
                 success=False,
-                output={"stdout": "", "stderr": f"File not found: {args[0]}\n", "returncode": 1, "truncated": False},
+                output={
+                    "stdout": "",
+                    "stderr": f"File not found: {args[0]}\n",
+                    "returncode": 1,
+                    "truncated": False,
+                },
                 error=f"File not found: {args[0]}",
             )
 

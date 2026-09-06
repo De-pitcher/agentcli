@@ -214,7 +214,22 @@ class PlannerAgent(SubAgent):
                         "goal_criterion": criterion,
                     }
                 )
-                if query_lower.startswith(("run ", "execute ", "exec ", "cmd: ", "shell: ", "cd ", "cd", "pwd", "cwd", "whoami", "echo ", "git ")):
+                if query_lower.startswith(
+                    (
+                        "run ",
+                        "execute ",
+                        "exec ",
+                        "cmd: ",
+                        "shell: ",
+                        "cd ",
+                        "cd",
+                        "pwd",
+                        "cwd",
+                        "whoami",
+                        "echo ",
+                        "git ",
+                    )
+                ):
                     is_pure_shell = True
 
         # File and directory operations (skip if query is purely a shell command)
@@ -259,10 +274,10 @@ class PlannerAgent(SubAgent):
                 content = ""
                 if "with content" in query_lower:
                     idx = query_lower.find("with content")
-                    content = query[idx + len("with content"):].strip().lstrip(":").strip()
+                    content = query[idx + len("with content") :].strip().lstrip(":").strip()
                 elif "content:" in query_lower:
                     idx = query_lower.find("content:")
-                    content = query[idx + len("content:"):].strip()
+                    content = query[idx + len("content:") :].strip()
                 elif "```" in query:
                     code_match = re.search(r"```(?:\w+)?\n?(.*?)\n?```", query, re.DOTALL)
                     if code_match:
@@ -343,15 +358,20 @@ class PlannerAgent(SubAgent):
                 }
             )
 
-        # Filter strictly against allowed_types
+        # Filter strictly against allowed_names if provided
+        allowed_names: set[str] = {
+            a.value if isinstance(a, SubAgentType) else str(a)
+            for a in available_agents
+            if isinstance(a, (str, SubAgentType))
+        }
         validated_tasks: list[dict[str, Any]] = []
         for task in raw_tasks:
-            agent_type_enum = SubAgentType(task["agent_type"])
-            if agent_type_enum in allowed_types:
+            agent_type_str = str(task["agent_type"])
+            if not allowed_names or agent_type_str in allowed_names:
                 validated_tasks.append(task)
             elif (
-                SubAgentType.CODE_ANALYZER in allowed_types
-                and agent_type_enum != SubAgentType.CODE_ANALYZER
+                SubAgentType.CODE_ANALYZER.value in allowed_names
+                and agent_type_str != SubAgentType.CODE_ANALYZER.value
             ):
                 # Fallback to code analyzer if primary agent is not available
                 validated_tasks.append(
@@ -379,7 +399,10 @@ class PlannerAgent(SubAgent):
     ) -> list[dict[str, Any]]:
         """Generate a task plan using LLM-based planning (native tool calling with legacy fallback)."""
         allowed_types: set[SubAgentType] = set()
+        allowed_names: set[str] = set()
         for a in available_agents:
+            name_str = a.value if isinstance(a, SubAgentType) else str(a)
+            allowed_names.add(name_str)
             if isinstance(a, SubAgentType):
                 allowed_types.add(a)
             elif isinstance(a, str):
@@ -435,29 +458,24 @@ class PlannerAgent(SubAgent):
                             except (json.JSONDecodeError, ValueError, TypeError):
                                 args = {}
 
-                            try:
-                                agent_type_enum = SubAgentType(name)
-                            except ValueError:
-                                continue
-
-                            if agent_type_enum in allowed_types:
+                            if name in allowed_names:
                                 # Infer appropriate goal criterion for verification
-                                if agent_type_enum == SubAgentType.FILE_OPS:
+                                if name == SubAgentType.FILE_OPS.value:
                                     criterion = args.get("path") or args.get("operation", "file")
-                                elif agent_type_enum == SubAgentType.SHELL_EXECUTION:
+                                elif name == SubAgentType.SHELL_EXECUTION.value:
                                     criterion = "completed"
-                                elif agent_type_enum == SubAgentType.CODE_ANALYZER:
+                                elif name == SubAgentType.CODE_ANALYZER.value:
                                     criterion = "analysis"
-                                elif agent_type_enum == SubAgentType.WEB_SEARCH:
+                                elif name == SubAgentType.WEB_SEARCH.value:
                                     criterion = "search results"
-                                elif agent_type_enum == SubAgentType.WORKSPACE:
+                                elif name == SubAgentType.WORKSPACE.value:
                                     criterion = str(args.get("operation") or "workspace")
                                 else:
-                                    criterion = "done"
+                                    criterion = "completed"
 
                                 native_tasks.append(
                                     {
-                                        "agent_type": agent_type_enum.value,
+                                        "agent_type": name,
                                         "payload": args,
                                         "priority": 5,
                                         "goal_criterion": criterion,
@@ -482,17 +500,20 @@ class PlannerAgent(SubAgent):
         # 2. Legacy Prompt-Based JSON Planning (Fallback Path)
         # -------------------------------------------------------------
         # Build agent descriptions for the prompt
-        agent_descriptions = {
-            SubAgentType.CODE_ANALYZER: "Analyze code files for bugs, security issues, performance problems, and style. Can read files provided via @path references.",
-            SubAgentType.FILE_OPS: "Perform file operations: read, write, create, delete, list, mkdir. Paths are constrained to working directory.",
-            SubAgentType.SHELL_EXECUTION: "Execute shell commands safely. Uses allowlist/denylist. No shell=True, direct binary execution.",
-            SubAgentType.WEB_SEARCH: "Search the web for information using DuckDuckGo or Brave.",
-            SubAgentType.WORKSPACE: "Inspect git status, search for files, search code contents, or list directory tree across the workspace repository.",
+        agent_descriptions: dict[str, str] = {
+            SubAgentType.CODE_ANALYZER.value: "Analyze code files for bugs, security issues, performance problems, and style.",
+            SubAgentType.FILE_OPS.value: "Perform file operations: read, write, create, delete, list, mkdir.",
+            SubAgentType.SHELL_EXECUTION.value: "Execute shell commands safely.",
+            SubAgentType.WEB_SEARCH.value: "Search the web for information using DuckDuckGo or Brave.",
+            SubAgentType.WORKSPACE.value: "Inspect git status, search for files, search code contents, or list directory tree across workspace.",
+            SubAgentType.CONSENSUS.value: "Coordinate multi-agent peer debate and voting on architectural questions.",
         }
 
-        available_desc = "\n".join(
-            f"- {agent_descriptions.get(t, 'Unknown agent')}" for t in allowed_types
-        )
+        available_desc_list = [
+            f"- {name}: {agent_descriptions.get(name, 'Custom registered tool/subagent')}"
+            for name in allowed_names
+        ]
+        available_desc = "\n".join(available_desc_list)
 
         system_prompt = f"""You are a task planner for an AI agent system. Decompose the user's request into a sequence of steps that can be executed by the available sub-agents.
 
@@ -537,27 +558,20 @@ Example output:
             if not isinstance(plan, list):
                 raise TypeError("Planner response is not a list")
 
-            # Validate and filter against allowed_types
+            # Validate and filter against allowed_names
             validated_tasks: list[dict[str, Any]] = []
             for step in plan:
                 if not isinstance(step, dict):
                     continue
-                agent_type_str = step.get("agent_type", "")
-                try:
-                    agent_type_enum = SubAgentType(agent_type_str)
-                except ValueError:
-                    continue
+                agent_type_str = str(step.get("agent_type", ""))
 
-                if agent_type_enum in allowed_types:
+                if agent_type_str in allowed_names:
                     # Ensure required fields
                     step.setdefault("payload", {})
                     step.setdefault("priority", 1)
                     step.setdefault("goal_criterion", "")
                     validated_tasks.append(step)
-                elif (
-                    SubAgentType.CODE_ANALYZER in allowed_types
-                    and agent_type_enum != SubAgentType.CODE_ANALYZER
-                ):
+                elif SubAgentType.CODE_ANALYZER.value in allowed_names:
                     # Fallback to code analyzer
                     validated_tasks.append(
                         {
@@ -675,7 +689,9 @@ Example output:
             return "write"
         elif any(w in text_lower for w in ["delete", "remove", "rm", "unlink"]):
             return "delete"
-        elif any(w in text_lower for w in ["read", "view", "show", "cat", "examine", "inspect file"]):
+        elif any(
+            w in text_lower for w in ["read", "view", "show", "cat", "examine", "inspect file"]
+        ):
             return "read"
         elif any(
             w in text_lower

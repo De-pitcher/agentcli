@@ -221,4 +221,3 @@ async def test_workspace_git_branch_list(tmp_path: Path) -> None:
     # Even if tmp_path is not a git repo, it should proceed to execution and fail at git level, not validation
     assert res.success is False or res.success is True
     assert "No branch_name" not in str(res.error or "")
-

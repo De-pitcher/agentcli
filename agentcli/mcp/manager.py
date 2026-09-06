@@ -88,9 +88,14 @@ class MCPClientManager:
                     continue
 
                 desc = tool.get("description", f"MCP Tool from {server_name}")
+
                 # Create a factory closure for this specific tool
-                def make_factory(c: MCPClient, name: str, s_name: str, d: str) -> Callable[[], MCPToolAgent]:
-                    return lambda: MCPToolAgent(client=c, tool_name=name, server_name=s_name, description=d)
+                def make_factory(
+                    c: MCPClient, name: str, s_name: str, d: str
+                ) -> Callable[[], MCPToolAgent]:
+                    return lambda: MCPToolAgent(
+                        client=c, tool_name=name, server_name=s_name, description=d
+                    )
 
                 factory = make_factory(client, t_name, server_name, desc)
                 registry.register(t_name, factory)

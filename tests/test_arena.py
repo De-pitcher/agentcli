@@ -124,7 +124,7 @@ def test_task_evaluator_test_command(tmp_path: Path) -> None:
         category=TaskCategory.CODE_GEN,
         description="test",
         prompt="prompt",
-        test_command="python -c \"import sys; sys.exit(0)\"",
+        test_command='python -c "import sys; sys.exit(0)"',
     )
 
     success, reason, _out = evaluator.evaluate(task, tmp_path)
@@ -138,7 +138,7 @@ def test_task_evaluator_test_command(tmp_path: Path) -> None:
         category=TaskCategory.CODE_GEN,
         description="test",
         prompt="prompt",
-        test_command="python -c \"import sys; sys.exit(1)\"",
+        test_command='python -c "import sys; sys.exit(1)"',
     )
     success, reason, _out = evaluator.evaluate(task_fail, tmp_path)
     assert not success
@@ -293,7 +293,18 @@ def test_cli_bench_run_dry(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
     task_file.write_text(json.dumps(custom_tasks), encoding="utf-8")
 
     out_file = tmp_path / "report.md"
-    code = main(["bench", "run", "--file", str(task_file), "--output", str(out_file), "--format", "markdown"])
+    code = main(
+        [
+            "bench",
+            "run",
+            "--file",
+            str(task_file),
+            "--output",
+            str(out_file),
+            "--format",
+            "markdown",
+        ]
+    )
     assert code == ExitCode.SUCCESS
     captured = capsys.readouterr().out
     assert "Starting benchmark run" in captured
@@ -319,16 +330,18 @@ def test_cli_arena_compare(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
     task_file.write_text(json.dumps(custom_tasks), encoding="utf-8")
 
     out_leaderboard = tmp_path / "leaderboard.md"
-    code = main([
-        "arena",
-        "compare",
-        "--models",
-        "mock-model-1,mock-model-2",
-        "--file",
-        str(task_file),
-        "--output",
-        str(out_leaderboard),
-    ])
+    code = main(
+        [
+            "arena",
+            "compare",
+            "--models",
+            "mock-model-1,mock-model-2",
+            "--file",
+            str(task_file),
+            "--output",
+            str(out_leaderboard),
+        ]
+    )
     assert code == ExitCode.SUCCESS
     captured = capsys.readouterr().out
     assert "Running Arena comparison across 2 model(s)" in captured

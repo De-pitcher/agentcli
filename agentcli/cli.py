@@ -68,7 +68,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub_common_parser = argparse.ArgumentParser(add_help=False)
     sub_common_parser.add_argument(
-        "--verbose", action="store_true", default=argparse.SUPPRESS, help="Enable verbose (DEBUG) logging"
+        "--verbose",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Enable verbose (DEBUG) logging",
     )
     sub_common_parser.add_argument(
         "--plain",
@@ -336,10 +339,21 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[sub_common_parser],
     )
     mesh_search_p.add_argument("query", help="Natural language query or symbol description")
-    mesh_search_p.add_argument("--repo", default=None, help="Scope search to a specific repository/workspace name")
-    mesh_search_p.add_argument("--top-k", type=int, default=None, help="Maximum number of search results to return")
-    mesh_search_p.add_argument("--threshold", type=float, default=None, help="Minimum cosine similarity threshold (0.0 to 1.0)")
-    mesh_search_p.add_argument("--index", action="store_true", help="Force re-indexing across all workspace roots")
+    mesh_search_p.add_argument(
+        "--repo", default=None, help="Scope search to a specific repository/workspace name"
+    )
+    mesh_search_p.add_argument(
+        "--top-k", type=int, default=None, help="Maximum number of search results to return"
+    )
+    mesh_search_p.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Minimum cosine similarity threshold (0.0 to 1.0)",
+    )
+    mesh_search_p.add_argument(
+        "--index", action="store_true", help="Force re-indexing across all workspace roots"
+    )
 
     mesh_run_p = mesh_sub.add_parser(
         "run",
@@ -347,7 +361,9 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[sub_common_parser],
     )
     mesh_run_p.add_argument("task", help="Goal or task description to execute across projects")
-    mesh_run_p.add_argument("--repos", default=None, help="Comma-separated subset of workspace names to target")
+    mesh_run_p.add_argument(
+        "--repos", default=None, help="Comma-separated subset of workspace names to target"
+    )
 
     bench_p = sub.add_parser(
         "bench",
@@ -376,8 +392,12 @@ def build_parser() -> argparse.ArgumentParser:
     bench_run_p.add_argument("--tag", default=None, help="Filter tasks by tag")
     bench_run_p.add_argument("--model", default=None, help="Model override for benchmark execution")
     bench_run_p.add_argument("--output", default=None, help="Output file path for generated report")
-    bench_run_p.add_argument("--format", choices=["table", "markdown", "json"], default="table", help="Output format")
-    bench_run_p.add_argument("--file", default=None, help="Custom JSON file containing benchmark tasks")
+    bench_run_p.add_argument(
+        "--format", choices=["table", "markdown", "json"], default="table", help="Output format"
+    )
+    bench_run_p.add_argument(
+        "--file", default=None, help="Custom JSON file containing benchmark tasks"
+    )
 
     arena_p = sub.add_parser(
         "arena",
@@ -391,11 +411,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run head-to-head comparison across multiple models",
         parents=[sub_common_parser],
     )
-    arena_compare_p.add_argument("--models", required=True, help="Comma-separated list of models to evaluate")
-    arena_compare_p.add_argument("--suite", default="core", help="Benchmark suite to run (default: core)")
-    arena_compare_p.add_argument("--output", default=None, help="Output file path for generated leaderboard")
-    arena_compare_p.add_argument("--format", choices=["markdown", "table", "json"], default="markdown", help="Output format")
-    arena_compare_p.add_argument("--file", default=None, help="Custom JSON file containing benchmark tasks")
+    arena_compare_p.add_argument(
+        "--models", required=True, help="Comma-separated list of models to evaluate"
+    )
+    arena_compare_p.add_argument(
+        "--suite", default="core", help="Benchmark suite to run (default: core)"
+    )
+    arena_compare_p.add_argument(
+        "--output", default=None, help="Output file path for generated leaderboard"
+    )
+    arena_compare_p.add_argument(
+        "--format", choices=["markdown", "table", "json"], default="markdown", help="Output format"
+    )
+    arena_compare_p.add_argument(
+        "--file", default=None, help="Custom JSON file containing benchmark tasks"
+    )
 
     mcp_p = sub.add_parser(
         "mcp",
@@ -535,23 +565,31 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         history_msgs = [m for m in session.history if m.role in ("user", "assistant")]
         if history_msgs:
             if renderer.is_rich_enabled:
-                renderer.console.print(f"\n[dim]─── Restored {len(history_msgs)} conversation message(s) ───[/dim]")
+                renderer.console.print(
+                    f"\n[dim]─── Restored {len(history_msgs)} conversation message(s) ───[/dim]"
+                )
             else:
                 print(f"\n--- Restored {len(history_msgs)} conversation message(s) ---")
             for msg in history_msgs:
                 if msg.role == "user":
                     if renderer.is_rich_enabled:
-                        renderer.console.print(f"\n[bold blue]you[/bold blue] [bold cyan]❯[/bold cyan] {msg.content}")
+                        renderer.console.print(
+                            f"\n[bold blue]you[/bold blue] [bold cyan]❯[/bold cyan] {msg.content}"
+                        )
                     else:
                         safe_print(f"\nyou> {msg.content}")
                 elif msg.role == "assistant":
                     if renderer.is_rich_enabled:
-                        renderer.console.print("[bold green]agentcli[/bold green] [bold cyan]❯[/bold cyan]")
+                        renderer.console.print(
+                            "[bold green]agentcli[/bold green] [bold cyan]❯[/bold cyan]"
+                        )
                         renderer.render_markdown(msg.content or "")
                     else:
                         safe_print(f"\nagentcli> {msg.content}")
             if renderer.is_rich_enabled:
-                renderer.console.print("[dim]──────────────────────────────────────────────[/dim]\n")
+                renderer.console.print(
+                    "[dim]──────────────────────────────────────────────[/dim]\n"
+                )
             else:
                 print("----------------------------------------------\n")
 
@@ -609,23 +647,31 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print("(No conversation history in current session)")
                 else:
                     if renderer.is_rich_enabled:
-                        renderer.console.print(f"\n[bold cyan]─── Session History ({len(msgs)} messages) ───[/bold cyan]")
+                        renderer.console.print(
+                            f"\n[bold cyan]─── Session History ({len(msgs)} messages) ───[/bold cyan]"
+                        )
                     else:
                         print(f"\n--- Session History ({len(msgs)} messages) ---")
                     for msg in msgs:
                         if msg.role == "user":
                             if renderer.is_rich_enabled:
-                                renderer.console.print(f"\n[bold blue]you[/bold blue] [bold cyan]❯[/bold cyan] {msg.content}")
+                                renderer.console.print(
+                                    f"\n[bold blue]you[/bold blue] [bold cyan]❯[/bold cyan] {msg.content}"
+                                )
                             else:
                                 safe_print(f"\nyou> {msg.content}")
                         elif msg.role == "assistant":
                             if renderer.is_rich_enabled:
-                                renderer.console.print("[bold green]agentcli[/bold green] [bold cyan]❯[/bold cyan]")
+                                renderer.console.print(
+                                    "[bold green]agentcli[/bold green] [bold cyan]❯[/bold cyan]"
+                                )
                                 renderer.render_markdown(msg.content or "")
                             else:
                                 safe_print(f"\nagentcli> {msg.content}")
                     if renderer.is_rich_enabled:
-                        renderer.console.print("[bold cyan]───────────────────────────────────────────────[/bold cyan]\n")
+                        renderer.console.print(
+                            "[bold cyan]───────────────────────────────────────────────[/bold cyan]\n"
+                        )
                     else:
                         print("-----------------------------------------------\n")
                 continue
@@ -783,7 +829,9 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                         first_chunk = None
 
                 if renderer.is_rich_enabled:
-                    renderer.console.print("[bold green]assistant[/bold green] [bold cyan]❯[/bold cyan] ", end="")
+                    renderer.console.print(
+                        "[bold green]assistant[/bold green] [bold cyan]❯[/bold cyan] ", end=""
+                    )
                 else:
                     print("assistant> ", end="", flush=True)
                 if first_chunk is not None:
@@ -940,9 +988,7 @@ async def run_goal(args: argparse.Namespace, config: Config) -> int:
         config.agent_loop, "max_iterations", 5
     )
     max_iterations: int = int(raw_max_iter) if raw_max_iter is not None else 5
-    max_cost_usd = getattr(args, "max_cost", None) or getattr(
-        config.routing, "max_cost_usd", None
-    )
+    max_cost_usd = getattr(args, "max_cost", None) or getattr(config.routing, "max_cost_usd", None)
 
     if renderer.is_rich_enabled:
         renderer.console.print(f"[bold cyan]🎯 Goal:[/bold cyan] [bold]{goal}[/bold]")
@@ -1149,7 +1195,9 @@ async def run_search(args: argparse.Namespace, config: Config) -> int:
     """Execute semantic code search across workspace (Phase 24)."""
     from .embeddings import EmbeddingEngine, VectorIndex, VectorStore
 
-    renderer = ConsoleRenderer(plain=getattr(args, "plain", False), no_color=getattr(args, "no_color", False))
+    renderer = ConsoleRenderer(
+        plain=getattr(args, "plain", False), no_color=getattr(args, "no_color", False)
+    )
     query = getattr(args, "query", "")
     top_k = getattr(args, "top_k", None) or config.embeddings.max_results
     threshold = getattr(args, "threshold", None) or config.embeddings.similarity_threshold
@@ -1185,7 +1233,9 @@ async def run_search(args: argparse.Namespace, config: Config) -> int:
             )
 
         if not results:
-            print(f"No semantic matches found for '{query}' (similarity threshold: {threshold:.2f}).")
+            print(
+                f"No semantic matches found for '{query}' (similarity threshold: {threshold:.2f})."
+            )
             return ExitCode.SUCCESS
 
         print(f"\nFound {len(results)} semantic match(es) for '{query}':\n")
@@ -1260,13 +1310,17 @@ async def run_mesh(args: argparse.Namespace, config: Config) -> int:
             results = await m_index.search(query=query, repo=repo, top_k=top_k, threshold=threshold)
             if not results:
                 target_str = f" in repository '{repo}'" if repo else " across monorepo mesh"
-                print(f"No semantic matches found for '{query}'{target_str} (similarity threshold: {threshold:.2f}).")
+                print(
+                    f"No semantic matches found for '{query}'{target_str} (similarity threshold: {threshold:.2f})."
+                )
                 return ExitCode.SUCCESS
 
             print(f"\nFound {len(results)} cross-repo semantic match(es) for '{query}':\n")
             for i, res in enumerate(results, 1):
                 score_pct = f"{res.score * 100:.1f}%"
-                print(f"[{i}] [{res.workspace}] {res.file_path}:{res.result.start_line}-{res.result.end_line} ({res.result.chunk.chunk_type}, similarity: {score_pct})")
+                print(
+                    f"[{i}] [{res.workspace}] {res.file_path}:{res.result.start_line}-{res.result.end_line} ({res.result.chunk.chunk_type}, similarity: {score_pct})"
+                )
                 print(f"    {res.content.splitlines()[0] if res.content else ''}")
             print()
             return ExitCode.SUCCESS
@@ -1284,7 +1338,9 @@ async def run_mesh(args: argparse.Namespace, config: Config) -> int:
             print(f"[mesh error] Dependency resolution failed: {exc}")
             return ExitCode.GENERAL_ERROR
 
-        print(f"\nExecuting task across monorepo mesh in topological order: {' -> '.join(build_order)}\n")
+        print(
+            f"\nExecuting task across monorepo mesh in topological order: {' -> '.join(build_order)}\n"
+        )
         from .session import AgentSession
 
         for ws_name in build_order:
@@ -1356,7 +1412,9 @@ def run_bench(args: argparse.Namespace, config: Config) -> int:
             suite_name = getattr(args, "suite", "core") or "core"
             suites = loader.get_suites()
             if suite_name not in suites:
-                print(f"[benchmark error] Unknown benchmark suite: '{suite_name}'. Available: {list(suites.keys())}")
+                print(
+                    f"[benchmark error] Unknown benchmark suite: '{suite_name}'. Available: {list(suites.keys())}"
+                )
                 return ExitCode.GENERAL_ERROR
             tasks = suites[suite_name]
 
@@ -1383,15 +1441,21 @@ def run_bench(args: argparse.Namespace, config: Config) -> int:
 
         def _progress(idx: int, total: int, t: Any, res: Any) -> None:
             status = "PASS" if res.success else "FAIL"
-            print(f"[{idx}/{total}] {t.id:<35} -> {status} ({res.latency_seconds:.2f}s, turns: {res.turns_count}, cost: ${res.cost_usd:.4f})")
+            print(
+                f"[{idx}/{total}] {t.id:<35} -> {status} ({res.latency_seconds:.2f}s, turns: {res.turns_count}, cost: ${res.cost_usd:.4f})"
+            )
 
         results = runner.run_suite(tasks, progress_callback=_progress)
 
         fmt = getattr(args, "format", "table")
         if fmt == "table":
-            output_text = ScorecardFormatter.render_table(results, title=f"Benchmark: {getattr(args, 'suite', 'custom')}")
+            output_text = ScorecardFormatter.render_table(
+                results, title=f"Benchmark: {getattr(args, 'suite', 'custom')}"
+            )
         elif fmt == "markdown":
-            output_text = ScorecardFormatter.render_markdown_report(suite_name=getattr(args, "suite", "custom"), results=results)
+            output_text = ScorecardFormatter.render_markdown_report(
+                suite_name=getattr(args, "suite", "custom"), results=results
+            )
         else:
             output_text = ScorecardFormatter.to_json(results)
 
@@ -1436,11 +1500,15 @@ def run_arena(args: argparse.Namespace, config: Config) -> int:
             suite_name = getattr(args, "suite", "core") or "core"
             suites = loader.get_suites()
             if suite_name not in suites:
-                print(f"[arena error] Unknown benchmark suite: '{suite_name}'. Available: {list(suites.keys())}")
+                print(
+                    f"[arena error] Unknown benchmark suite: '{suite_name}'. Available: {list(suites.keys())}"
+                )
                 return ExitCode.GENERAL_ERROR
             tasks = suites[suite_name]
 
-        print(f"\nRunning Arena comparison across {len(models)} model(s) on {len(tasks)} task(s)...\n")
+        print(
+            f"\nRunning Arena comparison across {len(models)} model(s) on {len(tasks)} task(s)...\n"
+        )
 
         arena_runner = ArenaRunner(config=config)
 
@@ -1448,7 +1516,9 @@ def run_arena(args: argparse.Namespace, config: Config) -> int:
             status = "PASS" if res.success else "FAIL"
             print(f"[{model}] [{idx}/{total}] {t.id:<30} -> {status} ({res.latency_seconds:.2f}s)")
 
-        arena_results = arena_runner.run_comparison(tasks, models, progress_callback=_arena_progress)
+        arena_results = arena_runner.run_comparison(
+            tasks, models, progress_callback=_arena_progress
+        )
 
         fmt = getattr(args, "format", "markdown")
         if fmt == "markdown" or fmt == "table":

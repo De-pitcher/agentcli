@@ -104,5 +104,3 @@ def test_router_budget_tier_fallback_on_tier_exhaustion():
     decision = router.decide(CHAT)
     assert decision is not None
     assert decision.is_fallback is True
-
-

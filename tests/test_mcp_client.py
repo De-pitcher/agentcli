@@ -65,7 +65,9 @@ async def test_mcp_tool_agent_success() -> None:
     mock_client.name = "test_srv"
     mock_client.call_tool = AsyncMock(
         return_value={
-            "content": [{"type": "text", "text": json.dumps({"temperature": 22, "unit": "celsius"})}],
+            "content": [
+                {"type": "text", "text": json.dumps({"temperature": 22, "unit": "celsius"})}
+            ],
             "isError": False,
         }
     )
@@ -151,15 +153,41 @@ async def test_mcp_client_handshake_and_tool_call() -> None:
             method = req.get("method")
             if method == "initialize":
                 response_queue.put_nowait(
-                    json.dumps({"jsonrpc": "2.0", "id": req_id, "result": {"protocolVersion": MCP_PROTOCOL_VERSION}}).encode("utf-8") + b"\n"
+                    json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "result": {"protocolVersion": MCP_PROTOCOL_VERSION},
+                        }
+                    ).encode("utf-8")
+                    + b"\n"
                 )
             elif method == "tools/list":
                 response_queue.put_nowait(
-                    json.dumps({"jsonrpc": "2.0", "id": req_id, "result": {"tools": [{"name": "echo_tool", "description": "Echoes text"}]}}).encode("utf-8") + b"\n"
+                    json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "result": {
+                                "tools": [{"name": "echo_tool", "description": "Echoes text"}]
+                            },
+                        }
+                    ).encode("utf-8")
+                    + b"\n"
                 )
             elif method == "tools/call":
                 response_queue.put_nowait(
-                    json.dumps({"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": "echoed"}], "isError": False}}).encode("utf-8") + b"\n"
+                    json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "result": {
+                                "content": [{"type": "text", "text": "echoed"}],
+                                "isError": False,
+                            },
+                        }
+                    ).encode("utf-8")
+                    + b"\n"
                 )
         except (json.JSONDecodeError, UnicodeDecodeError):
             return
@@ -257,10 +285,16 @@ async def test_mcp_client_manager_registration() -> None:
     mock_client.list_tools = AsyncMock(
         return_value=[
             {"name": "query_db", "description": "Run SQL query", "inputSchema": {"type": "object"}},
-            {"name": "insert_db", "description": "Insert record", "inputSchema": {"type": "object"}},
+            {
+                "name": "insert_db",
+                "description": "Insert record",
+                "inputSchema": {"type": "object"},
+            },
         ]
     )
-    mock_client.call_tool = AsyncMock(return_value={"content": [{"type": "text", "text": "result"}], "isError": False})
+    mock_client.call_tool = AsyncMock(
+        return_value={"content": [{"type": "text", "text": "result"}], "isError": False}
+    )
     mock_client.close = AsyncMock()
 
     with patch("agentcli.mcp.manager.MCPClient", return_value=mock_client):

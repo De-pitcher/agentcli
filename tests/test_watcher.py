@@ -232,10 +232,18 @@ async def test_continuous_tdd_runner_attempt_repair_success(tmp_path: Path):
 
     with (
         patch.object(runner.worktree_manager, "is_git_repo", return_value=True),
-        patch.object(runner.worktree_manager, "create_worktree", new_callable=AsyncMock) as mock_create_wt,
-        patch.object(runner.worktree_manager, "remove_worktree", new_callable=AsyncMock) as mock_remove_wt,
-        patch.object(runner.worktree_manager, "get_patch", new_callable=AsyncMock) as mock_get_patch,
-        patch.object(runner.worktree_manager, "apply_patch", new_callable=AsyncMock) as mock_apply_patch,
+        patch.object(
+            runner.worktree_manager, "create_worktree", new_callable=AsyncMock
+        ) as mock_create_wt,
+        patch.object(
+            runner.worktree_manager, "remove_worktree", new_callable=AsyncMock
+        ) as mock_remove_wt,
+        patch.object(
+            runner.worktree_manager, "get_patch", new_callable=AsyncMock
+        ) as mock_get_patch,
+        patch.object(
+            runner.worktree_manager, "apply_patch", new_callable=AsyncMock
+        ) as mock_apply_patch,
         patch.object(runner, "run_tests", side_effect=fake_run_tests),
         patch("agentcli.watcher.AgentLoop.run", mock_loop_run),
     ):
@@ -306,20 +314,31 @@ async def test_continuous_tdd_runner_run_loop(tmp_path: Path):
 def test_cli_build_parser_watch_subcommand():
     """Test CLI parser recognizes 'watch' subcommand and arguments."""
     parser = build_parser()
-    args = parser.parse_args([
-        "watch",
-        "--test-cmd", "pytest tests/fast",
-        "--debounce", "2.5",
-        "--cooldown", "6.0",
-        "--auto-apply",
-        "--max-cost", "1.25",
-        "--budget", "high",
-        "--model", "anthropic/claude-3-opus",
-        "--max-iterations", "7",
-        "--paths", "src",
-        "--paths", "tests",
-        "--no-initial",
-    ])
+    args = parser.parse_args(
+        [
+            "watch",
+            "--test-cmd",
+            "pytest tests/fast",
+            "--debounce",
+            "2.5",
+            "--cooldown",
+            "6.0",
+            "--auto-apply",
+            "--max-cost",
+            "1.25",
+            "--budget",
+            "high",
+            "--model",
+            "anthropic/claude-3-opus",
+            "--max-iterations",
+            "7",
+            "--paths",
+            "src",
+            "--paths",
+            "tests",
+            "--no-initial",
+        ]
+    )
 
     assert args.command == "watch"
     assert args.test_cmd == "pytest tests/fast"
@@ -388,8 +407,12 @@ async def test_continuous_tdd_runner_attempt_repair_failure_flow(tmp_path: Path)
 
     with (
         patch.object(runner.worktree_manager, "is_git_repo", return_value=True),
-        patch.object(runner.worktree_manager, "create_worktree", new_callable=AsyncMock) as mock_create_wt,
-        patch.object(runner.worktree_manager, "remove_worktree", new_callable=AsyncMock) as mock_remove_wt,
+        patch.object(
+            runner.worktree_manager, "create_worktree", new_callable=AsyncMock
+        ) as mock_create_wt,
+        patch.object(
+            runner.worktree_manager, "remove_worktree", new_callable=AsyncMock
+        ) as mock_remove_wt,
         patch.object(runner, "run_tests", new_callable=AsyncMock) as mock_run_tests,
         patch("agentcli.watcher.AgentLoop.run", mock_loop_error),
     ):
@@ -424,9 +447,15 @@ async def test_continuous_tdd_runner_manual_patch_preview(tmp_path: Path):
 
     with (
         patch.object(runner.worktree_manager, "is_git_repo", return_value=True),
-        patch.object(runner.worktree_manager, "create_worktree", new_callable=AsyncMock) as mock_create_wt,
-        patch.object(runner.worktree_manager, "remove_worktree", new_callable=AsyncMock) as mock_remove_wt,
-        patch.object(runner.worktree_manager, "get_patch", new_callable=AsyncMock) as mock_get_patch,
+        patch.object(
+            runner.worktree_manager, "create_worktree", new_callable=AsyncMock
+        ) as mock_create_wt,
+        patch.object(
+            runner.worktree_manager, "remove_worktree", new_callable=AsyncMock
+        ) as mock_remove_wt,
+        patch.object(
+            runner.worktree_manager, "get_patch", new_callable=AsyncMock
+        ) as mock_get_patch,
         patch.object(runner, "run_tests", new_callable=AsyncMock) as mock_run_tests,
         patch("agentcli.watcher.AgentLoop.run", mock_loop_success),
     ):
@@ -479,4 +508,3 @@ def test_continuous_tdd_runner_logging(tmp_path: Path):
     runner._log_success("Success message")
     runner._log_warning("Warning message")
     runner._log_error("Error message")
-

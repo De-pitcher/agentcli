@@ -438,7 +438,11 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
         )
 
     max_cost_raw = routing_raw.get("max_cost_usd")
-    max_cost_usd = _parse_float(max_cost_raw, "routing.max_cost_usd", 0.0) if max_cost_raw is not None else None
+    max_cost_usd = (
+        _parse_float(max_cost_raw, "routing.max_cost_usd", 0.0)
+        if max_cost_raw is not None
+        else None
+    )
     if max_cost_usd is not None and max_cost_usd < 0:
         raise ConfigError(
             f"Invalid value for 'routing.max_cost_usd': must be >= 0, got {max_cost_usd}"
@@ -506,7 +510,9 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
 
     watcher_raw = raw.get("watcher", {})
     watcher_paths_raw = watcher_raw.get("paths", ["."])
-    watcher_paths = [str(p) for p in watcher_paths_raw] if isinstance(watcher_paths_raw, list) else ["."]
+    watcher_paths = (
+        [str(p) for p in watcher_paths_raw] if isinstance(watcher_paths_raw, list) else ["."]
+    )
     watcher_max_cost_raw = watcher_raw.get("max_cost_usd")
     watcher_max_cost = (
         _parse_float(watcher_max_cost_raw, "watcher.max_cost_usd", 0.0)
@@ -607,17 +613,25 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
         embeddings=EmbeddingsConfig(
             enabled=bool(raw.get("embeddings", {}).get("enabled", True)),
             model=str(raw.get("embeddings", {}).get("model", "openai/text-embedding-3-small")),
-            batch_size=_parse_int(raw.get("embeddings", {}).get("batch_size"), "embeddings.batch_size", 32),
+            batch_size=_parse_int(
+                raw.get("embeddings", {}).get("batch_size"), "embeddings.batch_size", 32
+            ),
             cache_path=str(raw.get("embeddings", {}).get("cache_path", "")),
             similarity_threshold=_parse_float(
-                raw.get("embeddings", {}).get("similarity_threshold"), "embeddings.similarity_threshold", 0.30
+                raw.get("embeddings", {}).get("similarity_threshold"),
+                "embeddings.similarity_threshold",
+                0.30,
             ),
-            max_results=_parse_int(raw.get("embeddings", {}).get("max_results"), "embeddings.max_results", 5),
+            max_results=_parse_int(
+                raw.get("embeddings", {}).get("max_results"), "embeddings.max_results", 5
+            ),
             chunk_max_lines=_parse_int(
                 raw.get("embeddings", {}).get("chunk_max_lines"), "embeddings.chunk_max_lines", 60
             ),
             chunk_overlap_lines=_parse_int(
-                raw.get("embeddings", {}).get("chunk_overlap_lines"), "embeddings.chunk_overlap_lines", 10
+                raw.get("embeddings", {}).get("chunk_overlap_lines"),
+                "embeddings.chunk_overlap_lines",
+                10,
             ),
         ),
         mesh=MeshConfig(
@@ -638,7 +652,11 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
                     raw.get("mesh", {}).get("workspaces", [])
                     if isinstance(raw.get("mesh", {}).get("workspaces"), list)
                     else (
-                        [{"name": k, **v} for k, v in raw.get("mesh", {}).get("workspaces", {}).items() if isinstance(v, dict)]
+                        [
+                            {"name": k, **v}
+                            for k, v in raw.get("mesh", {}).get("workspaces", {}).items()
+                            if isinstance(v, dict)
+                        ]
                         if isinstance(raw.get("mesh", {}).get("workspaces"), dict)
                         else []
                     )
@@ -649,7 +667,9 @@ def load_config(path: Path | None = None, preset: str | None = None) -> Config:
         benchmark=BenchmarkConfig(
             default_suite=str(raw.get("benchmark", {}).get("default_suite", "core")),
             default_timeout_seconds=_parse_int(
-                raw.get("benchmark", {}).get("default_timeout_seconds"), "benchmark.default_timeout_seconds", 60
+                raw.get("benchmark", {}).get("default_timeout_seconds"),
+                "benchmark.default_timeout_seconds",
+                60,
             ),
             output_dir=str(raw.get("benchmark", {}).get("output_dir", ".agentcli/benchmarks")),
             record_traces=bool(raw.get("benchmark", {}).get("record_traces", True)),

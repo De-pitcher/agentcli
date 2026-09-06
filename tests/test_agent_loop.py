@@ -26,9 +26,7 @@ from agentcli.subagents.planner import PlannerAgent
 # ---------------------------------------------------------------------------
 
 
-def _make_result(
-    success: bool, error: str | None = None, output: Any = None
-) -> SubAgentResult:
+def _make_result(success: bool, error: str | None = None, output: Any = None) -> SubAgentResult:
     if output is None and success:
         output = {"content": "done"}
     return SubAgentResult(
@@ -830,7 +828,13 @@ class TestAgentLoopFinishOutputExtraction:
         res3 = _make_result(
             True,
             output={
-                "results": [{"title": "Python Docs", "url": "https://python.org", "snippet": "Official site"}],
+                "results": [
+                    {
+                        "title": "Python Docs",
+                        "url": "https://python.org",
+                        "snippet": "Official site",
+                    }
+                ],
             },
         )
         extracted = AgentLoop._extract_finish_output([res1, res2, res3])
@@ -840,4 +844,3 @@ class TestAgentLoopFinishOutputExtraction:
         assert "Matches for 'import sys':" in extracted
         assert "src/main.py:42" in extracted
         assert "[Python Docs](https://python.org)" in extracted
-

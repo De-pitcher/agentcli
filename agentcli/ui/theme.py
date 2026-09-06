@@ -10,27 +10,51 @@ RESET = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
 
-COLOR_ACCENT = "\033[38;5;45m"       # Bright Cyan
-COLOR_SUCCESS = "\033[38;5;48m"      # Emerald Green
-COLOR_WARNING = "\033[38;5;214m"     # Warm Amber
-COLOR_ERROR = "\033[38;5;203m"       # Crimson Red
-COLOR_MUTED = "\033[38;5;242m"       # Slate Gray
+COLOR_ACCENT = "\033[38;5;45m"  # Bright Cyan
+COLOR_SUCCESS = "\033[38;5;48m"  # Emerald Green
+COLOR_WARNING = "\033[38;5;214m"  # Warm Amber
+COLOR_ERROR = "\033[38;5;203m"  # Crimson Red
+COLOR_MUTED = "\033[38;5;242m"  # Slate Gray
 COLOR_HEADER = "\033[48;5;236;38;5;255m"  # Dark Gray Background with White Text
 
 # Box Drawing Characters
 BOX_ROUNDED = {
-    "tl": "╭", "tr": "╮", "bl": "╰", "br": "╯",
-    "h": "─", "v": "│", "vl": "├", "vr": "┤", "hu": "┴", "hd": "┬",
+    "tl": "╭",
+    "tr": "╮",
+    "bl": "╰",
+    "br": "╯",
+    "h": "─",
+    "v": "│",
+    "vl": "├",
+    "vr": "┤",
+    "hu": "┴",
+    "hd": "┬",
 }
 
 BOX_SQUARE = {
-    "tl": "┌", "tr": "┐", "bl": "└", "br": "┘",
-    "h": "─", "v": "│", "vl": "├", "vr": "┤", "hu": "┴", "hd": "┬",
+    "tl": "┌",
+    "tr": "┐",
+    "bl": "└",
+    "br": "┘",
+    "h": "─",
+    "v": "│",
+    "vl": "├",
+    "vr": "┤",
+    "hu": "┴",
+    "hd": "┬",
 }
 
 BOX_ASCII = {
-    "tl": "+", "tr": "+", "bl": "+", "br": "+",
-    "h": "-", "v": "|", "vl": "+", "vr": "+", "hu": "+", "hd": "+",
+    "tl": "+",
+    "tr": "+",
+    "bl": "+",
+    "br": "+",
+    "h": "-",
+    "v": "|",
+    "vl": "+",
+    "vr": "+",
+    "hu": "+",
+    "hd": "+",
 }
 
 
@@ -118,7 +142,9 @@ def draw_box(
         # Truncate or pad line to inner width
         line_clean = raw_line[:inner_width]
         padding = " " * max(0, inner_width - len(line_clean))
-        lines.append(f"{color_border}{chars['v']}{color_reset} {line_clean}{padding} {color_border}{chars['v']}{color_reset}")
+        lines.append(
+            f"{color_border}{chars['v']}{color_reset} {line_clean}{padding} {color_border}{chars['v']}{color_reset}"
+        )
 
     # Bottom border
     bottom_line = f"{color_border}{chars['bl']}{chars['h'] * (width - 2)}{chars['br']}{color_reset}"

@@ -494,5 +494,3 @@ class WorkspaceAgent(SubAgent):
             )
         finally:
             store.close()
-
-

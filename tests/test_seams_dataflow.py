@@ -81,7 +81,10 @@ async def test_vector_index_sync_file_lifecycle(tmp_path: Path) -> None:
     assert "fetch_user" in records[0][0].content
 
     # 2. Modify file and sync again
-    code_file.write_text("def fetch_user_v2(uid: int, org: str):\n    return {'id': uid, 'org': org}\n", encoding="utf-8")
+    code_file.write_text(
+        "def fetch_user_v2(uid: int, org: str):\n    return {'id': uid, 'org': org}\n",
+        encoding="utf-8",
+    )
     updated = await index.sync_file(code_file)
     assert updated >= 1
 
@@ -106,10 +109,14 @@ async def test_consensus_partial_quorum_with_degraded_voters() -> None:
     engine = ConsensusEngine()
 
     async def healthy_voter_1() -> AgentVote:
-        return AgentVote(voter_id="agent_1", choice="OPTION_A", confidence=0.9, rationale="Clean architecture")
+        return AgentVote(
+            voter_id="agent_1", choice="OPTION_A", confidence=0.9, rationale="Clean architecture"
+        )
 
     async def healthy_voter_2() -> AgentVote:
-        return AgentVote(voter_id="agent_2", choice="OPTION_A", confidence=0.85, rationale="Better performance")
+        return AgentVote(
+            voter_id="agent_2", choice="OPTION_A", confidence=0.85, rationale="Better performance"
+        )
 
     async def failing_voter_3() -> AgentVote:
         await asyncio.sleep(0.5)

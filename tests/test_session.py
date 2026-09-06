@@ -157,4 +157,3 @@ def test_build_environment_system_prompt():
     assert "Operating System:" in prompt
     assert "Working Directory:" in prompt
     assert "Never hallucinate fake command outputs" in prompt
-

@@ -150,7 +150,9 @@ def emergency_context_reset(
         f"Please proceed with the next step."
     )
 
-    last_user_or_tool_msg = messages[-1] if messages else ChatMessage(role="user", content=user_goal)
+    last_user_or_tool_msg = (
+        messages[-1] if messages else ChatMessage(role="user", content=user_goal)
+    )
     result: list[ChatMessage] = []
     if system_msg is not None:
         result.append(system_msg)

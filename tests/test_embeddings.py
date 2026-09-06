@@ -102,13 +102,18 @@ def test_vector_store_crud():
             store.save_embedding(chunk, model="text-embedding-test", vector=vec)
 
             # Retrieve
-            retrieved = store.get_embedding(chunk.chunk_id, chunk.sha256, model="text-embedding-test")
+            retrieved = store.get_embedding(
+                chunk.chunk_id, chunk.sha256, model="text-embedding-test"
+            )
             assert retrieved is not None
             assert len(retrieved) == 4
             assert abs(retrieved[0] - 0.1) < 1e-4
 
             # Mismatched sha should return None (cache invalidation)
-            assert store.get_embedding(chunk.chunk_id, "different_sha", model="text-embedding-test") is None
+            assert (
+                store.get_embedding(chunk.chunk_id, "different_sha", model="text-embedding-test")
+                is None
+            )
 
             # Batch save
             chunk2 = CodeChunk(
@@ -150,7 +155,9 @@ async def test_embedding_engine_deterministic_fallback():
 
 @pytest.mark.asyncio
 async def test_embedding_engine_mock_api():
-    config = OpenRouterConfig(api_key_env="DUMMY_KEY_ENV", base_url="https://api.openrouter.test/v1")
+    config = OpenRouterConfig(
+        api_key_env="DUMMY_KEY_ENV", base_url="https://api.openrouter.test/v1"
+    )
     with patch.dict(os.environ, {"DUMMY_KEY_ENV": "sk-test-key"}):
         engine = EmbeddingEngine(config=config, model="openai/text-embedding-3-small")
 
@@ -187,9 +194,7 @@ async def test_vector_index_search_and_caching():
 
         f_db = root / "db.py"
         f_db.write_text(
-            "def connect_database(url: str):\n"
-            "    # PostgreSQL connection pool\n"
-            "    pass\n",
+            "def connect_database(url: str):\n    # PostgreSQL connection pool\n    pass\n",
             encoding="utf-8",
         )
 
@@ -259,7 +264,9 @@ def test_expand_semantic_references_token():
             index = VectorIndex(store=store)
             chunks = chunk_file(py_file)
             vecs = [index.engine._deterministic_fallback_vector(c.content) for c in chunks]
-            store.save_embeddings_batch([(c, index.engine.model, v) for c, v in zip(chunks, vecs, strict=False)])
+            store.save_embeddings_batch(
+                [(c, index.engine.model, v) for c, v in zip(chunks, vecs, strict=False)]
+            )
 
             prompt = "Review this code @semantic:record_ledger_entry for audit"
             expanded = expand_file_references(prompt)
@@ -297,4 +304,3 @@ async def test_cli_search_subcommand(capsys):
             assert exit_code == 0
             captured = capsys.readouterr().out
             assert "add_numbers" in captured or "Found" in captured
-

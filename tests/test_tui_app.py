@@ -209,7 +209,9 @@ def test_tui_backspace_not_intercepted_by_history() -> None:
     # Ensure 'c-h' (ASCII 0x08 / Backspace) is NOT bound to any custom handler
     bound_keys = [b.keys for b in tui.kb.bindings]
     for key_tuple in bound_keys:
-        assert ("c-h",) not in bound_keys, "c-h must not be bound as it intercepts Backspace in terminal mode"
+        assert ("c-h",) not in bound_keys, (
+            "c-h must not be bound as it intercepts Backspace in terminal mode"
+        )
 
 
 @pytest.mark.asyncio

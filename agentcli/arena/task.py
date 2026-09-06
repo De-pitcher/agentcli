@@ -9,6 +9,7 @@ from typing import Any
 
 class TaskCategory(str, Enum):
     """Categories of benchmark developer tasks."""
+
     CODE_GEN = "code_gen"
     BUG_FIX = "bug_fix"
     REFACTOR = "refactor"
@@ -20,6 +21,7 @@ class TaskCategory(str, Enum):
 @dataclass
 class BenchmarkTask:
     """A standardized developer benchmark task."""
+
     id: str
     title: str
     category: TaskCategory

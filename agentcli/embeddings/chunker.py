@@ -95,7 +95,9 @@ def chunk_python_file(path: Path, content: str, max_lines: int = 60) -> list[Cod
                     preceding_lines = lines[last_end : start - 1]
                     preceding_text = "".join(preceding_lines).strip()
                     if preceding_text:
-                        cid = _compute_sha256(f"{p_str}:{last_end+1}:{start-1}:{preceding_text}")[:16]
+                        cid = _compute_sha256(
+                            f"{p_str}:{last_end + 1}:{start - 1}:{preceding_text}"
+                        )[:16]
                         chunks.append(
                             CodeChunk(
                                 file_path=p_str,
@@ -131,7 +133,9 @@ def chunk_python_file(path: Path, content: str, max_lines: int = 60) -> list[Cod
                 trailing_lines = lines[last_end:]
                 trailing_text = "".join(trailing_lines).strip()
                 if trailing_text:
-                    cid = _compute_sha256(f"{p_str}:{last_end+1}:{len(lines)}:{trailing_text}")[:16]
+                    cid = _compute_sha256(f"{p_str}:{last_end + 1}:{len(lines)}:{trailing_text}")[
+                        :16
+                    ]
                     chunks.append(
                         CodeChunk(
                             file_path=p_str,

@@ -131,7 +131,9 @@ async def test_peer_delegation_spawner_integration() -> None:
         SubAgentType.CODE_ANALYZER.value: SubAgentConfig(enabled=True),
     }
     factories = {
-        SubAgentType.FILE_OPS.value: lambda: FileOpsAgent(config={"read_only": False}, message_bus=bus),
+        SubAgentType.FILE_OPS.value: lambda: FileOpsAgent(
+            config={"read_only": False}, message_bus=bus
+        ),
         SubAgentType.CODE_ANALYZER.value: lambda: CodeAnalyzerAgent(message_bus=bus),
     }
     spawner = SubAgentSpawner(config=configs, agent_factories=factories, message_bus=bus)

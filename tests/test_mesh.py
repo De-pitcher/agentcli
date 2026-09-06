@@ -59,7 +59,10 @@ def test_workspace_registry_auto_discovery():
         # Sub-project 2: Node frontend
         frontend = root / "apps" / "frontend"
         frontend.mkdir(parents=True)
-        (frontend / "package.json").write_text('{"name": "frontend", "dependencies": {"@scope/shared": "workspace:*"}}', encoding="utf-8")
+        (frontend / "package.json").write_text(
+            '{"name": "frontend", "dependencies": {"@scope/shared": "workspace:*"}}',
+            encoding="utf-8",
+        )
 
         # Sub-project 3: Rust core
         core = root / "packages" / "core"
@@ -132,7 +135,9 @@ def test_dependency_graph_topological_sort_and_impact():
     registry.register(WorkspaceRoot(name="core", path="/tmp/core", dependencies=["shared"]))
     registry.register(WorkspaceRoot(name="backend", path="/tmp/backend", dependencies=["core"]))
     registry.register(WorkspaceRoot(name="frontend", path="/tmp/frontend", dependencies=["shared"]))
-    registry.register(WorkspaceRoot(name="cli", path="/tmp/cli", dependencies=["backend", "frontend"]))
+    registry.register(
+        WorkspaceRoot(name="cli", path="/tmp/cli", dependencies=["backend", "frontend"])
+    )
 
     graph = ProjectDependencyGraph(registry)
 
@@ -145,7 +150,12 @@ def test_dependency_graph_topological_sort_and_impact():
     assert order.index("frontend") < order.index("cli")
 
     # Direct & transitive dependencies
-    assert graph.get_dependencies("cli", transitive=True) == {"backend", "frontend", "core", "shared"}
+    assert graph.get_dependencies("cli", transitive=True) == {
+        "backend",
+        "frontend",
+        "core",
+        "shared",
+    }
     assert graph.get_dependencies("cli", transitive=False) == {"backend", "frontend"}
 
     # Dependents & Downstream Impact analysis
@@ -231,7 +241,9 @@ def test_expand_repo_and_scoped_semantic_file_references():
         docs_dir = root / "docs_repo"
         docs_dir.mkdir()
         readme = docs_dir / "architecture.md"
-        readme.write_text("# Monorepo Mesh Architecture\nExplaining sub-project topology.\n", encoding="utf-8")
+        readme.write_text(
+            "# Monorepo Mesh Architecture\nExplaining sub-project topology.\n", encoding="utf-8"
+        )
 
         config = Config()
         config.mesh.workspaces = [WorkspaceConfig(name="docs", path=str(docs_dir))]
@@ -354,9 +366,11 @@ async def test_cli_mesh_search_and_run_subcommands(capsys):
             patch("agentcli.session.OpenRouterClient", return_value=MagicMock()),
             patch("agentcli.session.AgentSession.run_loop") as mock_run,
         ):
+
             async def _empty_async_gen(*_args, **_kwargs):
                 if False:
                     yield None
+
             mock_run.return_value = _empty_async_gen()
             code_run = await run_mesh(args_run, config)
             assert code_run == 0

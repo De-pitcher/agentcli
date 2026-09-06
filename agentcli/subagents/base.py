@@ -227,7 +227,9 @@ class SubAgent(ABC):
         )
 
         if not self.message_bus:
-            self._logger.error("No message bus available on agent %s to delegate task", self.agent_id)
+            self._logger.error(
+                "No message bus available on agent %s to delegate task", self.agent_id
+            )
             return SubAgentResult(
                 task_id=delegated_task.id,
                 agent_type=target,
@@ -244,7 +246,9 @@ class SubAgent(ABC):
         self.current_task = task
         self._start_time = asyncio.get_running_loop().time()
         self._idle_since = None
-        self._logger.debug("Agent %s started task %s (depth=%d)", self.agent_id, task.id, task.depth)
+        self._logger.debug(
+            "Agent %s started task %s (depth=%d)", self.agent_id, task.id, task.depth
+        )
 
     async def on_complete(self, task: SubAgentTask, result: SubAgentResult) -> None:
         """Called when the agent completes a task successfully."""

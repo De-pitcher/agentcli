@@ -9,7 +9,6 @@ from typing import Any
 
 from .agent.events import LoopEvent
 from .agent.loop import AgentLoop, is_agentic_task
-from .agent.reflector import DefaultReflector
 from .agent.registry import ToolRegistry
 from .config import Config
 from .files import load_agents_md
@@ -311,6 +310,13 @@ class AgentSession:
 
     async def step(self, user_text: str) -> str:
         """Execute a single user turn, streaming and persisting the response, and return full reply."""
+        if self.is_budget_exceeded():
+            limit_msg = (
+                f"Session cost ceiling reached (${self.cumulative_cost_usd:.4f}). Turn aborted."
+            )
+            await self.async_add_assistant_message(limit_msg)
+            return limit_msg
+
         expanded_text = self.prepare_prompt(user_text)
         await self.async_add_user_message(expanded_text)
 
@@ -337,6 +343,15 @@ class AgentSession:
         full_reply = "".join(chunks)
         await self.async_add_assistant_message(full_reply)
         self.mark_success(reply.requested_primary)
+
+        # Track usage cost on the session level
+        if reply.requested_primary:
+            from .memory.budget import estimate_tokens
+
+            prompt_tok = estimate_tokens(expanded_text)
+            comp_tok = estimate_tokens(full_reply)
+            self.record_cost(reply.requested_primary, prompt_tok, comp_tok)
+
         return full_reply
 
     # ------------------------------------------------------------------
@@ -365,21 +380,46 @@ class AgentSession:
         registry = ToolRegistry(config=self.config)
         self.mcp_manager.register_tools(registry)
 
+        # Load any configured tool plugins into the registry
+        if self.config.app.plugins:
+            for plugin_path in self.config.app.plugins:
+                registry.load_plugin_file(plugin_path)
+
+        # Prepare rich initial context combining environment and recent conversation history
+        conv_parts: list[str] = [build_environment_system_prompt(self.config)]
+        if self.history:
+            recent_turns = [m for m in self.history if m.role in ("user", "assistant")][-6:]
+            if recent_turns:
+                conv_summary = "\n".join(
+                    f"{m.role.upper()}: {(m.content or '')[:250]}" for m in recent_turns
+                )
+                conv_parts.append(f"Conversation Context:\n{conv_summary}")
+        initial_context = "\n\n".join(conv_parts)
+
+        max_cost = getattr(self.config.routing, "max_cost_usd", None) or getattr(
+            self.config.agent_loop, "max_cost_usd", None
+        )
+
         loop = AgentLoop(
             goal=goal,
             registry=registry,
-            reflector=DefaultReflector(),
             router=self.router,
             max_iterations=loop_cfg.max_iterations,
             plan_model=loop_cfg.plan_model_override or None,
             reflect_model=loop_cfg.reflect_model_override or None,
             config=self.config,
             run_id=run_id,
-            initial_context=build_environment_system_prompt(self.config),
+            initial_context=initial_context,
+            max_cost_usd=max_cost,
         )
 
-        async for event in loop.run():
-            yield event
+        try:
+            async for event in loop.run():
+                yield event
+        finally:
+            cost = getattr(loop, "cumulative_cost_usd", 0.0)
+            if cost > 0.0:
+                self.cumulative_cost_usd += cost
 
     async def auto_ground_workspace(self, root_dir: str | Path = ".") -> str | None:
         """Inspect git repository state and inject workspace context into system instructions."""

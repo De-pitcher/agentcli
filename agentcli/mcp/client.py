@@ -14,7 +14,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-MCP_PROTOCOL_VERSION = "2024-11-05"
+from .. import __version__
+from .server import MCP_PROTOCOL_VERSION
 
 
 class MCPClientError(Exception):
@@ -74,7 +75,9 @@ class MCPClient:
                     env=run_env,
                 )
             except Exception as exc:
-                raise MCPClientError(f"Failed to spawn MCP server '{self.name}' ({cmd}): {exc}") from exc
+                raise MCPClientError(
+                    f"Failed to spawn MCP server '{self.name}' ({cmd}): {exc}"
+                ) from exc
 
             self._is_connected = True
             self._reader_task = asyncio.create_task(self._read_responses())
@@ -85,7 +88,7 @@ class MCPClient:
                 {
                     "protocolVersion": MCP_PROTOCOL_VERSION,
                     "capabilities": {"tools": {}},
-                    "clientInfo": {"name": "agentcli", "version": "2.0.0"},
+                    "clientInfo": {"name": "agentcli", "version": __version__},
                 },
             )
 

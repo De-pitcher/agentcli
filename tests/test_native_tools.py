@@ -373,8 +373,18 @@ async def test_consensus_agent_tool_registry() -> None:
     assert "consensus" in registry.registered_types()
 
     votes = [
-        {"voter_id": "agent-1", "choice": "refactor", "confidence": 0.9, "rationale": "Cleaner code"},
-        {"voter_id": "agent-2", "choice": "refactor", "confidence": 0.8, "rationale": "Better modularity"},
+        {
+            "voter_id": "agent-1",
+            "choice": "refactor",
+            "confidence": 0.9,
+            "rationale": "Cleaner code",
+        },
+        {
+            "voter_id": "agent-2",
+            "choice": "refactor",
+            "confidence": 0.8,
+            "rationale": "Better modularity",
+        },
         {"voter_id": "agent-3", "choice": "keep", "confidence": 0.5, "rationale": "Less risk"},
     ]
 
@@ -386,6 +396,8 @@ async def test_consensus_agent_tool_registry() -> None:
     assert result.output["decision"] == "refactor"
     assert result.output["consensus_reached"] is True
     assert result.output["agreement_ratio"] == pytest.approx(2 / 3)
+
+
 @pytest.mark.asyncio
 async def test_file_ops_absolute_directory_list_and_read(tmp_path) -> None:
     from agentcli.subagents.file_ops import FileOpsAgent

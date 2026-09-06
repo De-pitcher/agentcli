@@ -85,7 +85,10 @@ async def test_run_chat_multiline_input(monkeypatch):
     monkeypatch.setattr("agentcli.session.OpenRouterClient", lambda _: fake_client)
 
     assert await run_chat(args, config) == ExitCode.SUCCESS
-    assert any(m.role == "user" and m.content == "def hello():\n    print('world')" for m in fake_client.last_history)
+    assert any(
+        m.role == "user" and m.content == "def hello():\n    print('world')"
+        for m in fake_client.last_history
+    )
 
 
 @pytest.mark.asyncio
@@ -510,17 +513,32 @@ async def test_run_goal_success(monkeypatch, capsys):
             self.initial_context = kwargs.get("initial_context")
 
         async def run(self):
-            yield PlanEvent(iteration=1, run_id="r1", plan=[{"agent_type": "file_ops", "payload": {}}])
-            yield StepStartEvent(iteration=1, run_id="r1", step_index=0, agent_type="file_ops", payload={})
+            yield PlanEvent(
+                iteration=1, run_id="r1", plan=[{"agent_type": "file_ops", "payload": {}}]
+            )
+            yield StepStartEvent(
+                iteration=1, run_id="r1", step_index=0, agent_type="file_ops", payload={}
+            )
             yield StepResultEvent(
                 iteration=1,
                 run_id="r1",
                 step_index=0,
-                result=SubAgentResult(task_id="t1", agent_type=SubAgentType.FILE_OPS, success=True, output={"status": "ok"}),
+                result=SubAgentResult(
+                    task_id="t1",
+                    agent_type=SubAgentType.FILE_OPS,
+                    success=True,
+                    output={"status": "ok"},
+                ),
                 duration_seconds=0.15,
             )
             yield ReflectEvent(iteration=1, run_id="r1", decision="FINISH", reason="Task completed")
-            yield FinishEvent(iteration=1, run_id="r1", summary="All done successfully", output={"status": "ok"}, duration_seconds=0.5)
+            yield FinishEvent(
+                iteration=1,
+                run_id="r1",
+                summary="All done successfully",
+                output={"status": "ok"},
+                duration_seconds=0.5,
+            )
 
     monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
 
@@ -724,19 +742,20 @@ def test_main_run_command_budget_flags(monkeypatch):
     monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
 
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-dummy"}):
-        exit_code = main([
-            "run",
-            "Fix bug",
-            "--budget",
-            "medium",
-            "--max-cost",
-            "1.50",
-            "--allow-write",
-        ])
+        exit_code = main(
+            [
+                "run",
+                "Fix bug",
+                "--budget",
+                "medium",
+                "--max-cost",
+                "1.50",
+                "--allow-write",
+            ]
+        )
         assert exit_code == ExitCode.SUCCESS
         assert captured_kwargs.get("config").routing.budget_tier == "medium"
         assert captured_kwargs.get("max_cost_usd") == 1.50
-
 
 
 @pytest.mark.asyncio
@@ -763,7 +782,11 @@ async def test_run_goal_budget_exceeded(monkeypatch, capsys):
             pass
 
         async def run(self):
-            yield LoopErrorEvent(iteration=1, run_id="r1", error="Budget limit exceeded ($0.015000 > $0.010000 limit)")
+            yield LoopErrorEvent(
+                iteration=1,
+                run_id="r1",
+                error="Budget limit exceeded ($0.015000 > $0.010000 limit)",
+            )
 
     monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
 
@@ -808,7 +831,10 @@ async def test_run_chat_slash_commands(monkeypatch, capsys):
 
         async def run(self):
             from agentcli.agent.events import FinishEvent
-            yield FinishEvent(iteration=1, run_id="r1", summary="Goal accomplished", duration_seconds=0.1)
+
+            yield FinishEvent(
+                iteration=1, run_id="r1", summary="Goal accomplished", duration_seconds=0.1
+            )
 
     monkeypatch.setattr("agentcli.agent.loop.AgentLoop", MockLoop)
     monkeypatch.setattr("agentcli.session.AgentLoop", MockLoop)
@@ -924,6 +950,3 @@ async def test_run_chat_slash_history_displays_messages(monkeypatch, capsys):
 
     out, _ = capsys.readouterr()
     assert "No conversation history in current session" in out
-
-
-

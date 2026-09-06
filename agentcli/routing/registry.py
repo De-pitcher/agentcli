@@ -41,13 +41,25 @@ class ModelRecord:
 _BUILTIN_MODELS: tuple[ModelRecord, ...] = (
     # --- Low Tier (Free Models) ---
     ModelRecord(
-        id="google/gemma-4-31b-it:free", categories=(CHAT,), priority=10, context_window=128000, tier="low"
+        id="google/gemma-4-31b-it:free",
+        categories=(CHAT,),
+        priority=10,
+        context_window=128000,
+        tier="low",
     ),
     ModelRecord(
-        id="cohere/north-mini-code:free", categories=(CODE,), priority=10, context_window=32768, tier="low"
+        id="cohere/north-mini-code:free",
+        categories=(CODE,),
+        priority=10,
+        context_window=32768,
+        tier="low",
     ),
     ModelRecord(
-        id="z-ai/glm-5.2:free", categories=(CODE, REASONING), priority=20, context_window=128000, tier="low"
+        id="z-ai/glm-5.2:free",
+        categories=(CODE, REASONING),
+        priority=20,
+        context_window=128000,
+        tier="low",
     ),
     ModelRecord(
         id="nvidia/nemotron-3-super-120b-a12b:free",
@@ -57,10 +69,18 @@ _BUILTIN_MODELS: tuple[ModelRecord, ...] = (
         tier="low",
     ),
     ModelRecord(
-        id="minimax/minimax-m2.7:free", categories=(CHAT,), priority=20, context_window=128000, tier="low"
+        id="minimax/minimax-m2.7:free",
+        categories=(CHAT,),
+        priority=20,
+        context_window=128000,
+        tier="low",
     ),
     ModelRecord(
-        id="poolside/laguna-s-2.1:free", categories=(CODE,), priority=30, context_window=64000, tier="low"
+        id="poolside/laguna-s-2.1:free",
+        categories=(CODE,),
+        priority=30,
+        context_window=64000,
+        tier="low",
     ),
     ModelRecord(
         id="nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -70,7 +90,11 @@ _BUILTIN_MODELS: tuple[ModelRecord, ...] = (
         tier="low",
     ),
     ModelRecord(
-        id="minimax/minimax-m3:free", categories=(CHAT,), priority=30, context_window=128000, tier="low"
+        id="minimax/minimax-m3:free",
+        categories=(CHAT,),
+        priority=30,
+        context_window=128000,
+        tier="low",
     ),
     ModelRecord(
         id="thinkingmachines/inkling-small:free",
@@ -80,7 +104,11 @@ _BUILTIN_MODELS: tuple[ModelRecord, ...] = (
         tier="low",
     ),
     ModelRecord(
-        id="google/gemma-4-26b-a4b-it:free", categories=(CHAT,), priority=40, context_window=128000, tier="low"
+        id="google/gemma-4-26b-a4b-it:free",
+        categories=(CHAT,),
+        priority=40,
+        context_window=128000,
+        tier="low",
     ),
     ModelRecord(
         id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
@@ -104,11 +132,19 @@ _BUILTIN_MODELS: tuple[ModelRecord, ...] = (
         tier="low",
     ),
     ModelRecord(
-        id="liquid/lfm-2.5-2.6b:free", categories=(CHAT,), priority=60, context_window=32768, tier="low"
+        id="liquid/lfm-2.5-2.6b:free",
+        categories=(CHAT,),
+        priority=60,
+        context_window=32768,
+        tier="low",
     ),
     # --- Medium Tier (High-Efficiency Paid / Frontier Free) ---
     ModelRecord(
-        id="openai/gpt-4o-mini", categories=(CHAT, CODE), priority=15, context_window=128000, tier="medium"
+        id="openai/gpt-4o-mini",
+        categories=(CHAT, CODE),
+        priority=15,
+        context_window=128000,
+        tier="medium",
     ),
     ModelRecord(
         id="anthropic/claude-3.5-haiku",
@@ -118,10 +154,18 @@ _BUILTIN_MODELS: tuple[ModelRecord, ...] = (
         tier="medium",
     ),
     ModelRecord(
-        id="deepseek/deepseek-chat", categories=(CHAT, CODE), priority=15, context_window=64000, tier="medium"
+        id="deepseek/deepseek-chat",
+        categories=(CHAT, CODE),
+        priority=15,
+        context_window=64000,
+        tier="medium",
     ),
     ModelRecord(
-        id="qwen/qwen-2.5-coder-32b-instruct", categories=(CODE,), priority=20, context_window=32768, tier="medium"
+        id="qwen/qwen-2.5-coder-32b-instruct",
+        categories=(CODE,),
+        priority=20,
+        context_window=32768,
+        tier="medium",
     ),
     ModelRecord(
         id="meta-llama/llama-3.3-70b-instruct",
@@ -146,7 +190,11 @@ _BUILTIN_MODELS: tuple[ModelRecord, ...] = (
         tier="high",
     ),
     ModelRecord(
-        id="openai/gpt-4o", categories=(CHAT, CODE, REASONING), priority=5, context_window=128000, tier="high"
+        id="openai/gpt-4o",
+        categories=(CHAT, CODE, REASONING),
+        priority=5,
+        context_window=128000,
+        tier="high",
     ),
     ModelRecord(
         id="google/gemini-2.5-pro",

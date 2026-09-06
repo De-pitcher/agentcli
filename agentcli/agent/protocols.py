@@ -44,6 +44,10 @@ class ExecutorProtocol(Protocol):
         """
         ...
 
+    def list_tools(self) -> list[str]:
+        """Return the list of available tool names."""
+        ...
+
 
 from .reflector import ReflectDecision, ReflectOutcome
 

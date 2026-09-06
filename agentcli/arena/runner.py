@@ -36,7 +36,9 @@ class BenchmarkRunner:
         self.planner = planner
         self.registry = registry
 
-    def _drive_agent_in_workspace(self, task: BenchmarkTask, temp_dir: Path) -> tuple[int, int, float, str | None]:
+    def _drive_agent_in_workspace(
+        self, task: BenchmarkTask, temp_dir: Path
+    ) -> tuple[int, int, float, str | None]:
         """Drive the agent loop inside the isolated workspace."""
         old_cwd = os.getcwd()
         turns = 0
@@ -110,7 +112,9 @@ class BenchmarkRunner:
                 dest_file.write_text(content, encoding="utf-8")
 
             # 2. Drive agent loop in workspace if planner or mock available
-            turns_count, tool_calls_count, cost_usd, error_msg = self._drive_agent_in_workspace(task, temp_dir)
+            turns_count, tool_calls_count, cost_usd, error_msg = self._drive_agent_in_workspace(
+                task, temp_dir
+            )
 
             # 3. Evaluate task assertions and tests
             success, exit_reason, verification_stdout = self.evaluator.evaluate(
