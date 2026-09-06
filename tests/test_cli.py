@@ -808,6 +808,7 @@ async def test_run_chat_slash_commands(monkeypatch, capsys):
         "/model custom/test-model",
         "/model auto",
         "/tokens",
+        "/diff",
         "/clear",
         "/reset",
         "/goal Test inline goal",
