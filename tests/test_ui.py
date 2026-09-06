@@ -263,7 +263,8 @@ def test_interactive_prompt_custom_and_default_fallback():
     assert prompt._session is None
 
 
-def test_tui_prepopulates_messages_from_session_history():
+def test_tui_prepopulates_messages_from_session_history(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-dummy")
     from agentcli.config import Config
     from agentcli.openrouter_client import ChatMessage
     from agentcli.session import AgentSession
