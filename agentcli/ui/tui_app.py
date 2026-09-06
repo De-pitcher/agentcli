@@ -16,7 +16,8 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import StyleAndTextTuples
-from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
+from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent, merge_key_bindings
+from prompt_toolkit.key_binding.defaults import load_key_bindings
 from prompt_toolkit.layout.containers import Float, FloatContainer, HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
@@ -49,7 +50,7 @@ class TUIState:
     active_model: str = "auto"
     active_preset: str = "coding"
     focused_pane: str = "input"
-    status_line: str = "Ready. [Tab] Switch Focus | [Ctrl+O] Diffs | [Ctrl+H] History | [Ctrl+C] Exit"
+    status_line: str = "Ready. [Tab] Switch Focus | [Ctrl+O] Diffs | [Ctrl+Y]/[F2] History | [Ctrl+C] Exit"
     is_diff_modal_open: bool = False
     diff_content: str = ""
     is_history_modal_open: bool = False
@@ -79,6 +80,7 @@ class TUIApplication:
 
         self.kb = KeyBindings()
         self._setup_keybindings()
+        self.merged_kb = merge_key_bindings([load_key_bindings(), self.kb])
         self._app: Application[None] | None = None
 
     def _setup_keybindings(self) -> None:
@@ -103,7 +105,8 @@ class TUIApplication:
             if self.state.is_diff_modal_open and not self.state.diff_content:
                 self.state.diff_content = "No modified file diffs available in current session."
 
-        @self.kb.add("c-h")
+        @self.kb.add("c-y")
+        @self.kb.add("f2")
         def _toggle_history(event: KeyPressEvent) -> None:
             self.state.is_history_modal_open = not self.state.is_history_modal_open
             if self.state.is_history_modal_open and not self.state.history_items:
@@ -137,20 +140,47 @@ class TUIApplication:
             return
 
         t_now = datetime.datetime.now(datetime.UTC).strftime("%H:%M:%S")
-        self.state.status_line = f"Processing query via {self.state.active_model}..."
+        stop_spinner = asyncio.Event()
+        spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+        async def _spinner_loop() -> None:
+            idx = 0
+            while not stop_spinner.is_set():
+                frame = spinner_frames[idx % len(spinner_frames)]
+                self.state.status_line = f"{frame} Thinking via {self.state.active_model}... [Ctrl+C] Abort"
+                if self._app is not None:
+                    self._app.invalidate()
+                try:
+                    await asyncio.wait_for(stop_spinner.wait(), timeout=0.08)
+                except TimeoutError:
+                    pass
+                idx += 1
+
+        spinner_task = asyncio.create_task(_spinner_loop())
         try:
             self.add_subagent_event("loop", f"Dispatched turn: {text[:40]}...")
+            if self._app is not None:
+                self._app.invalidate()
             reply = await self.session.step(text)
             self.add_message("assistant", reply or "(empty response)", t_now)
-            self.state.status_line = "Ready. [Tab] Focus | [Ctrl+O] Diffs | [Ctrl+H] History | [Ctrl+C] Exit"
+            self.state.status_line = (
+                "Ready. [Tab] Switch Focus | [Ctrl+O] Diffs | [Ctrl+Y]/[F2] History | [Ctrl+C] Exit"
+            )
         except Exception as exc:  # noqa: BLE001
             self.add_message("error", f"Error: {exc}", t_now)
             self.state.status_line = f"Execution error: {exc}"
+        finally:
+            stop_spinner.set()
+            await spinner_task
+            if self._app is not None:
+                self._app.invalidate()
 
     def add_message(self, role: str, text: str, timestamp: str | None = None) -> None:
         """Add a conversation message to the main stream pane."""
         t = timestamp or datetime.datetime.now(datetime.UTC).strftime("%H:%M:%S")
         self.state.messages.append((role, text, t))
+        if self._app is not None:
+            self._app.invalidate()
 
     def add_subagent_event(self, agent_type: str, event_text: str) -> None:
         """Record an event in the sub-agent execution tree pane."""
@@ -158,6 +188,8 @@ class TUIApplication:
         log_entry = f"[{t}] [{agent_type}] {event_text}"
         self.state.subagent_logs.append(log_entry)
         self.state.subagent_status[agent_type] = event_text
+        if self._app is not None:
+            self._app.invalidate()
 
     def update_telemetry(
         self,
@@ -171,6 +203,8 @@ class TUIApplication:
         self.state.completion_tokens += completion_tokens
         self.state.cached_tokens += cached_tokens
         self.state.cost_usd += cost_usd
+        if self._app is not None:
+            self._app.invalidate()
 
     def _render_header(self) -> StyleAndTextTuples:
         model = self.state.active_model
@@ -314,7 +348,7 @@ class TUIApplication:
 
         self._app = Application(
             layout=self.build_layout(),
-            key_bindings=self.kb,
+            key_bindings=self.merged_kb,
             style=style,
             full_screen=True,
             mouse_support=True,

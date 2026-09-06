@@ -677,7 +677,6 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
             # --- SIMPLE SINGLE-TURN CHAT PATH (unchanged from Phase 1/2) --
             await session.async_add_user_message(expanded)
 
-            print("assistant> ", end="", flush=True)
             reply_parts: list[str] = []
 
             # Determine routing decision before try block so it's available for error handling
@@ -694,17 +693,32 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
             requested_primary = decision.primary if decision is not None else None
 
             try:
-                stream = (
-                    session.client.chat_stream(trimmed, models=decision.models)
-                    if decision is not None
-                    else session.client.chat_stream(trimmed, model=forced_model)
-                )
-                async for delta in stream:
+                first_chunk: str | None = None
+                with renderer.status_spinner("Thinking..."):
+                    stream = (
+                        session.client.chat_stream(trimmed, models=decision.models)
+                        if decision is not None
+                        else session.client.chat_stream(trimmed, model=forced_model)
+                    )
+                    stream_iter = aiter(stream)
                     try:
-                        print(delta, end="", flush=True)
+                        first_chunk = await anext(stream_iter)
+                    except StopAsyncIteration:
+                        first_chunk = None
+
+                print("assistant> ", end="", flush=True)
+                if first_chunk is not None:
+                    try:
+                        print(first_chunk, end="", flush=True)
                     except UnicodeEncodeError:
-                        safe_print(delta, end="", flush=True)
-                    reply_parts.append(delta)
+                        safe_print(first_chunk, end="", flush=True)
+                    reply_parts.append(first_chunk)
+                    async for delta in stream_iter:
+                        try:
+                            print(delta, end="", flush=True)
+                        except UnicodeEncodeError:
+                            safe_print(delta, end="", flush=True)
+                        reply_parts.append(delta)
 
                 full_reply = "".join(reply_parts)
                 if not full_reply.strip():

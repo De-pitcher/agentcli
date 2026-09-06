@@ -3,6 +3,19 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.12.0] - 2026-09-06
+
+### Fixed & Enhanced — TUI Keybindings Restoration, Backspace Fix & Interactive Loading Spinners
+- **TUI Keybindings & Backspace Interception Fix (`agentcli.ui.tui_app`)**:
+  - Remapped History Timeline modal shortcut from `Ctrl+H` to `Ctrl+Y` and `F2` to eliminate byte collision (`0x08`) that intercepted Backspace in terminal environments.
+  - Merged standard `load_key_bindings()` with application key bindings, restoring full editing ergonomics (Backspace, Delete, cursor navigation arrows, Home, End, word jumps, and deletion).
+  - Wired live automatic application invalidation on message, sub-agent event, and telemetry state changes.
+- **Visual Loading States & Animated Spinners (`agentcli.ui.tui_app`, `agentcli.cli`)**:
+  - Added real-time animated status spinner loop (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) in the TUI status bar during asynchronous LLM query execution.
+  - Integrated animated `renderer.status_spinner("Thinking...")` during initial stream connection and first token arrival in interactive single-turn chat REPL.
+- **Automated UX Verification Suite (`tests/test_tui_app.py`)**:
+  - Added automated assertions verifying Backspace (`c-h`) non-interception, merged keybindings length, and live spinner animation invalidation.
+
 ## [2.11.0] - 2026-09-06
 
 ### Added — Phase 30: Live Field Verification, Real Model Runs & Usability Scorecards
