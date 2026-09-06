@@ -211,6 +211,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Budget tier for model selection (low=free/fast, medium=balanced, high=frontier)",
     )
     tui_p.add_argument(
+        "--resume",
+        help="Resume a saved conversation session by ID in full-screen TUI mode",
+    )
+    tui_p.add_argument(
         "--max-cost",
         type=float,
         default=None,
@@ -526,6 +530,31 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
         else:
             print(f"agentcli -- model: {active_model_str}  (Ctrl+C or /exit to quit)")
 
+    # Display loaded messages if resuming an existing session
+    if session.is_resumed and session.history:
+        history_msgs = [m for m in session.history if m.role in ("user", "assistant")]
+        if history_msgs:
+            if renderer.is_rich_enabled:
+                renderer.console.print(f"\n[dim]─── Restored {len(history_msgs)} conversation message(s) ───[/dim]")
+            else:
+                print(f"\n--- Restored {len(history_msgs)} conversation message(s) ---")
+            for msg in history_msgs:
+                if msg.role == "user":
+                    if renderer.is_rich_enabled:
+                        renderer.console.print(f"\n[bold blue]you[/bold blue] [bold cyan]❯[/bold cyan] {msg.content}")
+                    else:
+                        safe_print(f"\nyou> {msg.content}")
+                elif msg.role == "assistant":
+                    if renderer.is_rich_enabled:
+                        renderer.console.print("[bold green]agentcli[/bold green] [bold cyan]❯[/bold cyan]")
+                        renderer.render_markdown(msg.content or "")
+                    else:
+                        safe_print(f"\nagentcli> {msg.content}")
+            if renderer.is_rich_enabled:
+                renderer.console.print("[dim]──────────────────────────────────────────────[/dim]\n")
+            else:
+                print("----------------------------------------------\n")
+
     interrupted = False
     try:
         while True:
@@ -548,6 +577,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     renderer.console.print(
                         "\n[bold cyan]Available Slash Commands:[/bold cyan]\n"
                         "  [bold]/help[/bold]                 Show this help message\n"
+                        "  [bold]/history[/bold]              View conversation history in current session\n"
                         "  [bold]/budget [tier][/bold]        View or set budget tier ([green]low[/green], [yellow]medium[/yellow], [red]high[/red])\n"
                         "  [bold]/model [model|auto][/bold]   View or switch active model (or return to auto-routing)\n"
                         "  [bold]/goal <description>[/bold]   Run an autonomous multi-step goal loop directly in chat\n"
@@ -561,6 +591,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print(
                         "\nAvailable Slash Commands:\n"
                         "  /help                 Show this help message\n"
+                        "  /history              View conversation history in current session\n"
                         "  /budget [tier]        View or set budget tier (low, medium, high)\n"
                         "  /model [model|auto]   View or switch active model (or auto routing)\n"
                         "  /goal <description>   Run an autonomous multi-step goal loop\n"
@@ -570,6 +601,33 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                         "  /reset                Reset conversation history and start fresh\n"
                         "  /exit, /quit          Exit agentcli\n"
                     )
+                continue
+
+            if user_input in {"/history", "/messages"}:
+                msgs = [m for m in session.history if m.role in ("user", "assistant")]
+                if not msgs:
+                    print("(No conversation history in current session)")
+                else:
+                    if renderer.is_rich_enabled:
+                        renderer.console.print(f"\n[bold cyan]─── Session History ({len(msgs)} messages) ───[/bold cyan]")
+                    else:
+                        print(f"\n--- Session History ({len(msgs)} messages) ---")
+                    for msg in msgs:
+                        if msg.role == "user":
+                            if renderer.is_rich_enabled:
+                                renderer.console.print(f"\n[bold blue]you[/bold blue] [bold cyan]❯[/bold cyan] {msg.content}")
+                            else:
+                                safe_print(f"\nyou> {msg.content}")
+                        elif msg.role == "assistant":
+                            if renderer.is_rich_enabled:
+                                renderer.console.print("[bold green]agentcli[/bold green] [bold cyan]❯[/bold cyan]")
+                                renderer.render_markdown(msg.content or "")
+                            else:
+                                safe_print(f"\nagentcli> {msg.content}")
+                    if renderer.is_rich_enabled:
+                        renderer.console.print("[bold cyan]───────────────────────────────────────────────[/bold cyan]\n")
+                    else:
+                        print("-----------------------------------------------\n")
                 continue
 
             if user_input.startswith("/budget"):
