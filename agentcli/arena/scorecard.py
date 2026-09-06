@@ -131,6 +131,54 @@ class ScorecardFormatter:
         return "\n".join(lines)
 
     @staticmethod
+    def calculate_percentiles(values: list[float]) -> tuple[float, float]:
+        """Calculate p50 (median) and p95 percentiles for a list of floats."""
+        if not values:
+            return 0.0, 0.0
+        sorted_vals = sorted(values)
+        n = len(sorted_vals)
+        p50_idx = int(n * 0.50)
+        p95_idx = min(n - 1, int(n * 0.95))
+        return sorted_vals[p50_idx], sorted_vals[p95_idx]
+
+    @staticmethod
+    def render_field_trial_summary(results: list[TaskResult]) -> str:
+        """Render a comprehensive production field trial scorecard (Phase 30)."""
+        count = len(results) or 1
+        passed = sum(1 for r in results if r.success)
+        pass_rate = (passed / count) * 100.0
+        latencies = [r.latency_seconds for r in results]
+        p50_lat, p95_lat = ScorecardFormatter.calculate_percentiles(latencies)
+        total_cost = sum(r.cost_usd for r in results)
+        total_turns = sum(r.turns_count for r in results)
+        avg_turns = total_turns / count
+
+        lines = [
+            "=" * 80,
+            " 🚀 AGENTCLI PRODUCTION FIELD TRIAL SCORECARD",
+            "=" * 80,
+            f" Pass@1 Success Rate : {pass_rate:.1f}% ({passed}/{len(results)} tasks passed)",
+            f" Turn Latency (p50)   : {p50_lat:.2f}s",
+            f" Turn Latency (p95)   : {p95_lat:.2f}s",
+            f" Turn Efficiency      : {avg_turns:.1f} turns/task",
+            f" Cumulative Cost (USD): ${total_cost:.6f}",
+            "-" * 80,
+            f"{'Task ID':<32} {'Category':<16} {'Status':<8} {'Latency':<9} {'Cost ($)':<9}",
+            "-" * 80,
+        ]
+
+        for r in results:
+            status_str = "PASS" if r.success else "FAIL"
+            # Extract category from task_id or default to field
+            cat = "bug_fix" if "bugfix" in r.task_id else ("refactor" if "refactor" in r.task_id else ("mesh" if "mesh" in r.task_id else "tool_use"))
+            lines.append(
+                f"{r.task_id[:31]:<32} {cat:<16} {status_str:<8} {r.latency_seconds:>7.2f}s ${r.cost_usd:>8.4f}"
+            )
+
+        lines.append("=" * 80)
+        return "\n".join(lines)
+
+    @staticmethod
     def to_json(data: list[TaskResult] | dict[str, list[TaskResult]]) -> str:
         """Export results to formatted JSON."""
         payload: list[dict[str, Any]] | dict[str, list[dict[str, Any]]]

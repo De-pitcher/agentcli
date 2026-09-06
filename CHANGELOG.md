@@ -3,6 +3,20 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.11.0] - 2026-09-06
+
+### Added — Phase 30: Live Field Verification, Real Model Runs & Usability Scorecards
+- **Production Field Trial Task Suite (`agentcli.arena.loader.get_builtin_field_trials_tasks`)**:
+  - `field_bugfix_auth_jwt`: Multi-file token extraction bug repair across `src/auth/jwt.py` and `src/auth/handler.py` verified via test runner.
+  - `field_refactor_lru_cache`: LRU cache eviction and capacity limit implementation with regression test validation.
+  - `field_mesh_cross_dependency`: Monorepo mesh cross-package exports between `packages/common` and `packages/app`.
+  - `field_tool_log_metrics`: Structured log metrics extraction and error summary generation.
+- **Production Field Trial Usability Scorecard Formatter (`agentcli.arena.scorecard.ScorecardFormatter`)**:
+  - `render_field_trial_summary()`: Generates detailed terminal scorecards featuring Pass@1 first-attempt accuracy, p50 and p95 turn latency percentiles, turn efficiency, and cumulative USD token expenditure.
+  - `calculate_percentiles()`: Precise p50 (median) and p95 percentile statistical calculations.
+- **Field Trial Automated Test Harness (`tests/test_field_trials.py`)**:
+  - 4 automated unit and integration tests verifying task suite loading, sandbox evaluation, percentile metrics, and scorecard rendering.
+
 ## [2.10.0] - 2026-09-05
 
 ### Added — Phase 29: LLM Parser Robustness, Edge Case Defense & Windows Safety
