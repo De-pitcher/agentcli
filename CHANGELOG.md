@@ -6,12 +6,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [2.12.1] - 2026-09-06
 
 ### Fixed & Enhanced — Action Intent Detection & Live Environment Grounding
-- **Action & Tool Execution Intent Detection (`agentcli.agent.loop`)**:
+- **Action & Tool Execution Intent Detection (`agentcli.agent.loop`, `agentcli.subagents.planner`)**:
   - Expanded `is_agentic_task()` with regex-based action intent detection (`_ACTION_PATTERNS`) matching single-turn imperative developer actions including directory/workspace inspection (`pwd`, `cwd`, `print current directory`, `what of the content`, `list files`), file operations (`read file`, `cat`, `open`, `view`), shell execution and test runs (`run pytest`, `execute command`), and git operations (`git status`, `git diff`).
+  - Enhanced `PlannerAgent` heuristic decomposition to map directory inspection and pwd/cwd requests to `file_ops` with operation `list` and target path `.` (returning real directory contents rather than hallucinating `/home/user`).
   - Ensures action-oriented requests trigger the agentic tool execution loop rather than falling back to text-only chat where commands are not executed.
-- **Live Terminal Environment Grounding (`agentcli.session`)**:
+- **Live Terminal Environment Grounding (`agentcli.session`, `agentcli.cli`)**:
   - Added `build_environment_system_prompt()` dynamically grounding the session with live OS details (`Windows (PowerShell)` / `Linux (Bash)`), absolute workspace path (`Path.cwd().resolve()`), active preset, and explicit anti-hallucination directives preventing pretend bash or mock outputs (such as `/home/user`).
-  - Injected dynamically in `AgentSession.send()` when no explicit system prompt is present, keeping in-memory session history clean for invariants while grounding downstream LLM completions.
+  - Added `AgentSession.get_grounded_history()` and wired it into interactive terminal `run_chat()` streaming and `session.send()`, ensuring all single-turn completions are grounded in the active environment.
+  - Injected environment grounding as `initial_context` in `session.run_loop()`, grounding autonomous planning cycles.
 
 ## [2.12.0] - 2026-09-06
 

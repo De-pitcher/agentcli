@@ -236,3 +236,25 @@ async def test_planner_llm_multiple_steps(monkeypatch) -> None:
     assert plan[1]["agent_type"] == "code_analyzer"
     assert plan[0]["goal_criterion"] == "README"
     assert plan[1]["goal_criterion"] == "analysis"
+
+
+@pytest.mark.asyncio
+async def test_planner_heuristic_directory_inspection() -> None:
+    """Test heuristic planning for directory inspection and pwd/cwd requests."""
+    agent = PlannerAgent()
+    task = SubAgentTask(
+        agent_type=SubAgentType.PLANNER,
+        payload={
+            "query": "Print the current directory",
+            "available_agents": [SubAgentType.FILE_OPS, SubAgentType.SHELL_EXECUTION],
+        },
+    )
+    result = await agent.run(task)
+    assert result.success is True
+    plan = result.output["plan"]
+    assert len(plan) == 1
+    assert plan[0]["agent_type"] == "file_ops"
+    assert plan[0]["payload"]["operation"] == "list"
+    assert plan[0]["payload"]["path"] == "."
+    assert plan[0]["goal_criterion"] == "items"
+
