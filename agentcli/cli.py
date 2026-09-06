@@ -726,6 +726,27 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 print(f"Estimated Cost: ${cost:.6f} USD")
                 continue
 
+            if user_input in {"/diff", "/diffs"}:
+                from .subagents.base import SubAgentTask, SubAgentType
+                from .subagents.workspace import WorkspaceAgent
+
+                agent = WorkspaceAgent()
+                task = SubAgentTask(
+                    agent_type=SubAgentType.WORKSPACE, payload={"operation": "git_diff"}
+                )
+                res = await agent.run(task)
+                diff_text = res.output.get("diff", "") if res.success else ""
+                if diff_text:
+                    if renderer.is_rich_enabled:
+                        renderer.console.print("\n[bold cyan]─── Workspace Diff ───[/bold cyan]")
+                        renderer.console.print(diff_text)
+                        renderer.console.print("[bold cyan]──────────────────────[/bold cyan]\n")
+                    else:
+                        print(f"\n--- Workspace Diff ---\n{diff_text}\n----------------------\n")
+                else:
+                    print("(No uncommitted changes in workspace)")
+                continue
+
             if user_input == "/clear":
                 renderer.clear()
                 continue

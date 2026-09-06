@@ -26,9 +26,11 @@ class SlashAndFileCompleter(Completer):
 
     SLASH_COMMANDS: ClassVar[list[tuple[str, str]]] = [
         ("/help", "Show help, slash commands, and shortcuts"),
+        ("/history", "View conversation history in current session"),
         ("/budget", "View or set budget tier (low, medium, high)"),
         ("/model", "View or switch active model (or 'auto')"),
         ("/goal", "Run an autonomous multi-step goal loop"),
+        ("/diff", "Inspect file diffs generated during session"),
         ("/tokens", "Show current session token usage breakdown"),
         ("/cost", "Show current session estimated cost"),
         ("/clear", "Clear terminal screen"),

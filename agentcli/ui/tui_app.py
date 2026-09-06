@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import inspect
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -93,6 +94,8 @@ class TUIApplication:
             name="input_buffer",
         )
 
+        self._is_processing = False
+        self._current_task: asyncio.Task[Any] | None = None
         self.kb = KeyBindings()
         self._setup_keybindings()
         self.merged_kb = merge_key_bindings([load_key_bindings(), self.kb])
@@ -100,6 +103,20 @@ class TUIApplication:
 
     def _setup_keybindings(self) -> None:
         @self.kb.add("c-c")
+        def _handle_ctrl_c(event: KeyPressEvent) -> None:
+            if (
+                self._is_processing
+                and self._current_task is not None
+                and not self._current_task.done()
+            ):
+                self._current_task.cancel()
+                self.state.status_line = (
+                    "Cancelling current execution... Press [Ctrl+C] again to exit"
+                )
+                event.app.invalidate()
+            else:
+                event.app.exit()
+
         @self.kb.add("c-d")
         def _exit(event: KeyPressEvent) -> None:
             event.app.exit()
@@ -112,15 +129,19 @@ class TUIApplication:
                 self.state.focused_pane = panes[(idx + 1) % len(panes)]
             except ValueError:
                 self.state.focused_pane = "input"
-            self.state.status_line = (
-                f"Focused Pane: {self.state.focused_pane.upper()} | [Tab] Next Pane | [Ctrl+C] Exit"
-            )
+            self.state.status_line = f"Focused Pane: {self.state.focused_pane.upper()} | [Tab] Switch Focus | [Ctrl+C] Exit"
+            event.app.invalidate()
 
         @self.kb.add("c-o")
         def _toggle_diff(event: KeyPressEvent) -> None:
             self.state.is_diff_modal_open = not self.state.is_diff_modal_open
             if self.state.is_diff_modal_open and not self.state.diff_content:
-                self.state.diff_content = "No modified file diffs available in current session."
+                self.state.diff_content = "Loading modified workspace diffs..."
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._load_diff_async())
+                except RuntimeError:
+                    pass
             event.app.invalidate()
 
         @self.kb.add("c-y")
@@ -140,26 +161,221 @@ class TUIApplication:
             self.state.is_history_modal_open = False
             event.app.invalidate()
 
-        @self.kb.add("enter", filter=Condition(lambda: self.state.focused_pane == "input"))
+        @self.kb.add("enter")
         def _submit_input(event: KeyPressEvent) -> None:
+            if self.state.is_diff_modal_open or self.state.is_history_modal_open:
+                self.state.is_diff_modal_open = False
+                self.state.is_history_modal_open = False
+                event.app.invalidate()
+                return
+
             text = self.input_buffer.text.strip()
             if not text:
                 return
+
+            if self._is_processing:
+                self.state.status_line = (
+                    "Busy processing... Press [Ctrl+C] to cancel current execution."
+                )
+                event.app.invalidate()
+                return
+
             self.input_buffer.reset()
             t_now = datetime.datetime.now(datetime.UTC).strftime("%H:%M:%S")
-            self.add_message("user", text, t_now)
+
             if text in ("/exit", "/quit"):
                 event.app.exit()
                 return
 
+            if text.startswith("/"):
+                asyncio.create_task(self._handle_slash_command(text, t_now, event))
+                return
+
+            self.add_message("user", text, t_now)
             if self.session:
-                asyncio.create_task(self._process_user_query(text))
+                self._current_task = asyncio.create_task(self._process_user_query(text))
+
+    async def _handle_slash_command(self, text: str, timestamp: str, event: KeyPressEvent) -> None:
+        """Process slash commands directly inside the TUI dashboard."""
+        cmd = text.split()[0].lower()
+
+        if cmd == "/help":
+            help_text = (
+                "Available Slash Commands:\n"
+                "  /help                 Show this help message\n"
+                "  /history, /messages   Browse full conversation history modal\n"
+                "  /budget [tier]        View or set budget tier (low, medium, high)\n"
+                "  /model [model|auto]   View or switch active model\n"
+                "  /goal <description>   Run an autonomous multi-step goal loop\n"
+                "  /diff, /diffs         View workspace file diffs modal\n"
+                "  /tokens, /cost        View session token usage and spending\n"
+                "  /clear                Clear chat messages and sub-agent logs\n"
+                "  /reset                Clear conversation and auto-ground workspace\n"
+                "  /exit, /quit          Exit the TUI dashboard"
+            )
+            self.add_message("system", help_text, timestamp)
+            return
+
+        if cmd in {"/history", "/messages"}:
+            self.state.is_history_modal_open = True
+            self.state.history_items = [
+                f"[{m[2] or 'history'}] {m[0].upper()}: {m[1][:60]}..." for m in self.state.messages
+            ] or ["No session history recorded yet."]
+            if self._app is not None:
+                self._app.invalidate()
+            return
+
+        if cmd == "/budget":
+            parts = text.split(maxsplit=1)
+            if len(parts) == 1:
+                self.add_message(
+                    "system", f"Current budget tier: {self.config.routing.budget_tier}", timestamp
+                )
+            else:
+                tier = parts[1].strip().lower()
+                if tier in {"low", "medium", "high"}:
+                    self.config.routing.budget_tier = tier
+                    if self.session and self.session.router is not None:
+                        self.session.router._budget_tier = tier
+                    self.add_message("system", f"Budget tier updated to: {tier}", timestamp)
+                else:
+                    self.add_message(
+                        "system",
+                        f"Invalid budget tier '{tier}'. Choose from: low, medium, high",
+                        timestamp,
+                    )
+            return
+
+        if cmd == "/model":
+            parts = text.split(maxsplit=1)
+            if len(parts) == 1:
+                active = (
+                    self.session.forced_model
+                    if self.session and self.session.forced_model
+                    else self.state.active_model
+                )
+                self.add_message("system", f"Current model: {active}", timestamp)
+            else:
+                target_model = parts[1].strip()
+                if target_model.lower() == "auto":
+                    if self.session:
+                        self.session.forced_model = None
+                        if self.session.registry is not None:
+                            from ..routing.router import Router
+
+                            self.session.router = Router(
+                                self.session.registry,
+                                self.config.routing.max_fallbacks,
+                                budget_tier=self.config.routing.budget_tier,
+                            )
+                    self.state.active_model = "auto"
+                    self.add_message("system", "Switched to auto model routing.", timestamp)
+                else:
+                    if self.session:
+                        self.session.forced_model = target_model
+                        self.session.router = None
+                    self.state.active_model = target_model
+                    self.add_message("system", f"Forced model set to: {target_model}", timestamp)
+            return
+
+        if cmd in {"/tokens", "/cost"}:
+            if self.session:
+                stats = await self.session.get_session_stats()
+                cost = self.session.cumulative_cost_usd
+                self.update_telemetry(
+                    prompt_tokens=stats.get("user_tokens", 0) - self.state.prompt_tokens,
+                    completion_tokens=stats.get("assistant_tokens", 0)
+                    - self.state.completion_tokens,
+                    cost_usd=cost - self.state.cost_usd,
+                )
+                self.add_message(
+                    "system",
+                    f"Token Usage: {stats['total_tokens']} total "
+                    f"({stats['user_tokens']} prompt, {stats['assistant_tokens']} completion) | "
+                    f"Estimated Cost: ${cost:.6f} USD",
+                    timestamp,
+                )
+            return
+
+        if cmd == "/clear":
+            self.state.messages.clear()
+            self.state.subagent_logs.clear()
+            self.state.subagent_status.clear()
+            self.add_message("system", "Chat history and sub-agent logs cleared.", timestamp)
+            return
+
+        if cmd == "/reset":
+            if self.session:
+                self.session.history.clear()
+                await self.session.auto_ground_workspace()
+            self.state.messages.clear()
+            self.add_message("system", "Session reset. Conversation history cleared.", timestamp)
+            return
+
+        if cmd in {"/diff", "/diffs"}:
+            self.state.is_diff_modal_open = True
+            await self._load_diff_async()
+            return
+
+        if cmd == "/goal":
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2 or not parts[1].strip():
+                self.add_message("system", "Usage: /goal <task description>", timestamp)
+                return
+            goal_text = parts[1].strip()
+            self.add_message("user", f"/goal {goal_text}", timestamp)
+            self._current_task = asyncio.create_task(self._process_goal_query(goal_text))
+            return
+
+        self.add_message(
+            "system",
+            f"Unknown slash command '{cmd}'. Type /help for available commands.",
+            timestamp,
+        )
+
+    async def _load_diff_async(self) -> None:
+        """Asynchronously load git diff from workspace sub-agent."""
+        try:
+            from ..subagents.base import SubAgentTask, SubAgentType
+            from ..subagents.workspace import WorkspaceAgent
+
+            agent = WorkspaceAgent()
+            task = SubAgentTask(
+                agent_type=SubAgentType.WORKSPACE, payload={"operation": "git_diff"}
+            )
+            res = await agent.run(task)
+            diff = res.output.get("diff", "") if res.success else ""
+            self.state.diff_content = (
+                diff or "No modified file diffs available in current workspace."
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.state.diff_content = f"Failed to load diff: {exc}"
+        if self._app is not None:
+            self._app.invalidate()
+
+    async def _sync_telemetry(self) -> None:
+        """Synchronize telemetry state from active session."""
+        if not self.session:
+            return
+        if hasattr(self.session, "get_session_stats") and callable(self.session.get_session_stats):
+            try:
+                res = self.session.get_session_stats()
+                stats = await res if inspect.isawaitable(res) else res
+                if isinstance(stats, dict):
+                    self.state.prompt_tokens = stats.get("user_tokens", 0)
+                    self.state.completion_tokens = stats.get("assistant_tokens", 0)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to fetch session stats: %s", exc)
+        self.state.cost_usd = getattr(self.session, "cumulative_cost_usd", 0.0)
+        if self._app is not None:
+            self._app.invalidate()
 
     async def _process_user_query(self, text: str) -> None:
         """Asynchronously process user input with the underlying AgentSession."""
         if not self.session:
             return
 
+        self._is_processing = True
         t_now = datetime.datetime.now(datetime.UTC).strftime("%H:%M:%S")
         stop_spinner = asyncio.Event()
         spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -174,7 +390,7 @@ class TUIApplication:
                 if self._app is not None:
                     self._app.invalidate()
                 try:
-                    await asyncio.wait_for(stop_spinner.wait(), timeout=0.08)
+                    await asyncio.wait_for(stop_spinner.wait(), timeout=0.15)
                 except TimeoutError:
                     pass
                 idx += 1
@@ -184,15 +400,104 @@ class TUIApplication:
             self.add_subagent_event("session", f"Processing: {text[:40]}...")
             reply = await self.session.step(text)
             self.add_message("assistant", reply or "(empty response)", t_now)
+            await self._sync_telemetry()
             self.state.status_line = (
                 "Ready. [Tab] Switch Focus | [Ctrl+O] Diffs | [Ctrl+Y]/[F2] History | [Ctrl+C] Exit"
             )
+        except asyncio.CancelledError:
+            self.add_message("system", "Operation cancelled by user.", t_now)
+            self.state.status_line = "Processing cancelled."
         except Exception as exc:  # noqa: BLE001
             self.add_message("error", f"Error: {exc}", t_now)
             self.state.status_line = f"Execution error: {exc}"
         finally:
             stop_spinner.set()
             await spinner_task
+            self._is_processing = False
+            self._current_task = None
+            if self._app is not None:
+                self._app.invalidate()
+
+    async def _process_goal_query(self, goal_text: str) -> None:
+        """Execute autonomous multi-step goal loop and display telemetry in TUI."""
+        if not self.session:
+            return
+
+        self._is_processing = True
+        t_now = datetime.datetime.now(datetime.UTC).strftime("%H:%M:%S")
+        stop_spinner = asyncio.Event()
+        spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+        async def _spinner_loop() -> None:
+            idx = 0
+            while not stop_spinner.is_set():
+                frame = spinner_frames[idx % len(spinner_frames)]
+                self.state.status_line = f"{frame} Autonomous Goal Loop running... [Ctrl+C] Abort"
+                if self._app is not None:
+                    self._app.invalidate()
+                try:
+                    await asyncio.wait_for(stop_spinner.wait(), timeout=0.15)
+                except TimeoutError:
+                    pass
+                idx += 1
+
+        spinner_task = asyncio.create_task(_spinner_loop())
+        try:
+            self.add_subagent_event("planner", f"Planning goal: {goal_text[:40]}...")
+            async for event in self.session.run_loop(goal_text):
+                from ..agent.events import (
+                    FinishEvent,
+                    PlanEvent,
+                    ReflectEvent,
+                    StepResultEvent,
+                    StepStartEvent,
+                )
+
+                if isinstance(event, PlanEvent):
+                    self.add_subagent_event("planner", f"Plan generated: {len(event.plan)} step(s)")
+                elif isinstance(event, StepStartEvent):
+                    payload_summary = str(
+                        event.payload.get("operation")
+                        or event.payload.get("query")
+                        or event.payload.get("file")
+                        or ""
+                    )
+                    self.add_subagent_event(
+                        str(event.agent_type),
+                        f"Executing step {event.step_index}: {payload_summary[:35]}",
+                    )
+                elif isinstance(event, StepResultEvent):
+                    is_ok = bool(event.result and event.result.success)
+                    agent_name = (
+                        event.result.agent_type.value
+                        if event.result and hasattr(event.result.agent_type, "value")
+                        else "step"
+                    )
+                    st = "Done" if is_ok else "Failed"
+                    self.add_subagent_event(agent_name, f"{st} ({event.duration_seconds:.1f}s)")
+                elif isinstance(event, ReflectEvent):
+                    self.add_subagent_event(
+                        "reflector", f"Decision: {event.decision} - {event.reason[:30]}"
+                    )
+                elif isinstance(event, FinishEvent):
+                    self.add_message(
+                        "assistant", f"🎯 **Goal Accomplished**\n\n{event.summary}", t_now
+                    )
+            await self._sync_telemetry()
+            self.state.status_line = (
+                "Ready. [Tab] Switch Focus | [Ctrl+O] Diffs | [Ctrl+Y]/[F2] History | [Ctrl+C] Exit"
+            )
+        except asyncio.CancelledError:
+            self.add_message("system", "Goal execution cancelled by user.", t_now)
+            self.state.status_line = "Execution cancelled."
+        except Exception as exc:  # noqa: BLE001
+            self.add_message("error", f"Goal execution error: {exc}", t_now)
+            self.state.status_line = f"Execution error: {exc}"
+        finally:
+            stop_spinner.set()
+            await spinner_task
+            self._is_processing = False
+            self._current_task = None
             if self._app is not None:
                 self._app.invalidate()
 

@@ -233,3 +233,264 @@ async def test_tui_spinner_animation_frames() -> None:
     await tui._process_user_query("Calculate slow operation")
     assert mock_app.invalidate.call_count >= 2
     assert "Ready" in tui.state.status_line
+
+
+@pytest.mark.asyncio
+async def test_tui_slash_commands_handling() -> None:
+    config = Config()
+    mock_session = MagicMock()
+    mock_session.get_session_stats = AsyncMock(
+        return_value={"total_tokens": 300, "user_tokens": 200, "assistant_tokens": 100}
+    )
+    mock_session.cumulative_cost_usd = 0.005
+    mock_session.history = []
+    mock_session.auto_ground_workspace = AsyncMock(return_value=None)
+    mock_session.forced_model = None
+    mock_session.router = MagicMock()
+
+    tui = TUIApplication(config=config, session=mock_session)
+    mock_event = MagicMock()
+
+    # 1. /help
+    await tui._handle_slash_command("/help", "12:00:00", mock_event)
+    assert any("Available Slash Commands:" in m[1] for m in tui.state.messages)
+
+    # 2. /budget
+    await tui._handle_slash_command("/budget medium", "12:00:01", mock_event)
+    assert config.routing.budget_tier == "medium"
+
+    # 3. /model
+    await tui._handle_slash_command("/model openai/gpt-4o", "12:00:02", mock_event)
+    assert tui.state.active_model == "openai/gpt-4o"
+    assert mock_session.forced_model == "openai/gpt-4o"
+
+    # 4. /tokens & /cost
+    await tui._handle_slash_command("/tokens", "12:00:03", mock_event)
+    assert tui.state.prompt_tokens == 200
+    assert tui.state.completion_tokens == 100
+
+    # 5. /clear
+    await tui._handle_slash_command("/clear", "12:00:04", mock_event)
+    assert len(tui.state.messages) == 1
+    assert "cleared" in tui.state.messages[0][1]
+
+    # 6. /reset
+    await tui._handle_slash_command("/reset", "12:00:05", mock_event)
+    mock_session.auto_ground_workspace.assert_awaited_once()
+
+    # 7. /history
+    await tui._handle_slash_command("/history", "12:00:06", mock_event)
+    assert tui.state.is_history_modal_open is True
+
+
+@pytest.mark.asyncio
+async def test_tui_cancellation_on_ctrl_c() -> None:
+    import asyncio
+
+    config = Config()
+    mock_session = MagicMock()
+
+    async def hanging_step(text: str) -> str:
+        await asyncio.sleep(10.0)
+        return "Done"
+
+    mock_session.step = AsyncMock(side_effect=hanging_step)
+    tui = TUIApplication(config=config, session=mock_session)
+    mock_app = MagicMock()
+    tui._app = mock_app
+
+    query_task = asyncio.create_task(tui._process_user_query("Long hanging query"))
+    tui._current_task = query_task
+
+    await asyncio.sleep(0.05)
+    assert tui._is_processing is True
+
+    # Simulate Ctrl+C keypress handler
+    handlers = {b.handler.__name__: b.handler for b in tui.kb.bindings}
+    ctrl_c_handler = handlers["_handle_ctrl_c"]
+    mock_event = MagicMock()
+    ctrl_c_handler(mock_event)
+
+    # App exit should NOT be called; instead task should be cancelled
+    mock_event.app.exit.assert_not_called()
+    await asyncio.sleep(0.05)
+    assert query_task.done() or query_task.cancelled()
+    assert tui._is_processing is False
+    assert any("cancelled" in m[1].lower() for m in tui.state.messages)
+
+
+@pytest.mark.asyncio
+async def test_tui_goal_query_execution() -> None:
+    from agentcli.agent.events import (
+        FinishEvent,
+        PlanEvent,
+        ReflectEvent,
+        StepResultEvent,
+        StepStartEvent,
+    )
+    from agentcli.subagents.base import SubAgentResult, SubAgentType
+
+    config = Config()
+    mock_session = MagicMock()
+
+    async def mock_run_loop(goal: str):
+        yield PlanEvent(iteration=1, plan=[{"agent_type": "workspace", "payload": {}}])
+        yield StepStartEvent(
+            iteration=1,
+            step_index=1,
+            agent_type="workspace",
+            payload={"operation": "git_status"},
+        )
+        yield StepResultEvent(
+            iteration=1,
+            step_index=1,
+            result=SubAgentResult(task_id="t1", agent_type=SubAgentType.WORKSPACE, success=True),
+            duration_seconds=0.2,
+        )
+        yield ReflectEvent(iteration=1, decision="FINISH", reason="All steps done")
+        yield FinishEvent(iteration=1, summary="Goal successfully completed")
+
+    mock_session.run_loop = mock_run_loop
+    mock_session.get_session_stats = AsyncMock(
+        return_value={"total_tokens": 100, "user_tokens": 50, "assistant_tokens": 50}
+    )
+    mock_session.cumulative_cost_usd = 0.001
+
+    tui = TUIApplication(config=config, session=mock_session)
+    mock_app = MagicMock()
+    tui._app = mock_app
+
+    await tui._process_goal_query("Audit repository")
+
+    assert any("Goal Accomplished" in m[1] for m in tui.state.messages)
+    assert any("Plan generated" in log for log in tui.state.subagent_logs)
+    assert any("Executing step 1" in log for log in tui.state.subagent_logs)
+    assert any("Done" in log for log in tui.state.subagent_logs)
+    assert any("Decision: FINISH" in log for log in tui.state.subagent_logs)
+    assert tui._is_processing is False
+
+
+@pytest.mark.asyncio
+async def test_tui_submit_input_branches() -> None:
+    config = Config()
+    mock_session = MagicMock()
+    mock_session.step = AsyncMock(return_value="Done")
+    mock_session.get_session_stats = AsyncMock(return_value={})
+    mock_session.cumulative_cost_usd = 0.0
+
+    tui = TUIApplication(config=config, session=mock_session)
+    mock_app = MagicMock()
+    mock_event = MagicMock()
+    mock_event.app = mock_app
+
+    handlers = {b.handler.__name__: b.handler for b in tui.kb.bindings}
+    submit_handler = handlers["_submit_input"]
+
+    # 1. Empty input
+    tui.input_buffer.text = "   "
+    submit_handler(mock_event)
+    assert len(tui.state.messages) == 0
+
+    # 2. Modal open closes modal
+    tui.state.is_diff_modal_open = True
+    submit_handler(mock_event)
+    assert tui.state.is_diff_modal_open is False
+
+    # 3. /exit submits app exit
+    tui.input_buffer.text = "/exit"
+    submit_handler(mock_event)
+    mock_app.exit.assert_called_once()
+
+    # 4. Busy processing warning
+    tui._is_processing = True
+    tui.input_buffer.text = "hello"
+    submit_handler(mock_event)
+    assert "Busy processing" in tui.state.status_line
+    tui._is_processing = False
+
+    # 5. Normal input dispatches query
+    tui.input_buffer.text = "normal prompt"
+    submit_handler(mock_event)
+    assert tui._current_task is not None
+    await tui._current_task
+    assert any("normal prompt" in m[1] for m in tui.state.messages)
+
+
+@pytest.mark.asyncio
+async def test_tui_more_slash_commands() -> None:
+    config = Config()
+    mock_session = MagicMock()
+    mock_session.forced_model = "custom/model"
+    mock_session.get_session_stats = AsyncMock(return_value={})
+    mock_session.cumulative_cost_usd = 0.0
+    mock_session.registry = MagicMock()
+
+    tui = TUIApplication(config=config, session=mock_session)
+    mock_event = MagicMock()
+
+    # /budget without args
+    await tui._handle_slash_command("/budget", "12:00:00", mock_event)
+    assert any("Current budget tier" in m[1] for m in tui.state.messages)
+
+    # /budget invalid
+    await tui._handle_slash_command("/budget invalid_tier", "12:00:01", mock_event)
+    assert any("Invalid budget tier" in m[1] for m in tui.state.messages)
+
+    # /model without args
+    await tui._handle_slash_command("/model", "12:00:02", mock_event)
+    assert any("Current model" in m[1] for m in tui.state.messages)
+
+    # /model auto
+    await tui._handle_slash_command("/model auto", "12:00:03", mock_event)
+    assert tui.state.active_model == "auto"
+    assert mock_session.forced_model is None
+
+    # /goal without description
+    await tui._handle_slash_command("/goal", "12:00:04", mock_event)
+    assert any("Usage: /goal" in m[1] for m in tui.state.messages)
+
+    # Unknown command
+    await tui._handle_slash_command("/unknowncmd", "12:00:05", mock_event)
+    assert any("Unknown slash command" in m[1] for m in tui.state.messages)
+
+    # /diff command
+    await tui._handle_slash_command("/diff", "12:00:06", mock_event)
+    assert tui.state.is_diff_modal_open is True
+
+
+@pytest.mark.asyncio
+async def test_run_tui_entrypoint(monkeypatch) -> None:
+    import argparse
+
+    from agentcli.ui.tui_app import run_tui
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "mock-openrouter-key")
+
+    mock_app_instance = MagicMock()
+    mock_app_instance.run_async = AsyncMock(return_value=None)
+
+    monkeypatch.setattr(
+        "agentcli.ui.tui_app.TUIApplication.create_application",
+        lambda self, **kwargs: mock_app_instance,
+    )
+    monkeypatch.setattr(
+        "agentcli.session.AgentSession.initialize_mcp",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "agentcli.session.AgentSession.aclose",
+        AsyncMock(return_value=None),
+    )
+
+    args = argparse.Namespace(
+        budget="medium",
+        max_cost=1.5,
+        resume=None,
+        model=None,
+    )
+    config = Config()
+
+    exit_code = await run_tui(args, config)
+    assert exit_code == 0
+    assert config.routing.budget_tier == "medium"
+    assert config.routing.max_cost_usd == 1.5
