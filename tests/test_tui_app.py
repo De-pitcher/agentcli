@@ -143,7 +143,7 @@ def test_tui_keybindings_and_focus_cycling() -> None:
     diff_handler(mock_event)
     assert tui.state.is_diff_modal_open is False
 
-    # Test Ctrl+H history toggle
+    # Test Ctrl+Y / F2 history toggle
     hist_handler = handlers["_toggle_history"]
     hist_handler(mock_event)
     assert tui.state.is_history_modal_open is True
@@ -153,6 +153,9 @@ def test_tui_keybindings_and_focus_cycling() -> None:
     esc_handler(mock_event)
     assert tui.state.is_history_modal_open is False
 
+    # Test merged keybindings has default editing bindings loaded
+    assert len(tui.merged_kb.bindings) > len(tui.kb.bindings)
+
 
 @pytest.mark.asyncio
 async def test_tui_process_user_query_success() -> None:
@@ -161,6 +164,9 @@ async def test_tui_process_user_query_success() -> None:
     mock_session.step = AsyncMock(return_value="Calculated 42")
 
     tui = TUIApplication(config=config, session=mock_session)
+    mock_app = MagicMock()
+    tui._app = mock_app
+
     await tui._process_user_query("What is the meaning of life?")
 
     mock_session.step.assert_awaited_once_with("What is the meaning of life?")
@@ -169,6 +175,7 @@ async def test_tui_process_user_query_success() -> None:
     assert messages[0][0] == "assistant"
     assert messages[0][1] == "Calculated 42"
     assert "Ready" in tui.state.status_line
+    assert mock_app.invalidate.call_count >= 1
 
 
 @pytest.mark.asyncio
@@ -194,3 +201,33 @@ def test_cli_tui_subparser() -> None:
     assert args.budget == "high"
     assert args.max_cost == 3.5
     assert args.allow_write is True
+
+
+def test_tui_backspace_not_intercepted_by_history() -> None:
+    config = Config()
+    tui = TUIApplication(config=config)
+    # Ensure 'c-h' (ASCII 0x08 / Backspace) is NOT bound to any custom handler
+    bound_keys = [b.keys for b in tui.kb.bindings]
+    for key_tuple in bound_keys:
+        assert ("c-h",) not in bound_keys, "c-h must not be bound as it intercepts Backspace in terminal mode"
+
+
+@pytest.mark.asyncio
+async def test_tui_spinner_animation_frames() -> None:
+    import asyncio
+
+    config = Config()
+    mock_session = MagicMock()
+
+    async def slow_step(text: str) -> str:
+        await asyncio.sleep(0.18)
+        return "Slow result"
+
+    mock_session.step = AsyncMock(side_effect=slow_step)
+    tui = TUIApplication(config=config, session=mock_session)
+    mock_app = MagicMock()
+    tui._app = mock_app
+
+    await tui._process_user_query("Calculate slow operation")
+    assert mock_app.invalidate.call_count >= 2
+    assert "Ready" in tui.state.status_line
