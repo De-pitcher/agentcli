@@ -562,26 +562,73 @@ Example output:
             return self._generate_plan(query, context, available_agents)
 
     def _extract_file_paths(self, text: str) -> list[str]:
-        """Extract file paths from text using simple heuristics."""
+        """Extract file and directory paths from text using robust heuristics."""
+        stopwords: set[str] = {
+            "the",
+            "a",
+            "an",
+            "this",
+            "that",
+            "folder",
+            "folders",
+            "directory",
+            "directories",
+            "content",
+            "contents",
+            "file",
+            "files",
+            "all",
+            "current",
+            "particular",
+            "given",
+            "specified",
+            "some",
+            "any",
+            "my",
+            "your",
+            "our",
+            "code",
+            "module",
+            "package",
+            "root",
+            "tree",
+            "it",
+            "them",
+        }
+
         patterns = [
-            r"@([\w./\\\-]+\.\w+)",  # @file.py (supports Windows backslash)
-            r"`([^`]+\.\w+)`",  # `file.py`
-            r"\"([^\"]+\.\w+)\"",  # "file.py"
-            r"'([^']+\.\w+)'",  # 'file.py'
-            r"\b([\w/\\.-]+\.(?:py|js|ts|tsx|java|go|rs|c|cpp|h|rb|php|sh|toml|yaml|yml|json|md|txt))\b",
+            # 1. Windows drive paths (e.g., C:\Users\sam\Documents or C:/projects/foo)
+            r"\b([A-Za-z]:[/\\][^\"'`\n\r\t<>|?*]+)",
+            # 2. @-referenced paths
+            r"@([\w./\\\-]+)",
+            # 3. Quoted path strings
+            r"[\"`']([A-Za-z]:[/\\][^\"`'\n]+|[/\\][^\"`'\n]+|[\w./\\\-]+)[\"`']",
+            # 4. Posix absolute paths
+            r"(?:^|\s)(/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*)",
+            # 5. Prepositions & directory prefixes: in folder <path>, from directory <path>, folder <path>
+            r"\b(?:(?:in|of|from|under|into|at|inside|within)\s+(?:(?:the|a|an)\s+)?(?:directory\s+|folder\s+|dir\s+|path\s+to\s+|path\s+)?|(?:the|a|an)?\s*(?:directory|folder|dir|path)\s+)[\"`']?([A-Za-z]:[/\\][^\s\"`'\n]+|[/\\][^\s\"`'\n]+|\.?\.?[/\\][^\s\"`'\n]+|[\w./\\\-]+)[\"`']?",
+            # 6. Relative paths containing slashes (e.g., examples/string_tools, src/agentcli)
+            r"\b([\w.-]+[/\\][\w./\\-]+)\b",
+            # 7. Standard filenames with extensions
+            r"\b([\w./\\-]+\.(?:py|js|ts|tsx|java|go|rs|c|cpp|h|rb|php|sh|toml|yaml|yml|json|md|txt|[a-zA-Z0-9_]+))\b",
         ]
 
-        files: list[str] = []
+        candidates: list[str] = []
         for pattern in patterns:
-            matches = re.findall(pattern, text)
-            files.extend(matches)
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                val = match.group(1).strip().rstrip(".,;:!?\"'`")
+                if val and val.lower() not in stopwords and len(val) > 1:
+                    candidates.append(val)
 
-        # Deduplicate while preserving order
-        seen: set[str] = set()
+        # Deduplicate while preserving order and filtering out subpaths
         unique_files: list[str] = []
-        for f in files:
-            if f not in seen:
-                seen.add(f)
+        seen: set[str] = set()
+        # Sort candidate paths by length descending so longer absolute paths take precedence
+        sorted_candidates = sorted(candidates, key=len, reverse=True)
+        for f in sorted_candidates:
+            norm = f.rstrip("/\\").lower()
+            if norm and norm not in seen and not any(norm in existing.lower() for existing in seen):
+                seen.add(norm)
                 unique_files.append(f)
 
         return unique_files

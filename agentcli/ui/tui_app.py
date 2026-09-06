@@ -72,6 +72,12 @@ class TUIApplication:
             budget_limit_usd=getattr(config.routing, "max_cost_usd", 0.0) or 0.0,
         )
 
+        # Pre-populate existing session message history into chat state
+        if self.session and self.session.history:
+            for m in self.session.history:
+                if m.role in ("user", "assistant"):
+                    self.state.messages.append((m.role, m.content or "", "history"))
+
         self.input_buffer = Buffer(
             completer=SlashAndFileCompleter(),
             multiline=False,
@@ -109,9 +115,9 @@ class TUIApplication:
         @self.kb.add("f2")
         def _toggle_history(event: KeyPressEvent) -> None:
             self.state.is_history_modal_open = not self.state.is_history_modal_open
-            if self.state.is_history_modal_open and not self.state.history_items:
+            if self.state.is_history_modal_open:
                 self.state.history_items = [
-                    f"[{m[2]}] {m[0].upper()}: {m[1][:60]}..." for m in self.state.messages
+                    f"[{m[2] or 'history'}] {m[0].upper()}: {m[1][:60]}..." for m in self.state.messages
                 ] or ["No session history recorded yet."]
 
         @self.kb.add("escape")
@@ -367,7 +373,14 @@ async def run_tui(args: argparse.Namespace, config: Config) -> int:
     if getattr(args, "max_cost", None) is not None:
         config.routing.max_cost_usd = args.max_cost
 
-    session = AgentSession(config=config)
+    resume_id = getattr(args, "resume", None)
+    forced_model = getattr(args, "model", None)
+
+    session = AgentSession(
+        config=config,
+        forced_model=forced_model,
+        session_id=resume_id,
+    )
     await session.initialize_mcp()
 
     tui = TUIApplication(config=config, session=session)

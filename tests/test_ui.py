@@ -261,3 +261,27 @@ def test_interactive_prompt_custom_and_default_fallback():
     assert not prompt.is_interactive
     # Fallback string
     assert prompt._session is None
+
+
+def test_tui_prepopulates_messages_from_session_history(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-dummy")
+    from agentcli.config import Config
+    from agentcli.openrouter_client import ChatMessage
+    from agentcli.session import AgentSession
+    from agentcli.ui.tui_app import TUIApplication
+
+    config = Config()
+    session = AgentSession(
+        config=config,
+        initial_history=[
+            ChatMessage(role="user", content="Hello from user"),
+            ChatMessage(role="assistant", content="Hello from assistant"),
+        ],
+    )
+
+    tui = TUIApplication(config=config, session=session)
+    assert len(tui.state.messages) == 2
+    assert tui.state.messages[0][0] == "user"
+    assert tui.state.messages[0][1] == "Hello from user"
+    assert tui.state.messages[1][0] == "assistant"
+    assert tui.state.messages[1][1] == "Hello from assistant"

@@ -841,4 +841,89 @@ async def test_run_chat_slash_commands(monkeypatch, capsys):
     assert "Goal accomplished" in out
 
 
+@pytest.mark.asyncio
+async def test_run_chat_resume_displays_loaded_messages(monkeypatch, capsys, tmp_path):
+    from agentcli.memory.store import MemoryStore
+
+    db_path = tmp_path / "test_resume_chat.db"
+    store = MemoryStore(db_path=db_path)
+    s_id = store.create_session(title="Test Prior Chat Session").id
+    store.append_message(s_id, "user", "What is the capital of France?")
+    store.append_message(s_id, "assistant", "The capital of France is Paris.")
+    store.close()
+
+    config = Config()
+    config.memory.enabled = True
+    config.memory.db_path = db_path
+
+    class MockPrompt:
+        def __init__(self, *args, **kwargs):
+            self.lines = ["/exit"]
+
+        async def get_input_async(self, prompt="you> "):
+            if self.lines:
+                return self.lines.pop(0)
+            return "/exit"
+
+    monkeypatch.setattr("agentcli.cli.InteractivePrompt", MockPrompt)
+
+    args = argparse.Namespace(
+        model=None,
+        file=[],
+        no_agents_md=True,
+        show_model=False,
+        resume=s_id,
+        allow_write=False,
+        plain=True,
+        no_color=True,
+        budget=None,
+        max_cost=None,
+    )
+
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-dummy"}):
+        exit_code = await run_chat(args, config)
+        assert exit_code == ExitCode.SUCCESS
+
+    out, _ = capsys.readouterr()
+    assert "Restored 2 conversation message(s)" in out
+    assert "What is the capital of France?" in out
+    assert "The capital of France is Paris." in out
+
+
+@pytest.mark.asyncio
+async def test_run_chat_slash_history_displays_messages(monkeypatch, capsys):
+    config = Config()
+
+    class MockPrompt:
+        def __init__(self, *args, **kwargs):
+            self.lines = ["/history", "/exit"]
+
+        async def get_input_async(self, prompt="you> "):
+            if self.lines:
+                return self.lines.pop(0)
+            return "/exit"
+
+    monkeypatch.setattr("agentcli.cli.InteractivePrompt", MockPrompt)
+
+    args = argparse.Namespace(
+        model=None,
+        file=[],
+        no_agents_md=True,
+        show_model=False,
+        resume=None,
+        allow_write=False,
+        plain=True,
+        no_color=True,
+        budget=None,
+        max_cost=None,
+    )
+
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-dummy"}):
+        exit_code = await run_chat(args, config)
+        assert exit_code == ExitCode.SUCCESS
+
+    out, _ = capsys.readouterr()
+    assert "No conversation history in current session" in out
+
+
 
