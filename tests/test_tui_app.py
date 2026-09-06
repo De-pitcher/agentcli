@@ -372,7 +372,7 @@ async def test_tui_goal_query_execution() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tui_submit_input_branches() -> None:
+async def test_tui_submit_input_branches(monkeypatch: pytest.MonkeyPatch) -> None:
     config = Config()
     mock_session = MagicMock()
     mock_session.step = AsyncMock(return_value="Done")
@@ -444,18 +444,20 @@ async def test_tui_submit_input_branches() -> None:
     down_handler = handlers["_down_completion"]
     up_handler = handlers["_up_completion"]
 
+    mock_next = MagicMock()
+    mock_prev = MagicMock()
+    monkeypatch.setattr(tui.input_buffer, "complete_next", mock_next)
+    monkeypatch.setattr(tui.input_buffer, "complete_previous", mock_prev)
     tui.input_buffer.complete_state = MagicMock()
-    tui.input_buffer.complete_next = MagicMock()
-    tui.input_buffer.complete_previous = MagicMock()
 
     next_handler(mock_event)
-    tui.input_buffer.complete_next.assert_called_once()
+    mock_next.assert_called_once()
     prev_handler(mock_event)
-    tui.input_buffer.complete_previous.assert_called_once()
+    mock_prev.assert_called_once()
     down_handler(mock_event)
-    assert tui.input_buffer.complete_next.call_count == 2
+    assert mock_next.call_count == 2
     up_handler(mock_event)
-    assert tui.input_buffer.complete_previous.call_count == 2
+    assert mock_prev.call_count == 2
     tui.input_buffer.complete_state = None
 
 
