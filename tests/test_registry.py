@@ -1,3 +1,5 @@
+import pytest
+
 from agentcli.config import RoutingConfig, RoutingModelEntry
 from agentcli.routing.registry import CHAT, CODE, ModelRegistry
 
@@ -102,3 +104,67 @@ def test_independent_model_cooldowns():
     assert registry.is_cooling(GEMMA)
     assert not registry.is_cooling(MINIMAX)
     assert not registry.is_cooling(COHERE)
+
+
+def test_model_record_is_free_and_format_models_text() -> None:
+    from agentcli.routing.registry import ModelRecord, format_models_text
+
+    rec_free = ModelRecord(id="google/gemma-2-9b-it:free", context_window=8192, tier="low")
+    rec_paid = ModelRecord(id="anthropic/claude-3.5-sonnet", context_window=200000, tier="high")
+
+    assert rec_free.is_free is True
+    assert rec_paid.is_free is False
+
+    models = [rec_free, rec_paid]
+
+    # All models text
+    text_all = format_models_text(models, active_model="google/gemma-2-9b-it:free")
+    assert "[FREE]" in text_all
+    assert "[PAID]" in text_all
+    assert "● ACTIVE" in text_all
+    assert "google/gemma-2-9b-it:free" in text_all
+    assert "anthropic/claude-3.5-sonnet" in text_all
+
+    # Filter free
+    text_free = format_models_text(models, filter_type="free")
+    assert "google/gemma-2-9b-it:free" in text_free
+    assert "anthropic/claude-3.5-sonnet" not in text_free
+
+    # Filter paid
+    text_paid = format_models_text(models, filter_type="paid")
+    assert "google/gemma-2-9b-it:free" not in text_paid
+    assert "anthropic/claude-3.5-sonnet" in text_paid
+
+
+@pytest.mark.asyncio
+async def test_registry_refresh_from_openrouter() -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_client = MagicMock()
+    mock_client.get_models = AsyncMock(
+        return_value=[
+            {
+                "id": "meta-llama/llama-3.3-70b-instruct:free",
+                "name": "Llama 3.3 70B (free)",
+                "context_length": 131072,
+                "pricing": {"prompt": "0", "completion": "0"},
+            },
+            {
+                "id": "openai/gpt-4o",
+                "name": "GPT-4o",
+                "context_length": 128000,
+                "pricing": {"prompt": "0.0000025", "completion": "0.00001"},
+            },
+        ]
+    )
+
+    registry = ModelRegistry(RoutingConfig())
+    models = await registry.refresh_from_openrouter(mock_client)
+    assert len(models) >= 2
+    rec_llama = registry.get("meta-llama/llama-3.3-70b-instruct:free")
+    assert rec_llama is not None
+    assert rec_llama.is_free is True
+    rec_gpt = registry.get("openai/gpt-4o")
+    assert rec_gpt is not None
+    assert rec_gpt.is_free is False
+

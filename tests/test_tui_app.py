@@ -421,7 +421,7 @@ async def test_tui_submit_input_branches(monkeypatch: pytest.MonkeyPatch) -> Non
     submit_handler(mock_event)
     await asyncio.sleep(0.01)
     # Applied completion and executed /model
-    assert any("Current model" in m[1] for m in tui.state.messages)
+    assert any("Available Models Catalog" in m[1] or "Current model" in m[1] for m in tui.state.messages)
     tui.input_buffer.complete_state = None
 
     # 4. Busy processing warning
@@ -483,7 +483,7 @@ async def test_tui_more_slash_commands() -> None:
 
     # /model without args
     await tui._handle_slash_command("/model", "12:00:02", mock_event)
-    assert any("Current model" in m[1] for m in tui.state.messages)
+    assert any("Available Models Catalog" in m[1] or "Current model" in m[1] for m in tui.state.messages)
 
     # /model auto
     await tui._handle_slash_command("/model auto", "12:00:03", mock_event)
