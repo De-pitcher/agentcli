@@ -49,6 +49,8 @@ def resolve_slash_command(text: str) -> str:
         "/diffs": "/diff",
         "/cls": "/clear",
         "/h": "/help",
+        "/rollback": "/undo",
+        "/revert": "/undo",
     }
 
     if raw_cmd in aliases:
@@ -62,6 +64,7 @@ def resolve_slash_command(text: str) -> str:
         "/models",
         "/goal",
         "/diff",
+        "/undo",
         "/tokens",
         "/cost",
         "/clear",
@@ -80,7 +83,7 @@ def resolve_slash_command(text: str) -> str:
 
 
 class SlashAndFileCompleter(Completer):
-    """Completer for slash commands (/models, /model, /budget, /history, /exit, etc.), model arguments, and @file references."""
+    """Completer for slash commands (/models, /model, /undo, /budget, /history, /exit, etc.), model arguments, and @file references."""
 
     SLASH_COMMANDS: ClassVar[list[tuple[str, str]]] = [
         ("/help", "Show help, slash commands, and shortcuts"),
@@ -90,6 +93,7 @@ class SlashAndFileCompleter(Completer):
         ("/budget", "View or set budget tier (low, medium, high)"),
         ("/goal", "Run an autonomous multi-step goal loop"),
         ("/diff", "Inspect file diffs generated during session"),
+        ("/undo", "Revert latest file changes or inspect turn rollback (/undo diff)"),
         ("/tokens", "Show current session token usage breakdown"),
         ("/cost", "Show current session estimated cost"),
         ("/clear", "Clear terminal screen"),

@@ -27,7 +27,9 @@ from ..subagents.base import SubAgent, SubAgentResult, SubAgentTask, SubAgentTyp
 from ..subagents.code_analyzer import CodeAnalyzerAgent
 from ..subagents.consensus import ConsensusAgent
 from ..subagents.file_ops import FileOpsAgent
+from ..subagents.grep_search import GrepSearchAgent
 from ..subagents.shell import ShellExecutionAgent
+from ..subagents.web_fetch import WebFetchAgent
 from ..subagents.web_search import WebSearchAgent
 from ..subagents.workspace import WorkspaceAgent
 
@@ -209,6 +211,10 @@ class ToolRegistry:
             code_analyzer._set_config(self._config)
         self.register(SubAgentType.CODE_ANALYZER.value, lambda: code_analyzer)
         self.register(SubAgentType.WEB_SEARCH.value, lambda: WebSearchAgent(config=web_cfg))
+        web_fetch_cfg = self._tool_configs.get(SubAgentType.WEB_FETCH.value)
+        self.register(SubAgentType.WEB_FETCH.value, lambda: WebFetchAgent(config=web_fetch_cfg))
+        grep_cfg = self._tool_configs.get(SubAgentType.GREP_SEARCH.value)
+        self.register(SubAgentType.GREP_SEARCH.value, lambda: GrepSearchAgent(config=grep_cfg))
         ws_cfg = self._tool_configs.get(SubAgentType.WORKSPACE.value)
         self.register(SubAgentType.WORKSPACE.value, lambda: WorkspaceAgent(config=ws_cfg))
         consensus_cfg = self._tool_configs.get(SubAgentType.CONSENSUS.value)

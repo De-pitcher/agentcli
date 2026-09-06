@@ -380,6 +380,37 @@ class TUIApplication:
             await self._load_diff_async()
             return
 
+        if cmd in {"/undo", "/rollback", "/revert"}:
+            if self.session and hasattr(self.session, "checkpoint_manager"):
+                parts = text.split(maxsplit=1)
+                sub = parts[1].strip().lower() if len(parts) > 1 else ""
+                if sub == "diff":
+                    diff_res = self.session.checkpoint_manager.get_diff()
+                    self.state.diff_content = diff_res
+                    self.state.is_diff_modal_open = True
+                elif sub in ("list", "history"):
+                    cps = self.session.checkpoint_manager.list_checkpoints()
+                    if not cps:
+                        self.add_message("system", "No checkpoints recorded in this session.", timestamp)
+                    else:
+                        lines = ["Available Checkpoints:"]
+                        for cp in cps:
+                            lines.append(f"  [{cp['id']}] {cp['description']} ({cp['file_count']} files)")
+                        self.add_message("system", "\n".join(lines), timestamp)
+                else:
+                    res = self.session.checkpoint_manager.rollback()
+                    if res["success"]:
+                        reverted = res.get("reverted_files", [])
+                        msg = f"Rollback successful (Checkpoint {res.get('checkpoint_id')}). Reverted {len(reverted)} file(s)."
+                        if reverted:
+                            msg += "\n" + "\n".join(f"  - {f}" for f in reverted)
+                        self.add_message("system", msg, timestamp)
+                    else:
+                        self.add_message("system", f"Rollback failed: {res.get('error')}", timestamp)
+            else:
+                self.add_message("system", "No active session checkpoint manager available.", timestamp)
+            return
+
         if cmd == "/goal":
             parts = text.split(maxsplit=1)
             if len(parts) < 2 or not parts[1].strip():

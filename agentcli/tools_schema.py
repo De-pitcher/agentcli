@@ -184,6 +184,82 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             },
         },
     },
+    SubAgentType.WEB_FETCH.value: {
+        "type": "function",
+        "function": {
+            "name": "web_fetch",
+            "description": "Fetch and read web pages, online documentation, GitHub PRs/issues, or API specifications and convert to clean Markdown.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The HTTP or HTTPS URL to fetch",
+                    },
+                    "content_offset": {
+                        "type": "integer",
+                        "description": "Byte offset into the document content (default: 0)",
+                    },
+                    "max_bytes": {
+                        "type": "integer",
+                        "description": "Maximum bytes to return (default: 50000)",
+                    },
+                    "raw": {
+                        "type": "boolean",
+                        "description": "If true, returns raw response body without HTML-to-markdown conversion",
+                    },
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    SubAgentType.GREP_SEARCH.value: {
+        "type": "function",
+        "function": {
+            "name": "grep_search",
+            "description": "High-speed regex and text search across files in the workspace with line numbers and snippets. Accelerated by ripgrep if available.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search term or regex pattern",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory or file path to search within (default: current workspace)",
+                    },
+                    "is_regex": {
+                        "type": "boolean",
+                        "description": "If true, treats query as a regular expression pattern",
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "description": "If true, performs case-sensitive matching",
+                    },
+                    "includes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Glob patterns of files to include (e.g. ['*.py', '*.toml'])",
+                    },
+                    "excludes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Glob patterns of files to exclude",
+                    },
+                    "match_per_line": {
+                        "type": "boolean",
+                        "description": "If true, returns line numbers and line content for each match; if false, returns matching filenames",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of matches to return (default: 50)",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
     SubAgentType.CONSENSUS.value: {
         "type": "function",
         "function": {

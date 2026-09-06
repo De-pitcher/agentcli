@@ -502,6 +502,21 @@ async def test_tui_more_slash_commands() -> None:
     await tui._handle_slash_command("/diff", "12:00:06", mock_event)
     assert tui.state.is_diff_modal_open is True
 
+    # /undo commands
+    mock_session.checkpoint_manager = MagicMock()
+    mock_session.checkpoint_manager.get_diff.return_value = "--- a/test.py\n+++ b/test.py"
+    mock_session.checkpoint_manager.list_checkpoints.return_value = [{"id": "cp1", "description": "test", "file_count": 1}]
+    mock_session.checkpoint_manager.rollback.return_value = {"success": True, "checkpoint_id": "cp1", "reverted_files": ["test.py"]}
+
+    await tui._handle_slash_command("/undo diff", "12:00:07", mock_event)
+    assert tui.state.is_diff_modal_open is True
+
+    await tui._handle_slash_command("/undo list", "12:00:08", mock_event)
+    assert any("Available Checkpoints" in m[1] for m in tui.state.messages)
+
+    await tui._handle_slash_command("/undo", "12:00:09", mock_event)
+    assert any("Rollback successful" in m[1] for m in tui.state.messages)
+
 
 @pytest.mark.asyncio
 async def test_run_tui_entrypoint(monkeypatch) -> None:
