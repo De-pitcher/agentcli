@@ -36,11 +36,12 @@ class FileOpsAgent(SubAgent):
             self.config.get("read_only", not self.config.get("allow_write", False))
         )
 
-    def _resolve_path(self, path: str) -> Path:
+    def _resolve_path(self, path: str, operation: str = "") -> Path:
         """Resolve and validate a file path.
 
         Args:
             path: The path to resolve (can be relative or absolute).
+            operation: Optional operation being performed (e.g. "read", "list", "write").
 
         Returns:
             Resolved Path object.
@@ -48,14 +49,19 @@ class FileOpsAgent(SubAgent):
         Raises:
             ValueError: If path is outside working directory and not allowed.
         """
-        path_obj = Path(path)
-        if not path_obj.is_absolute():
-            path_obj = (self.working_dir / path_obj).resolve()
+        raw_path = Path(path)
+        is_explicit_abs = raw_path.is_absolute()
+        if not is_explicit_abs:
+            path_obj = (self.working_dir / raw_path).resolve()
         else:
-            path_obj = path_obj.resolve()
+            path_obj = raw_path.resolve()
 
         # Check if path is within working directory
         if not self.allow_outside:
+            # Allow read-only operations on explicit absolute paths
+            if is_explicit_abs and operation in ("read", "list", "stat", "exists"):
+                return path_obj
+
             try:
                 path_obj.relative_to(self.working_dir)
             except ValueError:
@@ -103,7 +109,7 @@ class FileOpsAgent(SubAgent):
             )
 
         try:
-            resolved_path = self._resolve_path(path)
+            resolved_path = self._resolve_path(path, operation=operation)
 
             if self.read_only and operation in ("write", "delete", "mkdir", "create", "append"):
                 return SubAgentResult(

@@ -386,3 +386,73 @@ async def test_consensus_agent_tool_registry() -> None:
     assert result.output["decision"] == "refactor"
     assert result.output["consensus_reached"] is True
     assert result.output["agreement_ratio"] == pytest.approx(2 / 3)
+
+
+@pytest.mark.asyncio
+async def test_file_ops_absolute_directory_list_and_read(tmp_path) -> None:
+    from agentcli.subagents.file_ops import FileOpsAgent
+
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+    external_dir = tmp_path / "external"
+    external_dir.mkdir()
+    (external_dir / "item1.txt").write_text("hello", encoding="utf-8")
+    (external_dir / "subdir").mkdir()
+
+    agent = FileOpsAgent(config={"working_dir": str(workspace_dir), "allow_write": False})
+
+    # Listing external directory via absolute path is permitted for read-only inspections
+    res = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.FILE_OPS,
+            payload={"operation": "list", "path": str(external_dir)},
+        )
+    )
+    assert res.success is True
+    names = {it["name"] for it in res.output["items"]}
+    assert "item1.txt" in names
+    assert "subdir" in names
+
+    # Reading external file via absolute path
+    res_read = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.FILE_OPS,
+            payload={"operation": "read", "path": str(external_dir / "item1.txt")},
+        )
+    )
+    assert res_read.success is True
+    assert res_read.output["content"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_planner_extracts_directory_and_windows_paths() -> None:
+    from agentcli.subagents.planner import PlannerAgent
+
+    planner = PlannerAgent()
+
+    # Windows drive folder path
+    res_win = await planner.run(
+        SubAgentTask(
+            agent_type=SubAgentType.PLANNER,
+            payload={"query": r"list the content of C:\Users\sam\Documents"},
+        )
+    )
+    assert res_win.success is True
+    plan_win = res_win.output["plan"]
+    assert len(plan_win) == 1
+    assert plan_win[0]["agent_type"] == "file_ops"
+    assert plan_win[0]["payload"]["operation"] == "list"
+    assert plan_win[0]["payload"]["path"] == r"C:\Users\sam\Documents"
+
+    # Prepositional folder path
+    res_prep = await planner.run(
+        SubAgentTask(
+            agent_type=SubAgentType.PLANNER,
+            payload={"query": "list files in folder my_custom_dir"},
+        )
+    )
+    assert res_prep.success is True
+    plan_prep = res_prep.output["plan"]
+    assert len(plan_prep) == 1
+    assert plan_prep[0]["payload"]["path"] == "my_custom_dir"
+
