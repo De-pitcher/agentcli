@@ -79,6 +79,17 @@ class OpenRouterClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    async def get_models(self) -> list[dict[str, Any]]:
+        """Fetch available models and metadata from OpenRouter API."""
+        try:
+            resp = await self._client.get("/models")
+            if resp.status_code == 200:
+                data: list[dict[str, Any]] = resp.json().get("data", [])
+                return data
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to fetch remote models from OpenRouter: %s", exc)
+        return []
+
     async def __aenter__(self) -> Self:
         return self
 

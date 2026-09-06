@@ -59,6 +59,7 @@ def resolve_slash_command(text: str) -> str:
         "/history",
         "/budget",
         "/model",
+        "/models",
         "/goal",
         "/diff",
         "/tokens",
@@ -79,13 +80,14 @@ def resolve_slash_command(text: str) -> str:
 
 
 class SlashAndFileCompleter(Completer):
-    """Completer for slash commands (/exit, /quit, /help, /budget, /model, /goal, /tokens, /cost, /clear, /reset) and @file references."""
+    """Completer for slash commands (/models, /model, /budget, /history, /exit, etc.), model arguments, and @file references."""
 
     SLASH_COMMANDS: ClassVar[list[tuple[str, str]]] = [
         ("/help", "Show help, slash commands, and shortcuts"),
+        ("/models", "List available models with [FREE] / [PAID] indicators"),
+        ("/model", "Switch active model (e.g. /model <id> or /model auto)"),
         ("/history", "View conversation history in current session"),
         ("/budget", "View or set budget tier (low, medium, high)"),
-        ("/model", "View or switch active model (or 'auto')"),
         ("/goal", "Run an autonomous multi-step goal loop"),
         ("/diff", "Inspect file diffs generated during session"),
         ("/tokens", "Show current session token usage breakdown"),
@@ -109,6 +111,47 @@ class SlashAndFileCompleter(Completer):
 
     def get_completions(self, document: Document, complete_event: CompleteEvent) -> Any:
         text = document.text_before_cursor
+
+        # Complete model arguments after /model
+        if text.startswith(("/model ", "\\model ")):
+            from ..routing.registry import _BUILTIN_MODELS
+
+            arg = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else ""
+            arg_lower = arg.lower()
+
+            special_options = [
+                ("auto", "[AUTO] Task-based model routing"),
+                ("free", "[FILTER] List all free models"),
+                ("paid", "[FILTER] List all paid models"),
+            ]
+            for opt, desc in special_options:
+                if opt.startswith(arg_lower):
+                    yield Completion(opt, start_position=-len(arg), display_meta=desc)
+
+            for m in _BUILTIN_MODELS:
+                if m.id.lower().startswith(arg_lower):
+                    tag = "[FREE]" if m.is_free else "[PAID]"
+                    ctx = f"{m.context_window // 1000}k" if m.context_window >= 1000 else str(m.context_window)
+                    yield Completion(
+                        m.id,
+                        start_position=-len(arg),
+                        display_meta=f"{tag} ({ctx} ctx)",
+                    )
+            return
+
+        # Complete budget arguments after /budget
+        if text.startswith(("/budget ", "\\budget ")):
+            arg = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else ""
+            arg_lower = arg.lower()
+            tier_options = [
+                ("low", "[TIER] Free models only"),
+                ("medium", "[TIER] High-efficiency & free models"),
+                ("high", "[TIER] Frontier reasoning & coding models"),
+            ]
+            for opt, desc in tier_options:
+                if opt.startswith(arg_lower):
+                    yield Completion(opt, start_position=-len(arg), display_meta=desc)
+            return
 
         # Complete slash commands at the start of input (support both / and \)
         if text.startswith(("/", "\\")):

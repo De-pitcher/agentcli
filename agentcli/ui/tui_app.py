@@ -246,13 +246,14 @@ class TUIApplication:
             help_text = (
                 "Available Slash Commands:\n"
                 "  /help                 Show this help message\n"
+                "  /models [free|paid]   List available models with [FREE] / [PAID] indicators\n"
+                "  /model <model|auto>   View or switch active model\n"
                 "  /history, /messages   Browse full conversation history modal\n"
                 "  /budget [tier]        View or set budget tier (low, medium, high)\n"
-                "  /model [model|auto]   View or switch active model\n"
                 "  /goal <description>   Run an autonomous multi-step goal loop\n"
                 "  /diff, /diffs         View workspace file diffs modal\n"
                 "  /tokens, /cost        View session token usage and spending\n"
-                "  /clear                Clear chat messages and sub-agent logs\n"
+                "  /clear, /cls          Clear chat messages and sub-agent logs\n"
                 "  /reset                Clear conversation and auto-ground workspace\n"
                 "  /exit, /quit          Exit the TUI dashboard"
             )
@@ -289,15 +290,32 @@ class TUIApplication:
                     )
             return
 
-        if cmd == "/model":
+        if cmd in {"/models", "/model"}:
             parts = text.split(maxsplit=1)
-            if len(parts) == 1:
+            if len(parts) == 1 or parts[1].strip().lower() in {"list", "free", "paid"}:
+                filter_type = (
+                    parts[1].strip().lower()
+                    if len(parts) > 1 and parts[1].strip().lower() in {"free", "paid"}
+                    else None
+                )
+                from ..routing.registry import _BUILTIN_MODELS, format_models_text
+
                 active = (
                     self.session.forced_model
                     if self.session and self.session.forced_model
                     else self.state.active_model
                 )
-                self.add_message("system", f"Current model: {active}", timestamp)
+                models_list = (
+                    self.session.registry.all_models()
+                    if (self.session and self.session.registry)
+                    else list(_BUILTIN_MODELS)
+                )
+                table_text = format_models_text(
+                    models_list, active_model=active, filter_type=filter_type
+                )
+                self.add_message(
+                    "system", f"🤖 Available Models Catalog:\n\n{table_text}", timestamp
+                )
             else:
                 target_model = parts[1].strip()
                 if target_model.lower() == "auto":
@@ -312,13 +330,15 @@ class TUIApplication:
                                 budget_tier=self.config.routing.budget_tier,
                             )
                     self.state.active_model = "auto"
-                    self.add_message("system", "Switched to auto model routing.", timestamp)
+                    self.add_message("system", "Switched to auto model routing [FREE/PAID auto-selection].", timestamp)
                 else:
                     if self.session:
                         self.session.forced_model = target_model
                         self.session.router = None
                     self.state.active_model = target_model
-                    self.add_message("system", f"Forced model set to: {target_model}", timestamp)
+                    is_free = target_model.endswith(":free")
+                    tag = "[FREE]" if is_free else "[PAID]"
+                    self.add_message("system", f"Forced model set to: {target_model} {tag}", timestamp)
             return
 
         if cmd in {"/tokens", "/cost"}:
@@ -577,13 +597,15 @@ class TUIApplication:
 
     def _render_header(self) -> StyleAndTextTuples:
         model = self.state.active_model
+        is_free = model.endswith(":free") or model == "auto"
+        tag = "[FREE]" if is_free else "[PAID]"
         preset = self.state.active_preset
         cost = f"${self.state.cost_usd:.4f}"
         tokens = f"{self.state.total_tokens():,} tok"
         return [
             (
                 "class:header",
-                f"  agentcli v{__version__} | Model: {model} | Preset: {preset} | Spend: {cost} ({tokens})  ",
+                f"  agentcli v{__version__} | Model: {model} {tag} | Preset: {preset} | Spend: {cost} ({tokens})  ",
             ),
         ]
 

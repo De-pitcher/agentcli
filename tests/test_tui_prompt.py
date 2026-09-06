@@ -168,8 +168,8 @@ def test_slash_and_file_completer_backslash_and_aliases() -> None:
     # Backslash prefix
     doc_mod = Document(r"\mod")
     comp_mod = list(completer.get_completions(doc_mod, None))  # type: ignore[arg-type]
-    assert len(comp_mod) == 1
-    assert comp_mod[0].text == "/model"
+    assert len(comp_mod) == 2
+    assert {c.text for c in comp_mod} == {"/model", "/models"}
 
     # Alias / typo
     doc_exist = Document(r"\exist")
