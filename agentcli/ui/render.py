@@ -168,35 +168,37 @@ class ConsoleRenderer:
                 self.console.print(f"\n[bold red]❌ Loop Error:[/bold red] {event.error}")
 
         else:
-            # Plain-text fallback
+            # Plain-text fallback with Windows Unicode-safe encoding
+            from ..unicode import safe_print
+
             if event_name == "PlanEvent":
                 label = "[re-plan]" if getattr(event, "is_replan", False) else "[plan]"
-                print(f"\n{label} iteration {event.iteration}: {len(event.plan)} step(s) planned")
+                safe_print(f"\n{label} iteration {event.iteration}: {len(event.plan)} step(s) planned")
                 for i, step in enumerate(event.plan):
                     agent = step.get("agent_type", "tool")
                     goal = step.get("goal_criterion") or step.get("payload", {})
-                    print(f"  {i + 1}. [{agent}] {goal}")
+                    safe_print(f"  {i + 1}. [{agent}] {goal}")
             elif event_name == "StepStartEvent":
-                print(f"  [step {event.step_index + 1}] running {event.agent_type}…", flush=True)
+                safe_print(f"  [step {event.step_index + 1}] running {event.agent_type}...", flush=True)
             elif event_name == "StepResultEvent":
                 r = event.result
-                status = "✓" if (r and r.success) else "✗"
+                status = "OK" if (r and r.success) else "FAILED"
                 err = f" ({r.error})" if (r and not r.success and r.error) else ""
                 timing = (
                     f" ({getattr(event, 'duration_seconds', 0.0):.2f}s)"
                     if getattr(event, "duration_seconds", 0.0) > 0.0
                     else ""
                 )
-                print(f"  [step {event.step_index + 1}] {status}{err}{timing}")
+                safe_print(f"  [step {event.step_index + 1}] [{status}]{err}{timing}")
             elif event_name == "ReflectEvent":
-                print(f"  [reflect] {event.decision} — {event.reason}")
+                safe_print(f"  [reflect] {event.decision} - {event.reason}")
             elif event_name == "FinishEvent":
-                print(f"\n[done] {event.summary}")
+                safe_print(f"\n[done] {event.summary}")
                 out = getattr(event, "output", None)
                 if out:
-                    print(f"\n{out}")
+                    safe_print(f"\n{out}")
             elif event_name == "LoopErrorEvent":
-                print(f"\n[loop-error] {event.error}")
+                safe_print(f"\n[loop-error] {event.error}")
 
     def render_sessions_table(
         self,

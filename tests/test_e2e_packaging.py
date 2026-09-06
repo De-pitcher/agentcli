@@ -60,9 +60,11 @@ class TestPackagingMetadata:
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
 
+        import agentcli
+
         project = data.get("project", {})
         assert project.get("name") == "agentcli"
-        assert project.get("version") == "2.0.0"
+        assert project.get("version") == agentcli.__version__
         assert project.get("requires-python") == ">=3.11"
         assert "agentcli" in project.get("scripts", {})
         assert project["scripts"]["agentcli"] == "agentcli.cli:main"
@@ -71,16 +73,18 @@ class TestPackagingMetadata:
         import agentcli
 
         assert hasattr(agentcli, "__version__")
-        assert agentcli.__version__ == "2.0.0"
+        assert len(agentcli.__version__) > 0
 
 
 class TestCLIEntrypoints:
     """Validate console script and python -m agentcli subprocess invocations."""
 
     def test_cli_version(self) -> None:
+        import agentcli
+
         res = _run_cli(["--version"])
         assert res.returncode == 0
-        assert "2.0.0" in res.stdout
+        assert agentcli.__version__ in res.stdout
 
     def test_cli_help(self) -> None:
         res = _run_cli(["--help"])
@@ -96,12 +100,14 @@ class TestCLIEntrypoints:
 
     def test_cli_environment_resilience_term_dumb(self) -> None:
         """Verify CLI behaves cleanly with TERM=dumb and NO_COLOR=1."""
+        import agentcli
+
         res = _run_cli(
             ["--version"],
             env={"TERM": "dumb", "NO_COLOR": "1"},
         )
         assert res.returncode == 0
-        assert "2.0.0" in res.stdout
+        assert agentcli.__version__ in res.stdout
 
 
 class TestConfigE2E:
