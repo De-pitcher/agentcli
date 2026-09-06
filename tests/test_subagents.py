@@ -607,19 +607,25 @@ class TestShellExecution:
         assert str(tmp_path.resolve()) in r_pwd.output["stdout"]
 
         # whoami shim
-        t_whoami = SubAgentTask(agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "whoami"})
+        t_whoami = SubAgentTask(
+            agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "whoami"}
+        )
         r_whoami = await agent.run(t_whoami)
         assert r_whoami.success is True
         assert len(r_whoami.output["stdout"].strip()) > 0
 
         # echo shim
-        t_echo = SubAgentTask(agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "echo Hello AgentCLI"})
+        t_echo = SubAgentTask(
+            agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "echo Hello AgentCLI"}
+        )
         r_echo = await agent.run(t_echo)
         assert r_echo.success is True
         assert "Hello AgentCLI" in r_echo.output["stdout"]
 
         # which shim
-        t_which = SubAgentTask(agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "which python"})
+        t_which = SubAgentTask(
+            agent_type=SubAgentType.SHELL_EXECUTION, payload={"command": "which python"}
+        )
         r_which = await agent.run(t_which)
         assert r_which.success is True
         assert "python" in r_which.output["stdout"].lower()

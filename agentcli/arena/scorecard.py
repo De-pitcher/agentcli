@@ -30,7 +30,9 @@ class ScorecardFormatter:
         lines.append("=" * 80)
         lines.append(f" {title.upper()}")
         lines.append("=" * 80)
-        lines.append(f"{'Task ID':<35} {'Status':<8} {'Latency':<9} {'Turns':<6} {'Tools':<6} {'Cost ($)':<9}")
+        lines.append(
+            f"{'Task ID':<35} {'Status':<8} {'Latency':<9} {'Turns':<6} {'Tools':<6} {'Cost ($)':<9}"
+        )
         lines.append("-" * 80)
 
         total_pass = sum(1 for r in results if r.success)
@@ -108,15 +110,17 @@ class ScorecardFormatter:
             avg_latency = sum(r.latency_seconds for r in results) / count
             total_cost = sum(r.cost_usd for r in results)
             avg_turns = sum(r.turns_count for r in results) / count
-            model_stats.append(_ModelSummary(
-                model=model,
-                pass_rate=pass_rate,
-                total=len(results),
-                passed=passed,
-                avg_latency=avg_latency,
-                total_cost=total_cost,
-                avg_turns=avg_turns,
-            ))
+            model_stats.append(
+                _ModelSummary(
+                    model=model,
+                    pass_rate=pass_rate,
+                    total=len(results),
+                    passed=passed,
+                    avg_latency=avg_latency,
+                    total_cost=total_cost,
+                    avg_turns=avg_turns,
+                )
+            )
 
         # Sort by pass rate descending, then latency ascending
         model_stats.sort(key=lambda s: (-s.pass_rate, s.avg_latency, s.total_cost))
@@ -170,7 +174,15 @@ class ScorecardFormatter:
         for r in results:
             status_str = "PASS" if r.success else "FAIL"
             # Extract category from task_id or default to field
-            cat = "bug_fix" if "bugfix" in r.task_id else ("refactor" if "refactor" in r.task_id else ("mesh" if "mesh" in r.task_id else "tool_use"))
+            cat = (
+                "bug_fix"
+                if "bugfix" in r.task_id
+                else (
+                    "refactor"
+                    if "refactor" in r.task_id
+                    else ("mesh" if "mesh" in r.task_id else "tool_use")
+                )
+            )
             lines.append(
                 f"{r.task_id[:31]:<32} {cat:<16} {status_str:<8} {r.latency_seconds:>7.2f}s ${r.cost_usd:>8.4f}"
             )

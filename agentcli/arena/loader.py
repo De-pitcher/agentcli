@@ -93,12 +93,15 @@ def get_builtin_core_tasks() -> list[BenchmarkTask]:
             ),
             workspace_setup={
                 "data/events.json": (
-                    json.dumps([
-                        {"id": "evt_1", "name": "click", "duration_ms": 120},
-                        {"id": "evt_2", "name": "scroll", "duration_ms": 45},
-                        {"id": "evt_3", "name": "submit", "duration_ms": 300},
-                        {"id": "evt_4", "name": "navigate", "duration_ms": 85},
-                    ], indent=2)
+                    json.dumps(
+                        [
+                            {"id": "evt_1", "name": "click", "duration_ms": 120},
+                            {"id": "evt_2", "name": "scroll", "duration_ms": 45},
+                            {"id": "evt_3", "name": "submit", "duration_ms": 300},
+                            {"id": "evt_4", "name": "navigate", "duration_ms": 85},
+                        ],
+                        indent=2,
+                    )
                 )
             },
             expected_files={"data/summary.json": r"total_count"},
@@ -304,7 +307,7 @@ def get_builtin_field_trials_tasks() -> list[BenchmarkTask]:
             description="Inspect server log file and generate structured JSON error metrics summary.",
             prompt=(
                 "Read `logs/server.log` and calculate total error occurrences and warning occurrences. "
-                "Write the result to `logs/summary.json` containing `{\"error_count\": <int>, \"warning_count\": <int>}`."
+                'Write the result to `logs/summary.json` containing `{"error_count": <int>, "warning_count": <int>}`.'
             ),
             workspace_setup={
                 "logs/server.log": (

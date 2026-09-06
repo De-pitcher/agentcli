@@ -34,7 +34,6 @@ def test_build_parser_plain_and_no_color_flags() -> None:
     assert args_run.goal == "my goal"
 
 
-
 def test_get_history_file_path() -> None:
     """Test history file path is returned as a Path object."""
     path = get_history_file_path()
@@ -121,5 +120,3 @@ async def test_interactive_prompt_async_fallback(monkeypatch, tmp_path: Path) ->
     monkeypatch.setattr("builtins.input", lambda _: "async prompt input")
     val = await prompt.get_input_async("you> ")
     assert val == "async prompt input"
-
-

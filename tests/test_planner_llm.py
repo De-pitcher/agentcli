@@ -257,4 +257,3 @@ async def test_planner_heuristic_directory_inspection() -> None:
     assert plan[0]["payload"]["operation"] == "list"
     assert plan[0]["payload"]["path"] == "."
     assert plan[0]["goal_criterion"] == "items"
-

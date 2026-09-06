@@ -229,7 +229,9 @@ def test_renderer_loop_events_non_verbose_default(capsys, monkeypatch):
     res_ev = StepResultEvent(
         iteration=1,
         step_index=0,
-        result=SubAgentResult(task_id="t1", agent_type=SubAgentType.FILE_OPS, success=True, output="read 50 lines"),
+        result=SubAgentResult(
+            task_id="t1", agent_type=SubAgentType.FILE_OPS, success=True, output="read 50 lines"
+        ),
         duration_seconds=0.45,
     )
     reflect_ev = ReflectEvent(iteration=1, decision="CONTINUE", reason="all goals met")

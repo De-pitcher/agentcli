@@ -144,4 +144,3 @@ class InteractivePrompt:
                 formatted_prompt = [("class:prompt", f"\n{prompt_text}")]
             return self._session.prompt(to_formatted_text(formatted_prompt))
         return self._fallback_input(prompt_text)
-

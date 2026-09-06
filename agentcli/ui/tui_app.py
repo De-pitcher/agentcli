@@ -18,7 +18,14 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent, merge_key_bindings
 from prompt_toolkit.key_binding.defaults import load_key_bindings
-from prompt_toolkit.layout.containers import Float, FloatContainer, HSplit, VSplit, Window
+from prompt_toolkit.layout.containers import (
+    ConditionalContainer,
+    Float,
+    FloatContainer,
+    HSplit,
+    VSplit,
+    Window,
+)
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.styles import Style
@@ -50,7 +57,9 @@ class TUIState:
     active_model: str = "auto"
     active_preset: str = "coding"
     focused_pane: str = "input"
-    status_line: str = "Ready. [Tab] Switch Focus | [Ctrl+O] Diffs | [Ctrl+Y]/[F2] History | [Ctrl+C] Exit"
+    status_line: str = (
+        "Ready. [Tab] Switch Focus | [Ctrl+O] Diffs | [Ctrl+Y]/[F2] History | [Ctrl+C] Exit"
+    )
     is_diff_modal_open: bool = False
     diff_content: str = ""
     is_history_modal_open: bool = False
@@ -103,13 +112,16 @@ class TUIApplication:
                 self.state.focused_pane = panes[(idx + 1) % len(panes)]
             except ValueError:
                 self.state.focused_pane = "input"
-            self.state.status_line = f"Focused Pane: {self.state.focused_pane.upper()} | [Tab] Next Pane | [Ctrl+C] Exit"
+            self.state.status_line = (
+                f"Focused Pane: {self.state.focused_pane.upper()} | [Tab] Next Pane | [Ctrl+C] Exit"
+            )
 
         @self.kb.add("c-o")
         def _toggle_diff(event: KeyPressEvent) -> None:
             self.state.is_diff_modal_open = not self.state.is_diff_modal_open
             if self.state.is_diff_modal_open and not self.state.diff_content:
                 self.state.diff_content = "No modified file diffs available in current session."
+            event.app.invalidate()
 
         @self.kb.add("c-y")
         @self.kb.add("f2")
@@ -117,13 +129,16 @@ class TUIApplication:
             self.state.is_history_modal_open = not self.state.is_history_modal_open
             if self.state.is_history_modal_open:
                 self.state.history_items = [
-                    f"[{m[2] or 'history'}] {m[0].upper()}: {m[1][:60]}..." for m in self.state.messages
+                    f"[{m[2] or 'history'}] {m[0].upper()}: {m[1][:60]}..."
+                    for m in self.state.messages
                 ] or ["No session history recorded yet."]
+            event.app.invalidate()
 
         @self.kb.add("escape")
         def _close_modals(event: KeyPressEvent) -> None:
             self.state.is_diff_modal_open = False
             self.state.is_history_modal_open = False
+            event.app.invalidate()
 
         @self.kb.add("enter", filter=Condition(lambda: self.state.focused_pane == "input"))
         def _submit_input(event: KeyPressEvent) -> None:
@@ -153,7 +168,9 @@ class TUIApplication:
             idx = 0
             while not stop_spinner.is_set():
                 frame = spinner_frames[idx % len(spinner_frames)]
-                self.state.status_line = f"{frame} Thinking via {self.state.active_model}... [Ctrl+C] Abort"
+                self.state.status_line = (
+                    f"{frame} Thinking via {self.state.active_model}... [Ctrl+C] Abort"
+                )
                 if self._app is not None:
                     self._app.invalidate()
                 try:
@@ -164,9 +181,7 @@ class TUIApplication:
 
         spinner_task = asyncio.create_task(_spinner_loop())
         try:
-            self.add_subagent_event("loop", f"Dispatched turn: {text[:40]}...")
-            if self._app is not None:
-                self._app.invalidate()
+            self.add_subagent_event("session", f"Processing: {text[:40]}...")
             reply = await self.session.step(text)
             self.add_message("assistant", reply or "(empty response)", t_now)
             self.state.status_line = (
@@ -218,13 +233,18 @@ class TUIApplication:
         cost = f"${self.state.cost_usd:.4f}"
         tokens = f"{self.state.total_tokens():,} tok"
         return [
-            ("class:header", f"  agentcli v{__version__} | Model: {model} | Preset: {preset} | Spend: {cost} ({tokens})  "),
+            (
+                "class:header",
+                f"  agentcli v{__version__} | Model: {model} | Preset: {preset} | Spend: {cost} ({tokens})  ",
+            ),
         ]
 
     def _render_chat(self) -> StyleAndTextTuples:
         lines: StyleAndTextTuples = []
         if not self.state.messages:
-            lines.append(("class:muted", "  (No messages yet. Type your query below and press Enter)\n"))
+            lines.append(
+                ("class:muted", "  (No messages yet. Type your query below and press Enter)\n")
+            )
             return lines
 
         # Render recent messages
@@ -308,21 +328,25 @@ class TUIApplication:
             wrap_lines=True,
             style="class:modal",
         )
+        modal_container = ConditionalContainer(
+            modal_win,
+            filter=Condition(
+                lambda: bool(self.state.is_diff_modal_open or self.state.is_history_modal_open)
+            ),
+        )
 
         root_container = FloatContainer(
             content=HSplit([header_win, body_pane, input_win, status_win]),
             floats=[
                 Float(
-                    content=modal_win,
+                    content=modal_container,
                     top=2,
                     bottom=2,
                     left=4,
                     right=4,
                     hide_when_covering_content=False,
                 )
-            ]
-            if (self.state.is_diff_modal_open or self.state.is_history_modal_open)
-            else [],
+            ],
         )
 
         return Layout(root_container)

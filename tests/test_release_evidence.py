@@ -70,7 +70,6 @@ class TestReleaseVersionAlignment:
         assert agentcli.__version__ in res.stdout
 
 
-
 class TestReleaseBuildArtifacts:
     """Verify built sdist and wheel artifacts in dist/."""
 

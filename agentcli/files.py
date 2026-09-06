@@ -124,19 +124,31 @@ def expand_file_references(text: str, cache: ContextCache | None = None) -> str:
                         if records:
                             # Synchronous dot-product search with fallback embedding
                             index = VectorIndex(store=store)
-                            q_vec = index.engine._deterministic_fallback_vector(query) if hasattr(index.engine, "_deterministic_fallback_vector") else None
+                            q_vec = (
+                                index.engine._deterministic_fallback_vector(query)
+                                if hasattr(index.engine, "_deterministic_fallback_vector")
+                                else None
+                            )
                             if q_vec:
                                 from .embeddings.index import _dot_product
 
-                                scored = [(chunk, _dot_product(q_vec, vec)) for chunk, vec in records]
+                                scored = [
+                                    (chunk, _dot_product(q_vec, vec)) for chunk, vec in records
+                                ]
                                 if repo_scope:
                                     ws_obj = registry.get(repo_scope)
                                     if ws_obj:
-                                        scored = [s for s in scored if str(ws_obj.resolved_path) in s[0].file_path]
+                                        scored = [
+                                            s
+                                            for s in scored
+                                            if str(ws_obj.resolved_path) in s[0].file_path
+                                        ]
                                 scored.sort(key=lambda s: s[1], reverse=True)
                                 top = scored[:3]
                                 prefix = f"[{repo_scope}] " if repo_scope else ""
-                                snippet_lines = [f"### Semantic Search Context for: '{prefix}{query}'"]
+                                snippet_lines = [
+                                    f"### Semantic Search Context for: '{prefix}{query}'"
+                                ]
                                 for chunk, score in top:
                                     snippet_lines.append(
                                         f"```{chunk.chunk_type}\n# {chunk.file_path}:{chunk.start_line}-{chunk.end_line} (score: {score:.2f})\n{chunk.content}\n```"
@@ -273,4 +285,3 @@ __all__ = [
     "safe_rmtree",
     "safe_unlink",
 ]
-

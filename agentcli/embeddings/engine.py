@@ -97,6 +97,13 @@ class EmbeddingEngine:
         if not self._api_key:
             self._api_key = os.environ.get("OPENROUTER_API_KEY")
 
+    @property
+    def effective_model(self) -> str:
+        """Return the effective model identity, distinguishing offline fallback from remote provider."""
+        if not self._api_key:
+            return "deterministic-lexical-256"
+        return self.model
+
     @staticmethod
     def _deterministic_fallback_vector(text: str, dimensions: int = 256) -> list[float]:
         """Deterministic token hash embedding used when offline or without API key."""

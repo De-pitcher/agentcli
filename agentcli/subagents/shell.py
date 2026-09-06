@@ -103,7 +103,21 @@ class ShellExecutionAgent(SubAgent):
             Tuple of (is_allowed, reason, parts)
         """
         try:
-            parts = shlex.split(command)
+            is_posix = os.name != "nt"
+            parts = shlex.split(command, posix=is_posix)
+            if not is_posix:
+                # On Windows posix=False, shlex preserves quotes around arguments.
+                # Strip matching outer quotes so subprocess arguments don't retain literal quotes.
+                parts = [
+                    p[1:-1]
+                    if len(p) >= 2
+                    and (
+                        (p.startswith('"') and p.endswith('"'))
+                        or (p.startswith("'") and p.endswith("'"))
+                    )
+                    else p
+                    for p in parts
+                ]
         except ValueError as e:
             return False, f"Invalid command syntax: {e}", []
 
@@ -169,13 +183,76 @@ class ShellExecutionAgent(SubAgent):
                 output={"stdout": out, "stderr": "", "returncode": 0, "truncated": False},
             )
 
+        if cmd == "cd":
+            target_str = args[0] if args else "~"
+            if target_str == "~":
+                dest_path = Path.home()
+            else:
+                raw_dest = Path(target_str)
+                if not raw_dest.is_absolute():
+                    dest_path = (Path(working_dir) / raw_dest).resolve()
+                else:
+                    dest_path = raw_dest.resolve()
+
+            if not dest_path.exists():
+                return SubAgentResult(
+                    task_id=task_id,
+                    agent_type=self.agent_type,
+                    success=False,
+                    output={
+                        "stdout": "",
+                        "stderr": f"cd: no such file or directory: {target_str}\n",
+                        "returncode": 1,
+                        "truncated": False,
+                    },
+                    error=f"cd: no such file or directory: {target_str}",
+                )
+            if not dest_path.is_dir():
+                return SubAgentResult(
+                    task_id=task_id,
+                    agent_type=self.agent_type,
+                    success=False,
+                    output={
+                        "stdout": "",
+                        "stderr": f"cd: not a directory: {target_str}\n",
+                        "returncode": 1,
+                        "truncated": False,
+                    },
+                    error=f"cd: not a directory: {target_str}",
+                )
+
+            new_dir = str(dest_path)
+            try:
+                os.chdir(new_dir)
+            except OSError:
+                pass
+            self.working_dir = new_dir
+
+            return SubAgentResult(
+                task_id=task_id,
+                agent_type=self.agent_type,
+                success=True,
+                output={
+                    "stdout": f"Directory changed to: {new_dir}\n",
+                    "stderr": "",
+                    "returncode": 0,
+                    "cwd": new_dir,
+                    "truncated": False,
+                },
+            )
+
         if cmd in ("which", "where"):
             if not args:
                 return SubAgentResult(
                     task_id=task_id,
                     agent_type=self.agent_type,
                     success=False,
-                    output={"stdout": "", "stderr": "Usage: which <command>\n", "returncode": 1, "truncated": False},
+                    output={
+                        "stdout": "",
+                        "stderr": "Usage: which <command>\n",
+                        "returncode": 1,
+                        "truncated": False,
+                    },
                     error="Usage: which <command>",
                 )
             target = args[0]
@@ -185,13 +262,23 @@ class ShellExecutionAgent(SubAgent):
                     task_id=task_id,
                     agent_type=self.agent_type,
                     success=True,
-                    output={"stdout": f"{loc}\n", "stderr": "", "returncode": 0, "truncated": False},
+                    output={
+                        "stdout": f"{loc}\n",
+                        "stderr": "",
+                        "returncode": 0,
+                        "truncated": False,
+                    },
                 )
             return SubAgentResult(
                 task_id=task_id,
                 agent_type=self.agent_type,
                 success=False,
-                output={"stdout": "", "stderr": f"{target} not found\n", "returncode": 1, "truncated": False},
+                output={
+                    "stdout": "",
+                    "stderr": f"{target} not found\n",
+                    "returncode": 1,
+                    "truncated": False,
+                },
                 error=f"{target} not found",
             )
 
@@ -199,7 +286,11 @@ class ShellExecutionAgent(SubAgent):
         if cmd in ("ls", "dir") and shutil.which(cmd) is None:
             target_path = Path(working_dir)
             if args:
-                potential_path = Path(working_dir) / args[-1]
+                raw_arg = Path(args[-1])
+                if not raw_arg.is_absolute():
+                    potential_path = (Path(working_dir) / raw_arg).resolve()
+                else:
+                    potential_path = raw_arg.resolve()
                 if potential_path.is_dir():
                     target_path = potential_path
             try:
@@ -226,7 +317,12 @@ class ShellExecutionAgent(SubAgent):
                     task_id=task_id,
                     agent_type=self.agent_type,
                     success=False,
-                    output={"stdout": "", "stderr": "Usage: cat <file>\n", "returncode": 1, "truncated": False},
+                    output={
+                        "stdout": "",
+                        "stderr": "Usage: cat <file>\n",
+                        "returncode": 1,
+                        "truncated": False,
+                    },
                     error="Usage: cat <file>",
                 )
             file_path = Path(working_dir) / args[0]
@@ -237,21 +333,36 @@ class ShellExecutionAgent(SubAgent):
                         task_id=task_id,
                         agent_type=self.agent_type,
                         success=True,
-                        output={"stdout": content, "stderr": "", "returncode": 0, "truncated": False},
+                        output={
+                            "stdout": content,
+                            "stderr": "",
+                            "returncode": 0,
+                            "truncated": False,
+                        },
                     )
                 except (OSError, UnicodeDecodeError, ValueError) as exc:
                     return SubAgentResult(
                         task_id=task_id,
                         agent_type=self.agent_type,
                         success=False,
-                        output={"stdout": "", "stderr": str(exc), "returncode": 1, "truncated": False},
+                        output={
+                            "stdout": "",
+                            "stderr": str(exc),
+                            "returncode": 1,
+                            "truncated": False,
+                        },
                         error=str(exc),
                     )
             return SubAgentResult(
                 task_id=task_id,
                 agent_type=self.agent_type,
                 success=False,
-                output={"stdout": "", "stderr": f"File not found: {args[0]}\n", "returncode": 1, "truncated": False},
+                output={
+                    "stdout": "",
+                    "stderr": f"File not found: {args[0]}\n",
+                    "returncode": 1,
+                    "truncated": False,
+                },
                 error=f"File not found: {args[0]}",
             )
 

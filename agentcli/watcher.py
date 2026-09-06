@@ -101,11 +101,7 @@ class FileWatcher:
     def _is_dir_ignored(self, name: str) -> bool:
         if name in self.ignored_dirs:
             return True
-        return any(
-            name.startswith(ign)
-            for ign in self.ignored_dirs
-            if ign.startswith(".")
-        )
+        return any(name.startswith(ign) for ign in self.ignored_dirs if ign.startswith("."))
 
     def scan(self) -> dict[Path, float]:
         """Scan watched paths and return a mapping of file path -> mtime."""
@@ -233,10 +229,35 @@ class WorktreeManager:
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
             err_msg = (
-                stderr.decode(errors="replace").strip()
-                or stdout.decode(errors="replace").strip()
+                stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
             )
             raise RuntimeError(f"Failed to create git worktree: {err_msg}")
+
+        # Sync any uncommitted working directory changes into the new repair worktree
+        try:
+            diff_proc = await asyncio.create_subprocess_exec(
+                "git",
+                "diff",
+                "HEAD",
+                cwd=str(self.root_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            diff_out, _ = await diff_proc.communicate()
+            if diff_out.strip():
+                apply_proc = await asyncio.create_subprocess_exec(
+                    "git",
+                    "apply",
+                    "--whitespace=nowarn",
+                    "-",
+                    cwd=str(worktree_dir),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await apply_proc.communicate(input=diff_out)
+        except Exception as sync_exc:  # noqa: BLE001
+            logger.debug("Notice syncing working changes to repair worktree: %s", sync_exc)
 
         return worktree_dir, branch_name
 
@@ -410,6 +431,11 @@ class ContinuousTDDRunner:
                 failure_summary=failure_summary,
             )
         except TimeoutError:
+            try:
+                proc.kill()
+                await proc.wait()
+            except (ProcessLookupError, OSError) as kill_err:
+                logger.debug("Process already exited during kill: %s", kill_err)
             duration = time.time() - start
             return TestExecutionResult(
                 passed=False,
@@ -452,21 +478,16 @@ class ContinuousTDDRunner:
         self._log_info("🔧 Creating isolated git worktree for autonomous repair...")
         worktree_dir: Path | None = None
         branch_name: str | None = None
+        verify_result: TestExecutionResult | None = None
 
         try:
             worktree_dir, branch_name = await self.worktree_manager.create_worktree()
             self._log_info(f"Worktree created at {worktree_dir} (branch: {branch_name})")
 
-            repair_config = Config(
-                openrouter=self.config.openrouter,
-                app=self.config.app,
-                routing=self.config.routing,
-                subagents=self.config.subagents,
-                agent_loop=self.config.agent_loop,
-                memory=self.config.memory,
-                mcp_servers=self.config.mcp_servers,
-                watcher=self.watcher_config,
-            )
+            import copy
+
+            repair_config = copy.deepcopy(self.config)
+            repair_config.watcher = self.watcher_config
             repair_config.subagents.allow_write = True
 
             tool_configs: dict[str, dict[str, Any]] = {
@@ -495,9 +516,7 @@ class ContinuousTDDRunner:
                 )
 
             changed_names = [p.name for p in changed_files] if changed_files else []
-            changed_str = (
-                f"Modified files: {', '.join(changed_names)}\n\n" if changed_names else ""
-            )
+            changed_str = f"Modified files: {', '.join(changed_names)}\n\n" if changed_names else ""
 
             goal = (
                 f"Fix the test failure in continuous TDD loop.\n\n"
@@ -554,6 +573,13 @@ class ContinuousTDDRunner:
                     self._log_info(
                         f"Patch available from repair branch '{branch_name}'. Run with --auto-apply to merge automatically."
                     )
+                    patch_file = self.root_dir / ".agentcli_repair.patch"
+                    try:
+                        patch_file.write_text(patch, encoding="utf-8")
+                        self._log_info(f"💾 Full verified patch saved to {patch_file}")
+                    except Exception as p_err:  # noqa: BLE001
+                        logger.debug("Notice saving patch file: %s", p_err)
+
                     if self.renderer.is_rich_enabled:
                         self.renderer.console.print(f"\n[dim]{patch[:1000]}[/dim]\n")
                     else:
@@ -571,7 +597,14 @@ class ContinuousTDDRunner:
         finally:
             if worktree_dir and branch_name:
                 self._log_info("Cleaning up temporary worktree...")
-                await self.worktree_manager.remove_worktree(worktree_dir, branch_name)
+                keep_branch = (
+                    not self.watcher_config.auto_apply
+                    and verify_result is not None
+                    and verify_result.passed
+                )
+                await self.worktree_manager.remove_worktree(
+                    worktree_dir, None if keep_branch else branch_name
+                )
 
     async def run(self, run_initial: bool = True) -> int:
         """Run continuous watch loop."""

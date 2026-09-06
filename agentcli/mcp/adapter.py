@@ -83,7 +83,7 @@ class MCPToolAgent(SubAgent):
                     text_blocks.append(str(item))
 
             output_text = "\n".join(text_blocks).strip()
-            
+
             # Try parsing as JSON dict if possible
             output_obj: Any = output_text
             try:

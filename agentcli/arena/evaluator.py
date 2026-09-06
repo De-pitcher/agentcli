@@ -15,6 +15,7 @@ from agentcli.arena.task import BenchmarkTask
 @dataclass
 class TaskResult:
     """Evaluation result for an individual benchmark task execution."""
+
     task_id: str
     task_title: str
     model: str
@@ -66,7 +67,7 @@ class TaskEvaluator:
     ) -> tuple[bool, str, str]:
         """
         Evaluate task against expected files and verification test commands.
-        
+
         Returns:
             (success, exit_reason, verification_stdout)
         """
@@ -79,7 +80,11 @@ class TaskEvaluator:
                 try:
                     content = target_file.read_text(encoding="utf-8", errors="replace")
                     if not re.search(pattern, content):
-                        return False, "file_pattern_mismatch", f"File {rel_path} does not match expected pattern: {pattern}"
+                        return (
+                            False,
+                            "file_pattern_mismatch",
+                            f"File {rel_path} does not match expected pattern: {pattern}",
+                        )
                 except Exception as e:  # noqa: BLE001
                     return False, "file_read_error", f"Could not read {rel_path}: {e}"
 
@@ -113,7 +118,11 @@ class TaskEvaluator:
                     return False, "test_failure", output.strip()
                 return True, "success", output.strip()
             except subprocess.TimeoutExpired:
-                return False, "test_timeout", f"Test command timed out after {verification_timeout}s"
+                return (
+                    False,
+                    "test_timeout",
+                    f"Test command timed out after {verification_timeout}s",
+                )
             except Exception as e:  # noqa: BLE001
                 return False, "test_execution_error", f"Failed to execute test command: {e}"
 

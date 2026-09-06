@@ -25,11 +25,11 @@ logger = logging.getLogger(__name__)
 class ConsensusStrategy(str, Enum):
     """Strategies for aggregating agent votes into a consensus decision."""
 
-    MAJORITY = "majority"          # > 50% of total votes
+    MAJORITY = "majority"  # > 50% of total votes
     SUPERMAJORITY = "supermajority"  # >= 66.7% of total votes
-    UNANIMOUS = "unanimous"        # 100% of total votes
-    WEIGHTED = "weighted"          # Highest cumulative confidence score
-    PLURALITY = "plurality"        # Choice with the most votes (even if <= 50%)
+    UNANIMOUS = "unanimous"  # 100% of total votes
+    WEIGHTED = "weighted"  # Highest cumulative confidence score
+    PLURALITY = "plurality"  # Choice with the most votes (even if <= 50%)
 
 
 @dataclass
@@ -153,7 +153,9 @@ class ConsensusEngine:
             decision = top_choice
 
         # Build rationales summary
-        rationales = [f"[{v.voter_id}] voted '{v.choice}': {v.rationale}" for v in votes if v.rationale]
+        rationales = [
+            f"[{v.voter_id}] voted '{v.choice}': {v.rationale}" for v in votes if v.rationale
+        ]
         rationale_text = " | ".join(rationales) if rationales else "No rationales provided."
 
         if consensus_reached:
@@ -215,7 +217,9 @@ class ConsensusEngine:
                 if vote.choice in options or not options:
                     votes.append(vote)
                 else:
-                    logger.warning("Voter %s voted for invalid option '%s'", vote.voter_id, vote.choice)
+                    logger.warning(
+                        "Voter %s voted for invalid option '%s'", vote.voter_id, vote.choice
+                    )
                     degraded_count += 1
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Voter failed during consensus gather: %s", exc)
@@ -267,7 +271,9 @@ class ConsensusEngine:
         final_result = self.evaluate_votes([], strategy=strategy)
 
         for round_idx in range(1, max(1, rounds) + 1):
-            logger.debug("Starting debate round %d/%d for proposal '%s'", round_idx, rounds, proposal[:50])
+            logger.debug(
+                "Starting debate round %d/%d for proposal '%s'", round_idx, rounds, proposal[:50]
+            )
             round_votes: list[AgentVote] = []
 
             for debater in debater_callables:
@@ -282,7 +288,9 @@ class ConsensusEngine:
             prior_votes = round_votes
 
             if final_result.consensus_reached:
-                logger.debug("Consensus achieved in round %d on '%s'", round_idx, final_result.decision)
+                logger.debug(
+                    "Consensus achieved in round %d on '%s'", round_idx, final_result.decision
+                )
                 break
 
         return final_result

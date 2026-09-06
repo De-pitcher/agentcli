@@ -9,10 +9,10 @@ from agentcli.parser import extract_json_payload, repair_json_syntax, robust_jso
 
 def test_extract_json_payload_direct() -> None:
     """Test extract_json_payload directly with various markdown and text wrappers."""
-    raw = "Here is the result:\n```json\n{\"key\": \"val\"}\n```\nDone."
+    raw = 'Here is the result:\n```json\n{"key": "val"}\n```\nDone.'
     assert extract_json_payload(raw) == '{"key": "val"}'
 
-    unfenced = "Conversational preamble {\"a\": 1} conversational trailer"
+    unfenced = 'Conversational preamble {"a": 1} conversational trailer'
     assert extract_json_payload(unfenced) == '{"a": 1}'
 
     empty = extract_json_payload("")
@@ -124,4 +124,6 @@ def test_empty_or_invalid_string_raises() -> None:
         robust_json_loads("")
 
     with pytest.raises(json.JSONDecodeError):
-        robust_json_loads("This is purely conversational text with no JSON braces or brackets at all.")
+        robust_json_loads(
+            "This is purely conversational text with no JSON braces or brackets at all."
+        )

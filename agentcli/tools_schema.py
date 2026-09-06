@@ -18,7 +18,17 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "properties": {
                     "operation": {
                         "type": "string",
-                        "enum": ["read", "write", "append", "create", "delete", "list", "mkdir", "exists", "stat"],
+                        "enum": [
+                            "read",
+                            "write",
+                            "append",
+                            "create",
+                            "delete",
+                            "list",
+                            "mkdir",
+                            "exists",
+                            "stat",
+                        ],
                         "description": "The file operation to perform",
                     },
                     "path": {

@@ -119,7 +119,11 @@ class ConsoleRenderer:
                 for i, step in enumerate(event.plan):
                     agent = step.get("agent_type", "tool")
                     goal = step.get("goal_criterion") or step.get("payload", {})
-                    goal_str = " ".join(f"{k}={v}" for k, v in goal.items()) if isinstance(goal, dict) else str(goal)
+                    goal_str = (
+                        " ".join(f"{k}={v}" for k, v in goal.items())
+                        if isinstance(goal, dict)
+                        else str(goal)
+                    )
                     self.console.print(f"  [dim]{i + 1}.[/dim] [cyan][{agent}][/cyan] {goal_str}")
             elif event_name == "StepStartEvent":
                 agent = getattr(event, "agent_type", "tool")
@@ -137,7 +141,9 @@ class ConsoleRenderer:
                     summary = ""
                     if r.output:
                         if isinstance(r.output, str):
-                            summary = f" — {r.output[:60]}..." if len(r.output) > 60 else f" — {r.output}"
+                            summary = (
+                                f" — {r.output[:60]}..." if len(r.output) > 60 else f" — {r.output}"
+                            )
                         elif isinstance(r.output, dict):
                             res_val = r.output.get("result") or r.output.get("summary") or ""
                             if res_val:
@@ -173,13 +179,17 @@ class ConsoleRenderer:
 
             if event_name == "PlanEvent":
                 label = "[re-plan]" if getattr(event, "is_replan", False) else "[plan]"
-                safe_print(f"\n{label} iteration {event.iteration}: {len(event.plan)} step(s) planned")
+                safe_print(
+                    f"\n{label} iteration {event.iteration}: {len(event.plan)} step(s) planned"
+                )
                 for i, step in enumerate(event.plan):
                     agent = step.get("agent_type", "tool")
                     goal = step.get("goal_criterion") or step.get("payload", {})
                     safe_print(f"  {i + 1}. [{agent}] {goal}")
             elif event_name == "StepStartEvent":
-                safe_print(f"  [step {event.step_index + 1}] running {event.agent_type}...", flush=True)
+                safe_print(
+                    f"  [step {event.step_index + 1}] running {event.agent_type}...", flush=True
+                )
             elif event_name == "StepResultEvent":
                 r = event.result
                 status = "OK" if (r and r.success) else "FAILED"
@@ -336,7 +346,12 @@ class ConsoleRenderer:
                 t.append(f"  {prefix}", style="dim")
                 t.append(f"[{agent}] ", style="bold cyan")
                 t.append(f"{goal} ", style="white")
-                t.append(status, style="bold green" if status == "[DONE]" else ("bold yellow" if status == "[RUNNING]" else "dim"))
+                t.append(
+                    status,
+                    style="bold green"
+                    if status == "[DONE]"
+                    else ("bold yellow" if status == "[RUNNING]" else "dim"),
+                )
                 self.console.print(t)
             else:
                 print(f"  {prefix}[{agent}] {goal} {status}")

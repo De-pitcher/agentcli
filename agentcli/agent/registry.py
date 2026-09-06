@@ -145,6 +145,10 @@ class ToolRegistry:
         """Return the list of currently registered agent-type strings."""
         return list(self._factories.keys())
 
+    def list_tools(self) -> list[str]:
+        """Alias for registered_types to return available tool names."""
+        return self.registered_types()
+
     async def execute(
         self,
         agent_type: str,

@@ -67,7 +67,9 @@ class SearchResult:
 
 
 def _dot_product(vec_a: list[float], vec_b: list[float]) -> float:
-    """Compute dot product of two vectors."""
+    """Compute dot product of two vectors, safe against dimension mismatches."""
+    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 0.0
     return sum(a * b for a, b in zip(vec_a, vec_b, strict=False))
 
 
@@ -103,9 +105,9 @@ class VectorIndex:
         if not all_chunks:
             return 0
 
-        # Determine which chunks need embedding
+        # Determine which chunks need embedding under effective model identity
         uncached_chunks: list[CodeChunk] = []
-        model = self.engine.model
+        model = self.engine.effective_model
 
         for chunk in all_chunks:
             if not force:
@@ -165,7 +167,7 @@ class VectorIndex:
         min_thresh = threshold if threshold is not None else self.similarity_threshold
 
         query_vec = await self.engine.embed_query(query)
-        cached_records = self.store.get_all_for_model(self.engine.model)
+        cached_records = self.store.get_all_for_model(self.engine.effective_model)
         if not cached_records:
             return []
 

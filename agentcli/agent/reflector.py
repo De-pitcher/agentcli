@@ -166,12 +166,16 @@ class DefaultReflector:
             "done",
             "success",
             "command completed",
+            "command output",
+            "path output",
+            "directory changed",
             "finish",
             "finished",
             "ok",
             "passed",
             "items",
             "analysis",
+            "analysis complete",
             "explanation",
             "workspace",
             "file",
@@ -230,10 +234,7 @@ class LLMReflector(DefaultReflector):
         if heuristic.decision != ReflectDecision.FINISH or not self.client:
             return heuristic
 
-        prompt = (
-            f"Original user goal:\n{goal}\n\n"
-            f"Executed steps and results so far:\n"
-        )
+        prompt = f"Original user goal:\n{goal}\n\nExecuted steps and results so far:\n"
         for i, (p, r) in enumerate(zip(plan, results)):
             step_type = p.get("agent_type", "step")
             out_summary = str(r.output)[:300] if r.output else "success"
@@ -275,4 +276,3 @@ class LLMReflector(DefaultReflector):
 
 
 __all__ = ["DefaultReflector", "LLMReflector", "ReflectDecision", "ReflectOutcome"]
-
