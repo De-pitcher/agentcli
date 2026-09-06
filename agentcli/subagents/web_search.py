@@ -190,7 +190,13 @@ class WebSearchAgent(SubAgent):
             - provider: optional provider override ("brave" or "duckduckgo")
         """
         payload = task.payload
-        query = payload.get("query", "")
+        query = (
+            payload.get("query")
+            or payload.get("q")
+            or payload.get("search_query")
+            or payload.get("term")
+            or ""
+        )
 
         if not query:
             return SubAgentResult(

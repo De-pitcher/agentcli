@@ -12,13 +12,13 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "type": "function",
         "function": {
             "name": "file_ops",
-            "description": "Perform file operations: read, write, create, delete, list, or mkdir. Paths are constrained to the working directory.",
+            "description": "Perform file operations: read, write, append, create, delete, list, mkdir, or exists/stat. Paths are constrained to the working directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "operation": {
                         "type": "string",
-                        "enum": ["read", "write", "create", "delete", "list", "mkdir"],
+                        "enum": ["read", "write", "append", "create", "delete", "list", "mkdir", "exists", "stat"],
                         "description": "The file operation to perform",
                     },
                     "path": {
@@ -171,6 +171,43 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                     },
                 },
                 "required": ["operation"],
+            },
+        },
+    },
+    SubAgentType.CONSENSUS.value: {
+        "type": "function",
+        "function": {
+            "name": "consensus",
+            "description": "Evaluate multi-agent votes or debate results and calculate consensus verdicts.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "votes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "voter_id": {"type": "string"},
+                                "choice": {"type": "string"},
+                                "confidence": {"type": "number"},
+                                "rationale": {"type": "string"},
+                            },
+                            "required": ["choice"],
+                        },
+                        "description": "List of agent votes to evaluate",
+                    },
+                    "strategy": {
+                        "type": "string",
+                        "enum": ["majority", "supermajority", "unanimous", "weighted", "plurality"],
+                        "default": "majority",
+                        "description": "Consensus voting strategy",
+                    },
+                    "min_threshold": {
+                        "type": "number",
+                        "description": "Minimum threshold ratio for consensus approval (default: 0.5)",
+                    },
+                },
+                "required": ["votes"],
             },
         },
     },

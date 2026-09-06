@@ -818,3 +818,26 @@ class TestAgentLoopFinishOutputExtraction:
         assert "- src" in extracted
         assert "All tests passed" in extracted
 
+    def test_extracts_tree_matches_and_results(self) -> None:
+        res1 = _make_result(True, output={"tree": ["📁 src", "  📄 main.py"]})
+        res2 = _make_result(
+            True,
+            output={
+                "matches": [{"file": "src/main.py", "line": 42, "content": "import sys"}],
+                "query": "import sys",
+            },
+        )
+        res3 = _make_result(
+            True,
+            output={
+                "results": [{"title": "Python Docs", "url": "https://python.org", "snippet": "Official site"}],
+            },
+        )
+        extracted = AgentLoop._extract_finish_output([res1, res2, res3])
+        assert extracted is not None
+        assert "📁 src" in extracted
+        assert "  📄 main.py" in extracted
+        assert "Matches for 'import sys':" in extracted
+        assert "src/main.py:42" in extracted
+        assert "[Python Docs](https://python.org)" in extracted
+

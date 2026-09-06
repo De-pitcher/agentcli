@@ -12,7 +12,12 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from .base import SubAgent, SubAgentResult, SubAgentTask, SubAgentType
+
+if TYPE_CHECKING:
+    from .bus import MessageBus
 
 logger = logging.getLogger(__name__)
 
@@ -281,3 +286,64 @@ class ConsensusEngine:
                 break
 
         return final_result
+
+
+class ConsensusAgent(SubAgent):
+    """Sub-agent for evaluating multi-agent consensus and voting results."""
+
+    def __init__(
+        self,
+        config: dict[str, Any] | None = None,
+        message_bus: MessageBus | None = None,
+    ) -> None:
+        super().__init__(SubAgentType.CONSENSUS, config, message_bus)
+        self.engine = ConsensusEngine()
+
+    async def run(self, task: SubAgentTask) -> SubAgentResult:
+        payload = task.payload
+        votes_raw = payload.get("votes", [])
+        strategy_str = str(payload.get("strategy", "majority")).lower()
+        min_threshold = float(payload.get("min_threshold", 0.5))
+
+        try:
+            strategy = ConsensusStrategy(strategy_str)
+        except ValueError:
+            strategy = ConsensusStrategy.MAJORITY
+
+        votes = []
+        for v in votes_raw:
+            if isinstance(v, dict):
+                votes.append(
+                    AgentVote(
+                        voter_id=str(v.get("voter_id", "agent")),
+                        choice=str(v.get("choice", "")),
+                        confidence=float(v.get("confidence", 1.0)),
+                        rationale=str(v.get("rationale", "")),
+                        metadata=v.get("metadata", {}),
+                    )
+                )
+
+        result = self.engine.evaluate_votes(votes, strategy=strategy, min_threshold=min_threshold)
+        return SubAgentResult(
+            task_id=task.id,
+            agent_type=self.agent_type,
+            success=True,
+            output={
+                "decision": result.decision,
+                "consensus_reached": result.consensus_reached,
+                "strategy": result.strategy.value,
+                "agreement_ratio": result.agreement_ratio,
+                "winning_score": result.winning_score,
+                "summary": result.summary,
+                "tally": result.tally,
+            },
+        )
+
+
+__all__ = [
+    "AgentVote",
+    "ConsensusAgent",
+    "ConsensusEngine",
+    "ConsensusResult",
+    "ConsensusStrategy",
+]
