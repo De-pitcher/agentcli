@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -371,7 +372,7 @@ async def test_tui_goal_query_execution() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tui_submit_input_branches() -> None:
+async def test_tui_submit_input_branches(monkeypatch: pytest.MonkeyPatch) -> None:
     config = Config()
     mock_session = MagicMock()
     mock_session.step = AsyncMock(return_value="Done")
@@ -400,6 +401,28 @@ async def test_tui_submit_input_branches() -> None:
     tui.input_buffer.text = "/exit"
     submit_handler(mock_event)
     mock_app.exit.assert_called_once()
+    mock_app.exit.reset_mock()
+
+    # 3b. \exist and \exit submit app exit
+    tui.input_buffer.text = r"\exist"
+    submit_handler(mock_event)
+    mock_app.exit.assert_called_once()
+    mock_app.exit.reset_mock()
+
+    # 3c. Completion state applied on enter
+    from prompt_toolkit.completion import Completion
+
+    mock_comp = Completion("/model", start_position=-4)
+    mock_state = MagicMock()
+    mock_state.current_completion = mock_comp
+    mock_state.completions = [mock_comp]
+    tui.input_buffer.complete_state = mock_state
+    tui.input_buffer.text = "/mod"
+    submit_handler(mock_event)
+    await asyncio.sleep(0.01)
+    # Applied completion and executed /model
+    assert any("Current model" in m[1] for m in tui.state.messages)
+    tui.input_buffer.complete_state = None
 
     # 4. Busy processing warning
     tui._is_processing = True
@@ -414,6 +437,28 @@ async def test_tui_submit_input_branches() -> None:
     assert tui._current_task is not None
     await tui._current_task
     assert any("normal prompt" in m[1] for m in tui.state.messages)
+
+    # 6. Completion navigation bindings
+    next_handler = handlers["_next_completion"]
+    prev_handler = handlers["_prev_completion"]
+    down_handler = handlers["_down_completion"]
+    up_handler = handlers["_up_completion"]
+
+    mock_next = MagicMock()
+    mock_prev = MagicMock()
+    monkeypatch.setattr(tui.input_buffer, "complete_next", mock_next)
+    monkeypatch.setattr(tui.input_buffer, "complete_previous", mock_prev)
+    tui.input_buffer.complete_state = MagicMock()
+
+    next_handler(mock_event)
+    mock_next.assert_called_once()
+    prev_handler(mock_event)
+    mock_prev.assert_called_once()
+    down_handler(mock_event)
+    assert mock_next.call_count == 2
+    up_handler(mock_event)
+    assert mock_prev.call_count == 2
+    tui.input_buffer.complete_state = None
 
 
 @pytest.mark.asyncio

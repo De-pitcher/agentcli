@@ -16,9 +16,66 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion, PathCompleter
 from prompt_toolkit.document import Document
+from prompt_toolkit.filters import has_completions
 from prompt_toolkit.formatted_text import StyleAndTextTuples, to_formatted_text
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.styles import Style
+
+
+def resolve_slash_command(text: str) -> str:
+    """Normalize and auto-complete partial or backslash-prefixed slash commands.
+
+    Handles leading backslashes (e.g. `\\model` -> `/model`), common typos/aliases
+    (e.g. `/exist` -> `/exit`), and unambiguous partial prefixes (e.g. `/mod` -> `/model`).
+    """
+    s = text.strip()
+    if not s or not s.startswith(("/", "\\")):
+        return text
+
+    if s.startswith("\\"):
+        s = "/" + s[1:]
+
+    parts = s.split(maxsplit=1)
+    raw_cmd = parts[0].lower()
+    args = f" {parts[1]}" if len(parts) > 1 else ""
+
+    aliases: dict[str, str] = {
+        "/exist": "/exit",
+        "/quit": "/exit",
+        "/q": "/exit",
+        "/messages": "/history",
+        "/hist": "/history",
+        "/diffs": "/diff",
+        "/cls": "/clear",
+        "/h": "/help",
+    }
+
+    if raw_cmd in aliases:
+        return aliases[raw_cmd] + args
+
+    canonical_commands = [
+        "/help",
+        "/history",
+        "/budget",
+        "/model",
+        "/goal",
+        "/diff",
+        "/tokens",
+        "/cost",
+        "/clear",
+        "/reset",
+        "/exit",
+    ]
+
+    if raw_cmd in canonical_commands:
+        return raw_cmd + args
+
+    matches = [c for c in canonical_commands if c.startswith(raw_cmd)]
+    if matches:
+        return matches[0] + args
+
+    return s
 
 
 class SlashAndFileCompleter(Completer):
@@ -39,16 +96,33 @@ class SlashAndFileCompleter(Completer):
         ("/quit", "Exit agentcli"),
     ]
 
+    ALIASES: ClassVar[dict[str, str]] = {
+        "/exist": "/exit",
+        "/messages": "/history",
+        "/diffs": "/diff",
+        "/cls": "/clear",
+        "/h": "/help",
+    }
+
     def __init__(self) -> None:
         self.path_completer = PathCompleter(expanduser=True)
 
     def get_completions(self, document: Document, complete_event: CompleteEvent) -> Any:
         text = document.text_before_cursor
 
-        # Complete slash commands at the start of input
-        if text.startswith("/"):
+        # Complete slash commands at the start of input (support both / and \)
+        if text.startswith(("/", "\\")):
+            normalized_text = "/" + text[1:] if text.startswith("\\") else text
+
+            if normalized_text in self.ALIASES:
+                target = self.ALIASES[normalized_text]
+                for cmd, desc in self.SLASH_COMMANDS:
+                    if cmd == target:
+                        yield Completion(cmd, start_position=-len(text), display_meta=desc)
+                        return
+
             for cmd, desc in self.SLASH_COMMANDS:
-                if cmd.startswith(text):
+                if cmd.startswith(normalized_text):
                     yield Completion(cmd, start_position=-len(text), display_meta=desc)
             return
 
@@ -87,8 +161,12 @@ class InteractivePrompt:
         self,
         history_file: Path | None = None,
         plain: bool = False,
+        input: Any = None,
+        output: Any = None,
     ) -> None:
         self.plain = plain
+        self.input = input
+        self.output = output
         self.history_path = history_file or get_history_file_path()
         self._session: PromptSession[str] | None = None
 
@@ -98,13 +176,36 @@ class InteractivePrompt:
                     "prompt": "#00d7ff bold",
                     "prompt_symbol": "#00ffaf bold",
                     "continuation": "#585858 italic",
+                    "completion-menu": "bg:#262626 #ffffff",
+                    "completion-menu.completion": "bg:#262626 #ffffff",
+                    "completion-menu.completion.current": "bg:#005f87 #ffffff bold",
+                    "completion-menu.meta": "bg:#303030 #87d7ff",
+                    "completion-menu.meta.completion.current": "bg:#005f87 #87ffff bold",
+                    "scrollbar.background": "bg:#262626",
+                    "scrollbar.button": "bg:#585858",
                 }
             )
+            kb = KeyBindings()
+
+            @kb.add("enter", filter=has_completions)
+            def _accept_completion_on_enter(event: KeyPressEvent) -> None:
+                buff = event.current_buffer
+                if buff.complete_state:
+                    if buff.complete_state.current_completion:
+                        buff.apply_completion(buff.complete_state.current_completion)
+                    elif buff.complete_state.completions:
+                        buff.apply_completion(buff.complete_state.completions[0])
+                buff.validate_and_handle()
+
             self._session = PromptSession(
                 history=FileHistory(str(self.history_path)),
                 auto_suggest=AutoSuggestFromHistory(),
                 completer=SlashAndFileCompleter(),
+                complete_while_typing=True,
+                key_bindings=kb,
                 style=style,
+                input=self.input,
+                output=self.output,
             )
 
     @property
@@ -123,7 +224,8 @@ class InteractivePrompt:
                 continue
             lines.append(line)
             break
-        return "\n".join(lines)
+        raw_result = "\n".join(lines)
+        return resolve_slash_command(raw_result)
 
     async def get_input_async(self, prompt_text: str = "you> ") -> str:
         """Prompt the user for input asynchronously using prompt_toolkit or fallback."""
@@ -133,7 +235,8 @@ class InteractivePrompt:
                 formatted_prompt = [("class:prompt", "\nyou "), ("class:prompt_symbol", "❯ ")]
             else:
                 formatted_prompt = [("class:prompt", f"\n{prompt_text}")]
-            return await self._session.prompt_async(to_formatted_text(formatted_prompt))
+            raw_result = await self._session.prompt_async(to_formatted_text(formatted_prompt))
+            return resolve_slash_command(raw_result)
         return await asyncio.to_thread(self._fallback_input, prompt_text)
 
     def get_input(self, prompt_text: str = "you> ") -> str:
@@ -144,5 +247,6 @@ class InteractivePrompt:
                 formatted_prompt = [("class:prompt", "\nyou "), ("class:prompt_symbol", "❯ ")]
             else:
                 formatted_prompt = [("class:prompt", f"\n{prompt_text}")]
-            return self._session.prompt(to_formatted_text(formatted_prompt))
+            raw_result = self._session.prompt(to_formatted_text(formatted_prompt))
+            return resolve_slash_command(raw_result)
         return self._fallback_input(prompt_text)
