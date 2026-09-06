@@ -14,6 +14,7 @@ from .file_ops import FileOpsAgent
 from .grep_search import GrepSearchAgent
 from .planner import PlannerAgent
 from .shell import ShellExecutionAgent
+from .skill_runner import SkillRunnerAgent
 from .spawner import SubAgentPool, SubAgentSpawner
 from .task_manager import TaskManagerAgent
 from .web_fetch import HTMLToMarkdownConverter, WebFetchAgent, html_to_markdown
@@ -38,7 +39,9 @@ __all__ = [
     "MessageType",
     "PlannerAgent",
     "ShellExecutionAgent",
+    "SkillRunnerAgent",
     "SubAgent",
+
     "SubAgentPool",
     "SubAgentResult",
     "SubAgentSpawner",

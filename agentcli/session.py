@@ -25,8 +25,10 @@ from .openrouter_client import (
 from .routing.classifier import classify
 from .routing.registry import ModelRegistry
 from .routing.router import Router
+from .skills.engine import SkillEngine
 
 logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -111,6 +113,8 @@ class AgentSession:
         self.mcp_manager: MCPClientManager = MCPClientManager(config=self.config)
         self.checkpoint_manager: CheckpointManager = CheckpointManager()
         self.task_manager: TaskManager = TaskManager()
+        self.skill_engine: SkillEngine = SkillEngine()
+
 
         if config.routing.enabled:
             self.registry = ModelRegistry(config.routing)

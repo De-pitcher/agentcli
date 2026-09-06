@@ -490,7 +490,97 @@ class TUIApplication:
                 self.add_message("system", "No active session task manager available.", timestamp)
             return
 
+        if cmd in {"/skill", "/skills"}:
+            if self.session and hasattr(self.session, "skill_engine"):
+                parts = text.split(maxsplit=2)
+                sub = parts[1].lower() if len(parts) > 1 else "list"
+                target_name = parts[2].strip() if len(parts) > 2 else ""
+
+                if sub in ("list", "ls") or (len(parts) == 1):
+                    skills = self.session.skill_engine.list_available_skills()
+                    if not skills:
+                        self.add_message(
+                            "system", "No skills discovered in workspace or user directory.", timestamp
+                        )
+                    else:
+                        lines = [f"Available Skills ({len(skills)}):"]
+                        for s in skills:
+                            lines.append(
+                                f"  [{s['source_type'].upper()}] {s['name']} (v{s['version']}): {s['description']}"
+                            )
+                        self.add_message("system", "\n".join(lines), timestamp)
+                elif sub == "info":
+                    if not target_name:
+                        self.add_message("system", "Usage: /skill info <skill_name>", timestamp)
+                    else:
+                        manifest = self.session.skill_engine.loader.get_skill(target_name)
+                        if not manifest:
+                            self.add_message(
+                                "system", f"Skill '{target_name}' not found.", timestamp
+                            )
+                        else:
+                            lines = [
+                                f"Skill [{manifest.name}] (v{manifest.version})",
+                                f"  Description: {manifest.description}",
+                                f"  Source: {manifest.source_type}",
+                                f"  Execution Mode: {manifest.execution_mode}",
+                            ]
+                            if manifest.parameters:
+                                lines.append("  Parameters:")
+                                for p_name, p in manifest.parameters.items():
+                                    lines.append(f"    - {p_name} [{p.type}]: {p.description}")
+                            self.add_message("system", "\n".join(lines), timestamp)
+                elif sub == "reload":
+                    self.session.skill_engine.loader.reload()
+                    total = len(self.session.skill_engine.loader.list_skills())
+                    self.add_message(
+                        "system", f"Reloaded skills. Found {total} skill(s).", timestamp
+                    )
+                elif sub in ("run", "exec") or self.session.skill_engine.loader.has_skill(sub):
+                    actual_name = (
+                        target_name.split(maxsplit=1)[0] if sub in ("run", "exec") else sub
+                    )
+                    raw_args = (
+                        target_name.split(maxsplit=1)[1]
+                        if (sub in ("run", "exec") and len(target_name.split(maxsplit=1)) > 1)
+                        else target_name
+                    )
+                    if not actual_name:
+                        self.add_message(
+                            "system", "Usage: /skill run <skill_name> [param=value ...]", timestamp
+                        )
+                    else:
+                        parsed_args = {}
+                        if raw_args:
+                            for token in raw_args.split():
+                                if "=" in token:
+                                    k, v = token.split("=", 1)
+                                    parsed_args[k.strip()] = v.strip()
+                                else:
+                                    parsed_args["target"] = token
+                        try:
+                            manifest, rendered = self.session.skill_engine.prepare_skill(
+                                skill_name=actual_name,
+                                arguments=parsed_args,
+                            )
+                            self.add_message("user", f"/skill run {actual_name}", timestamp)
+                            self._current_task = asyncio.create_task(
+                                self._process_goal_query(rendered)
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            self.add_message("system", f"Error: {exc}", timestamp)
+                else:
+                    self.add_message(
+                        "system",
+                        "Usage: /skill [list | info <name> | run <name> [args] | reload]",
+                        timestamp,
+                    )
+            else:
+                self.add_message("system", "No active session skill engine available.", timestamp)
+            return
+
         if cmd == "/goal":
+
             parts = text.split(maxsplit=1)
             if len(parts) < 2 or not parts[1].strip():
                 self.add_message("system", "Usage: /goal <task description>", timestamp)

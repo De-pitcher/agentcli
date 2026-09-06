@@ -53,6 +53,7 @@ def resolve_slash_command(text: str) -> str:
         "/revert": "/undo",
         "/task": "/tasks",
         "/bg": "/tasks",
+        "/skills": "/skill",
     }
 
     if raw_cmd in aliases:
@@ -68,6 +69,7 @@ def resolve_slash_command(text: str) -> str:
         "/diff",
         "/undo",
         "/tasks",
+        "/skill",
         "/tokens",
         "/cost",
         "/clear",
@@ -86,7 +88,7 @@ def resolve_slash_command(text: str) -> str:
 
 
 class SlashAndFileCompleter(Completer):
-    """Completer for slash commands (/models, /model, /undo, /tasks, /budget, /history, /exit, etc.), model arguments, and @file references."""
+    """Completer for slash commands (/models, /model, /undo, /tasks, /skill, /budget, /history, /exit, etc.), model arguments, and @file references."""
 
     SLASH_COMMANDS: ClassVar[list[tuple[str, str]]] = [
         ("/help", "Show help, slash commands, and shortcuts"),
@@ -98,6 +100,7 @@ class SlashAndFileCompleter(Completer):
         ("/diff", "Inspect file diffs generated during session"),
         ("/undo", "Revert latest file changes or inspect turn rollback (/undo diff)"),
         ("/tasks", "List or manage background tasks (/tasks, /tasks kill <id>)"),
+        ("/skill", "Run or inspect custom skills and recipes (/skill list, /skill run <name>)"),
         ("/tokens", "Show current session token usage breakdown"),
         ("/cost", "Show current session estimated cost"),
         ("/clear", "Clear terminal screen"),
@@ -114,7 +117,9 @@ class SlashAndFileCompleter(Completer):
         "/h": "/help",
         "/task": "/tasks",
         "/bg": "/tasks",
+        "/skills": "/skill",
     }
+
 
     def __init__(self) -> None:
         self.path_completer = PathCompleter(expanduser=True)
@@ -166,6 +171,37 @@ class SlashAndFileCompleter(Completer):
                 if opt.startswith(arg_lower):
                     yield Completion(opt, start_position=-len(arg), display_meta=desc)
             return
+
+        # Complete skill arguments after /skill
+        if text.startswith(("/skill ", "\\skill ")):
+            from ..skills.loader import SkillLoader
+
+            arg = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else ""
+            arg_lower = arg.lower()
+
+            skill_actions = [
+                ("list", "[ACTION] List all available skills"),
+                ("info", "[ACTION] Show skill details and parameters"),
+                ("run", "[ACTION] Execute a skill recipe (/skill run <name>)"),
+                ("reload", "[ACTION] Reload skills from disk"),
+            ]
+            for act, desc in skill_actions:
+                if act.startswith(arg_lower):
+                    yield Completion(act, start_position=-len(arg), display_meta=desc)
+
+            if arg_lower.startswith(("run ", "info ")):
+                sub_parts = arg.split(maxsplit=1)
+                sub_arg = sub_parts[1] if len(sub_parts) > 1 else ""
+                loader = SkillLoader()
+                for skill in loader.list_skills():
+                    if skill.name.lower().startswith(sub_arg.lower()):
+                        yield Completion(
+                            skill.name,
+                            start_position=-len(sub_arg),
+                            display_meta=f"[{skill.source_type.upper()}] {skill.description[:35]}",
+                        )
+            return
+
 
         # Complete slash commands at the start of input (support both / and \)
         if text.startswith(("/", "\\")):
