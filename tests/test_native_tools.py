@@ -386,8 +386,6 @@ async def test_consensus_agent_tool_registry() -> None:
     assert result.output["decision"] == "refactor"
     assert result.output["consensus_reached"] is True
     assert result.output["agreement_ratio"] == pytest.approx(2 / 3)
-
-
 @pytest.mark.asyncio
 async def test_file_ops_absolute_directory_list_and_read(tmp_path) -> None:
     from agentcli.subagents.file_ops import FileOpsAgent
@@ -455,4 +453,3 @@ async def test_planner_extracts_directory_and_windows_paths() -> None:
     plan_prep = res_prep.output["plan"]
     assert len(plan_prep) == 1
     assert plan_prep[0]["payload"]["path"] == "my_custom_dir"
-
