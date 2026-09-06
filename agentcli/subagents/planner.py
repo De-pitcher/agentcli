@@ -164,8 +164,39 @@ class PlannerAgent(SubAgent):
                 }
             )
 
-        # File and directory operations
+        # Shell execution
+        is_pure_shell = False
         if any(
+            keyword in query_lower
+            for keyword in ["run", "execute", "exec", "shell", "terminal", "pytest", "python -m", "npm", "cargo"]
+        ):
+            cmd = self._extract_command(query)
+            if cmd:
+                # Extract a meaningful criterion from the command
+                if "test" in cmd.lower() or "pytest" in cmd.lower():
+                    criterion = "test passed"
+                elif "build" in cmd.lower() or "compile" in cmd.lower():
+                    criterion = "build successful"
+                elif "lint" in cmd.lower() or "format" in cmd.lower():
+                    criterion = "lint passed"
+                else:
+                    criterion = "command completed"
+                raw_tasks.append(
+                    {
+                        "agent_type": SubAgentType.SHELL_EXECUTION.value,
+                        "payload": {
+                            "command": cmd,
+                            "timeout": 30.0,
+                        },
+                        "priority": 5,
+                        "goal_criterion": criterion,
+                    }
+                )
+                if query_lower.startswith(("run ", "execute ", "exec ", "cmd: ", "shell: ")):
+                    is_pure_shell = True
+
+        # File and directory operations (skip if query is purely a shell command)
+        if not is_pure_shell and any(
             keyword in query_lower
             for keyword in [
                 "read",
@@ -198,45 +229,33 @@ class PlannerAgent(SubAgent):
                 criterion = "items"
             else:
                 criterion = operation
+            payload_dict: dict[str, Any] = {
+                "operation": operation,
+                "path": path,
+            }
+            if operation in ("write", "create"):
+                content = ""
+                if "with content" in query_lower:
+                    idx = query_lower.find("with content")
+                    content = query[idx + len("with content"):].strip().lstrip(":").strip()
+                elif "content:" in query_lower:
+                    idx = query_lower.find("content:")
+                    content = query[idx + len("content:"):].strip()
+                elif "```" in query:
+                    code_match = re.search(r"```(?:\w+)?\n?(.*?)\n?```", query, re.DOTALL)
+                    if code_match:
+                        content = code_match.group(1).strip()
+                if content:
+                    payload_dict["content"] = content
+
             raw_tasks.append(
                 {
                     "agent_type": SubAgentType.FILE_OPS.value,
-                    "payload": {
-                        "operation": operation,
-                        "path": path,
-                    },
+                    "payload": payload_dict,
                     "priority": 5,
                     "goal_criterion": criterion,
                 }
             )
-
-        # Shell execution
-        if any(
-            keyword in query_lower
-            for keyword in ["run", "execute", "run command", "shell", "terminal"]
-        ):
-            cmd = self._extract_command(query)
-            if cmd:
-                # Extract a meaningful criterion from the command
-                if "test" in cmd.lower() or "pytest" in cmd.lower():
-                    criterion = "test passed"
-                elif "build" in cmd.lower() or "compile" in cmd.lower():
-                    criterion = "build successful"
-                elif "lint" in cmd.lower() or "format" in cmd.lower():
-                    criterion = "lint passed"
-                else:
-                    criterion = "command completed"
-                raw_tasks.append(
-                    {
-                        "agent_type": SubAgentType.SHELL_EXECUTION.value,
-                        "payload": {
-                            "command": cmd,
-                            "timeout": 30.0,
-                        },
-                        "priority": 5,
-                        "goal_criterion": criterion,
-                    }
-                )
 
         # Workspace operations
         if any(
@@ -573,6 +592,25 @@ Example output:
         if any(
             w in text_lower
             for w in [
+                "mkdir",
+                "make directory",
+                "make dir",
+                "create directory",
+                "create folder",
+                "new directory",
+                "new folder",
+            ]
+        ):
+            return "mkdir"
+        elif any(w in text_lower for w in ["write", "create", "save", "generate file", "touch"]):
+            return "write"
+        elif any(w in text_lower for w in ["delete", "remove", "rm", "unlink"]):
+            return "delete"
+        elif any(w in text_lower for w in ["read", "view", "show", "cat", "examine", "inspect file"]):
+            return "read"
+        elif any(
+            w in text_lower
+            for w in [
                 "list",
                 "ls",
                 "dir",
@@ -585,26 +623,31 @@ Example output:
             ]
         ):
             return "list"
-        elif any(w in text_lower for w in ["read", "view", "show", "cat"]):
-            return "read"
-        elif any(w in text_lower for w in ["write", "create", "save"]):
-            return "write"
-        elif any(w in text_lower for w in ["delete", "remove", "rm"]):
-            return "delete"
         return "read"
 
     def _extract_command(self, text: str) -> str:
         """Extract shell command from text."""
         patterns = [
-            r"```(?:bash|sh|shell)?\n(.*?)\n```",
+            r"```(?:bash|sh|shell|powershell|cmd|ps1)?\n(.*?)\n```",
             r"run\s+[\"']([^\"']+)[\"']",
             r"execute\s+[\"']([^\"']+)[\"']",
             r"command\s+[\"']([^\"']+)[\"']",
+            r"^(?:run|execute|exec)\s+(.+)$",
+            r"(?:run|execute|exec):\s*(.+)$",
         ]
 
         for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+            match = re.search(pattern, text.strip(), re.IGNORECASE | re.DOTALL)
             if match:
                 return match.group(1).strip()
+
+        # Check for direct command invocation without run/execute prefix
+        text_clean = text.strip()
+        if re.match(
+            r"^(?:pytest|python\s+-m\s+pytest|ruff|mypy|git|npm|cargo|go\s+test)\b",
+            text_clean,
+            re.IGNORECASE,
+        ):
+            return text_clean
 
         return ""

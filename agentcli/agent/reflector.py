@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..parser import robust_json_loads
@@ -174,6 +175,15 @@ class DefaultReflector:
             "explanation",
             "workspace",
             "file",
+            "file created",
+            "file written",
+            "file deleted",
+            "directory created",
+            "directory listed",
+            "file content",
+            "test passed",
+            "build successful",
+            "lint passed",
         }
 
         for step, result in zip(plan, results):
@@ -184,8 +194,15 @@ class DefaultReflector:
             if crit_lower in _GENERIC_CRITERIA and result.success:
                 continue
             output_str = str(result.output or "").lower()
-            if crit_lower not in output_str:
-                return criterion
+            crit_norm = crit_lower.replace("\\", "/")
+            output_norm = output_str.replace("\\", "/")
+            if crit_norm in output_norm:
+                continue
+            if "/" in crit_norm:
+                crit_base = Path(crit_norm).name.lower()
+                if crit_base and crit_base in output_norm and result.success:
+                    continue
+            return criterion
         return ""
 
 
