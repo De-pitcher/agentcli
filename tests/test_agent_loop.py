@@ -512,6 +512,19 @@ class TestIsAgenticTask:
     def test_also_read_returns_true(self) -> None:
         assert is_agentic_task("Can you list the files in src? Also read main.py") is True
 
+    def test_action_intent_directory_and_workspace_returns_true(self) -> None:
+        assert is_agentic_task("Print the current directory") is True
+        assert is_agentic_task("What of the content?") is True
+        assert is_agentic_task("list files in src") is True
+        assert is_agentic_task("pwd") is True
+        assert is_agentic_task("ls -la") is True
+
+    def test_action_intent_file_and_shell_returns_true(self) -> None:
+        assert is_agentic_task("read src/auth.py") is True
+        assert is_agentic_task("open config.toml") is True
+        assert is_agentic_task("run pytest tests/test_ui.py") is True
+        assert is_agentic_task("git status") is True
+
 
 # ---------------------------------------------------------------------------
 # Config [agent_loop] parsing tests
