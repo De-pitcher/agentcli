@@ -54,6 +54,9 @@ def resolve_slash_command(text: str) -> str:
         "/task": "/tasks",
         "/bg": "/tasks",
         "/skills": "/skill",
+        "/worktree": "/branch",
+        "/wt": "/branch",
+        "/branches": "/branch",
     }
 
     if raw_cmd in aliases:
@@ -70,6 +73,7 @@ def resolve_slash_command(text: str) -> str:
         "/undo",
         "/tasks",
         "/skill",
+        "/branch",
         "/tokens",
         "/cost",
         "/clear",
@@ -88,7 +92,7 @@ def resolve_slash_command(text: str) -> str:
 
 
 class SlashAndFileCompleter(Completer):
-    """Completer for slash commands (/models, /model, /undo, /tasks, /skill, /budget, /history, /exit, etc.), model arguments, and @file references."""
+    """Completer for slash commands (/models, /model, /undo, /tasks, /skill, /branch, /budget, /history, /exit, etc.), model arguments, and @file references."""
 
     SLASH_COMMANDS: ClassVar[list[tuple[str, str]]] = [
         ("/help", "Show help, slash commands, and shortcuts"),
@@ -101,6 +105,7 @@ class SlashAndFileCompleter(Completer):
         ("/undo", "Revert latest file changes or inspect turn rollback (/undo diff)"),
         ("/tasks", "List or manage background tasks (/tasks, /tasks kill <id>)"),
         ("/skill", "Run or inspect custom skills and recipes (/skill list, /skill run <name>)"),
+        ("/branch", "Manage Git worktrees and sandboxes (/branch list, /branch create <name>)"),
         ("/tokens", "Show current session token usage breakdown"),
         ("/cost", "Show current session estimated cost"),
         ("/clear", "Clear terminal screen"),
@@ -118,6 +123,9 @@ class SlashAndFileCompleter(Completer):
         "/task": "/tasks",
         "/bg": "/tasks",
         "/skills": "/skill",
+        "/worktree": "/branch",
+        "/wt": "/branch",
+        "/branches": "/branch",
     }
 
 
@@ -199,6 +207,39 @@ class SlashAndFileCompleter(Completer):
                             skill.name,
                             start_position=-len(sub_arg),
                             display_meta=f"[{skill.source_type.upper()}] {skill.description[:35]}",
+                        )
+            return
+
+        # Complete branch/worktree arguments after /branch or /worktree
+        if text.startswith(("/branch ", "\\branch ", "/worktree ", "\\worktree ", "/wt ", "\\wt ")):
+            from ..worktree.manager import WorktreeManager
+
+            arg = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else ""
+            arg_lower = arg.lower()
+
+            branch_actions = [
+                ("list", "[ACTION] List all active Git worktrees"),
+                ("create", "[ACTION] Create a new sandboxed worktree (/branch create <name>)"),
+                ("status", "[ACTION] Show modified and dirty files in worktree"),
+                ("diff", "[ACTION] Show unified diff vs base branch (/branch diff [name])"),
+                ("merge", "[ACTION] Merge worktree back to base branch (/branch merge <name>)"),
+                ("discard", "[ACTION] Prune worktree and delete sandbox (/branch discard <name>)"),
+                ("prune", "[ACTION] Clean up stale or orphan worktree references"),
+            ]
+            for act, desc in branch_actions:
+                if act.startswith(arg_lower):
+                    yield Completion(act, start_position=-len(arg), display_meta=desc)
+
+            if arg_lower.startswith(("status ", "diff ", "merge ", "discard ")):
+                sub_parts = arg.split(maxsplit=1)
+                sub_arg = sub_parts[1] if len(sub_parts) > 1 else ""
+                wt_mgr = WorktreeManager()
+                for wt in wt_mgr.list_worktrees():
+                    if wt.branch.lower().startswith(sub_arg.lower()):
+                        yield Completion(
+                            wt.branch,
+                            start_position=-len(sub_arg),
+                            display_meta=f"[WORKTREE] {wt.path}",
                         )
             return
 
