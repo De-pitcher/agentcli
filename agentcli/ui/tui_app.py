@@ -277,14 +277,11 @@ class TUIApplication:
             if not subcmd or subcmd in ("status", "info", "show"):
                 curr = self.config.routing.budget_tier
                 msg = f"Current budget tier: {curr}"
+                from ..memory.governor import TokenBudgetGovernor
+
                 gov = getattr(self.session, "governor", None)
-                if gov is not None and hasattr(gov, "format_summary"):
-                    try:
-                        summary = gov.format_summary()
-                        if isinstance(summary, str):
-                            msg += "\n" + summary
-                    except Exception:
-                        pass
+                if isinstance(gov, TokenBudgetGovernor):
+                    msg += "\n" + gov.format_summary()
                 self.add_message("system", msg, timestamp)
             elif subcmd in ("low", "medium", "high", "tier"):
                 tier_name = val if subcmd == "tier" else subcmd
@@ -412,14 +409,11 @@ class TUIApplication:
                     f"({stats['user_tokens']} prompt, {stats['assistant_tokens']} completion) | "
                     f"Estimated Cost: ${cost:.6f} USD"
                 )
+                from ..memory.governor import TokenBudgetGovernor
+
                 gov = getattr(self.session, "governor", None)
-                if gov is not None and hasattr(gov, "format_summary"):
-                    try:
-                        summary = gov.format_summary()
-                        if isinstance(summary, str):
-                            msg_text += "\n" + summary
-                    except Exception:
-                        pass
+                if isinstance(gov, TokenBudgetGovernor):
+                    msg_text += "\n" + gov.format_summary()
                 self.add_message("system", msg_text, timestamp)
             return
 
