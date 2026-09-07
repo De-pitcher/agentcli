@@ -372,7 +372,10 @@ class TestLoopAutoHealingIntegration:
 
 
 class TestSessionAndPromptIntegration:
-    def test_session_has_healing_and_drift_detector(self) -> None:
+    def test_session_has_healing_and_drift_detector(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-key-1234")
         cfg = Config()
         session = AgentSession(cfg)
         try:
@@ -400,3 +403,44 @@ class TestSessionAndPromptIntegration:
         assert "reset" in sub_matches
         assert "enable" in sub_matches
         assert "disable" in sub_matches
+
+    def test_renderer_renders_healing_events(self) -> None:
+        from agentcli.agent.events import (
+            AutoHealingRollbackEvent,
+            DriftDetectedEvent,
+            StrategyRecoveryEvent,
+        )
+        from agentcli.ui.render import ConsoleRenderer
+
+        ev1 = DriftDetectedEvent(
+            iteration=1,
+            drift_score=0.85,
+            severity="critical",
+            is_loop_detected=True,
+            reasons=["Loop detected on file edit"],
+        )
+        ev2 = AutoHealingRollbackEvent(
+            iteration=1,
+            snapshot_id="snap1",
+            trigger="cycle_detected",
+            reverted_files=["app.py"],
+        )
+        ev3 = StrategyRecoveryEvent(
+            iteration=1,
+            diagnostics="Score: 0.85, Cycle: action#1",
+            strategy_prompt="recovery guidance",
+        )
+
+        renderer_plain = ConsoleRenderer()
+        renderer_plain._rich_available = False
+        renderer_plain.render_loop_event(ev1, verbose=True)
+        renderer_plain.render_loop_event(ev2, verbose=True)
+        renderer_plain.render_loop_event(ev3, verbose=True)
+
+        renderer_rich = ConsoleRenderer()
+        renderer_rich._rich_available = True
+        renderer_rich.render_loop_event(ev1, verbose=True)
+        renderer_rich.render_loop_event(ev2, verbose=True)
+        renderer_rich.render_loop_event(ev3, verbose=True)
+
+
