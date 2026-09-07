@@ -122,6 +122,7 @@ async def test_web_search_agent_branches(monkeypatch: pytest.MonkeyPatch) -> Non
     # Mock successful HTTP search response
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = {
         "results": [
             {"title": "Result 1", "url": "https://example.com/1", "content": "Summary 1"},
@@ -265,4 +266,139 @@ def test_prompt_completer_all_branches(tmp_path: Path) -> None:
     test_f.write_text("content", encoding="utf-8")
     at_comps = list(completer.get_completions(Document(f"@{test_f!s}"), event))
     assert isinstance(at_comps, list)
+
+
+@pytest.mark.asyncio
+async def test_session_step_budget_and_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test AgentSession.step when budget ceiling is exceeded or prompt expansion fails."""
+    from agentcli.agent.events import FinishEvent, LoopErrorEvent
+    from agentcli.config import Config
+    from agentcli.session import AgentSession
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    config = Config()
+    config.routing.max_cost_usd = 0.05
+    session = AgentSession(config=config, forced_model="google/gemma-4-31b-it:free")
+    session.cumulative_cost_usd = 0.10  # exceeds 0.05
+
+    assert session.is_budget_exceeded() is True
+    reply = await session.step("Hello")
+    assert "Session cost ceiling reached" in reply
+
+    # Reset cost
+    session.cumulative_cost_usd = 0.0
+
+    # Test prepare_prompt exception handling
+    with patch("agentcli.files.expand_file_references", side_effect=ValueError("bad expansion")):
+        expanded = session.prepare_prompt("@badfile")
+        assert expanded == "@badfile"
+
+    # Test session.step normal flow with mocked send()
+    async def mock_stream():
+        yield "Hello "
+        yield "World!"
+
+    mock_reply = MagicMock()
+    mock_reply.stream = mock_stream()
+    mock_reply.requested_primary = "google/gemma-4-31b-it:free"
+
+    with patch.object(session, "send", new_callable=AsyncMock) as mock_send:
+        mock_send.return_value = mock_reply
+        step_res = await session.step("Say hello")
+        assert step_res == "Hello World!"
+        assert session.cumulative_cost_usd >= 0.0
+
+    # Test session.step with agentic loop FinishEvent
+    async def mock_loop_finish(text: str):
+        yield FinishEvent(output="Agentic task complete", summary="Done")
+
+    with (
+        patch.object(session, "should_use_loop", return_value=True),
+        patch.object(session, "run_loop", side_effect=mock_loop_finish),
+    ):
+        loop_res = await session.step("Perform complex workflow")
+        assert loop_res == "Agentic task complete"
+
+    # Test session.step with agentic loop LoopErrorEvent
+    async def mock_loop_error(text: str):
+        yield LoopErrorEvent(error="Fatal task failure")
+
+    with (
+        patch.object(session, "should_use_loop", return_value=True),
+        patch.object(session, "run_loop", side_effect=mock_loop_error),
+    ):
+        err_res = await session.step("Perform failing workflow")
+        assert "[loop error] Fatal task failure" in err_res
+
+    await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_session_auto_ground_workspace(tmp_path: Path) -> None:
+    """Test auto_ground_workspace when git repo is discovered or missing."""
+    from agentcli.config import Config
+    from agentcli.session import AgentSession
+    from agentcli.subagents.base import SubAgentResult, SubAgentType
+
+    config = Config()
+    session = AgentSession(config=config, forced_model="google/gemma-4-31b-it:free")
+
+    # Success case: git repo discovered
+    mock_success_res = SubAgentResult(
+        task_id="t_success",
+        agent_type=SubAgentType.WORKSPACE,
+        success=True,
+        output={"is_git_repo": True, "summary": "Branch: main, clean status"},
+    )
+    with patch("agentcli.subagents.workspace.WorkspaceAgent.run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = mock_success_res
+        summary = await session.auto_ground_workspace(tmp_path)
+        assert summary == "Branch: main, clean status"
+        assert any("[Workspace Context:" in (m.content or "") for m in session.history)
+
+    # Failure case: not a git repo
+    mock_fail_res = SubAgentResult(
+        task_id="t_fail",
+        agent_type=SubAgentType.WORKSPACE,
+        success=False,
+        output={"is_git_repo": False},
+    )
+    with patch("agentcli.subagents.workspace.WorkspaceAgent.run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = mock_fail_res
+        summary = await session.auto_ground_workspace(tmp_path)
+        assert summary is None
+
+    await session.aclose()
+
+
+def test_unicode_safe_print_encode_error(capsys: pytest.CaptureFixture[str]) -> None:
+    """Test unicode safe_print catching UnicodeEncodeError and applying fallback."""
+    from agentcli import unicode as agy_unicode
+
+    with (
+        patch.object(agy_unicode, "_UNICODE_SUPPORTED", False),
+        patch("builtins.print", side_effect=[UnicodeEncodeError("ascii", "test", 0, 1, "bad"), None]),
+    ):
+        agy_unicode.safe_print("Testing exception fallback")
+
+
+def test_worktree_corrupted_meta_file(tmp_path: Path) -> None:
+    """Test WorktreeManager resilience when metadata JSON is corrupted."""
+    from agentcli.worktree.manager import WorktreeManager
+
+    wt_mgr = WorktreeManager(repo_root=tmp_path)
+    meta_file = tmp_path / ".agentcli" / "worktrees" / ".worktrees.json"
+    meta_file.parent.mkdir(parents=True, exist_ok=True)
+    meta_file.write_text("{corrupted-json...", encoding="utf-8")
+
+    # _load_meta should handle exception and return empty dict
+    loaded = wt_mgr._load_meta()
+    assert loaded == {}
+
+    # non-git repo diff / status
+    assert wt_mgr.is_git_repo() is False
+    assert wt_mgr.list_worktrees() == []
+    assert wt_mgr.get_worktree("nonexistent") is None
+
+
 
