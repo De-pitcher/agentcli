@@ -922,7 +922,102 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print("Usage: /tasks [list | status <id> | logs <id> | kill <id>]")
                 continue
 
+            if user_input.startswith(("/skill", "/skills")):
+                skill_parts = user_input.split(maxsplit=2)
+                skill_subcmd = skill_parts[1].lower() if len(skill_parts) > 1 else "list"
+                target_skill = skill_parts[2].strip() if len(skill_parts) > 2 else ""
+
+                if skill_subcmd in ("list", "ls") or len(skill_parts) == 1:
+                    skills_list = session.skill_engine.list_available_skills()
+                    if not skills_list:
+                        print("No skills discovered in workspace or user directory.")
+                    else:
+                        print(f"\n--- Available Skills ({len(skills_list)}) ---")
+                        for s in skills_list:
+                            source_badge = f"[{s['source_type'].upper()}]"
+                            print(f"  {source_badge} {s['name']} (v{s['version']}): {s['description']}")
+                        print("------------------------------------\n")
+                        print("Run a skill with: /skill run <name> or inspect with /skill info <name>\n")
+                elif skill_subcmd == "info":
+                    if not target_skill:
+                        print("Usage: /skill info <skill_name>")
+                    else:
+                        manifest = session.skill_engine.loader.get_skill(target_skill)
+                        if not manifest:
+                            print(f"Skill '{target_skill}' not found. Run '/skill list' to see available skills.")
+                        else:
+                            print(f"\nSkill [{manifest.name}] (v{manifest.version})")
+                            print(f"  Description: {manifest.description}")
+                            print(f"  Source: {manifest.source_type} ({manifest.skill_dir or 'builtin'})")
+                            print(f"  Execution Mode: {manifest.execution_mode} (max {manifest.max_iterations} iterations)")
+                            if manifest.parameters:
+                                print("  Parameters:")
+                                for p_name, p in manifest.parameters.items():
+                                    req_str = " (required)" if p.required else f" (default: {p.default})"
+                                    print(f"    - {p_name} [{p.type}]{req_str}: {p.description}")
+                            if manifest.required_tools:
+                                print(f"  Required Tools: {', '.join(manifest.required_tools)}")
+                            print()
+                elif skill_subcmd == "reload":
+                    session.skill_engine.loader.reload()
+                    total = len(session.skill_engine.loader.list_skills())
+                    print(f"Reloaded skills. Found {total} skill(s).")
+                elif skill_subcmd in ("run", "exec") or session.skill_engine.loader.has_skill(skill_subcmd):
+                    if skill_subcmd in ("run", "exec"):
+                        actual_name = target_skill.split(maxsplit=1)[0] if target_skill else ""
+                        raw_args_str = target_skill.split(maxsplit=1)[1] if len(target_skill.split(maxsplit=1)) > 1 else ""
+                    else:
+                        actual_name = skill_subcmd
+                        raw_args_str = target_skill
+
+                    if not actual_name:
+                        print("Usage: /skill run <skill_name> [param=value ...]")
+                        continue
+
+                    parsed_args: dict[str, Any] = {}
+                    if raw_args_str:
+                        for token in raw_args_str.split():
+                            if "=" in token:
+                                k, v = token.split("=", 1)
+                                parsed_args[k.strip()] = v.strip()
+                            else:
+                                parsed_args["target"] = token
+
+                    try:
+                        manifest, rendered = session.skill_engine.prepare_skill(
+                            skill_name=actual_name,
+                            arguments=parsed_args,
+                        )
+                        print(f"\nExecuting skill '{manifest.name}' ({manifest.execution_mode})...\n")
+
+                        if manifest.execution_mode == "loop" or session.should_use_loop(rendered):
+                            await session.async_add_user_message(rendered)
+                            loop_summary = None
+                            try:
+                                with renderer.status_spinner(f"Running skill {manifest.name}..."):
+                                    async for event in session.run_loop(rendered):
+                                        renderer.render_loop_event(event, verbose=verbose)
+                                        if isinstance(event, FinishEvent):
+                                            loop_summary = event.summary
+                                            if getattr(event, "output", None):
+                                                loop_summary = f"{event.summary}\n\n{event.output}"
+                                        elif isinstance(event, LoopErrorEvent):
+                                            loop_summary = f"[loop error] {event.error}"
+                                await session.async_add_assistant_message(
+                                    f"[Skill: {manifest.name}]\n{loop_summary or '(completed)'}"
+                                )
+                            except LoopIterationLimitError as exc:
+                                print(f"\n[skill-runner] Iteration limit reached: {exc}")
+                            except KeyboardInterrupt:
+                                print("\n[interrupted]")
+                    except KeyError as k_err:
+                        print(f"Error: {k_err}")
+                else:
+                    print("Usage: /skill [list | info <name> | run <name> [args] | reload]")
+                continue
+
             if user_input in {"/clear", "/cls"}:
+
                 renderer.clear()
                 continue
 
@@ -938,7 +1033,7 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print("Usage: /goal <task description>")
                     continue
                 goal_text = parts[1].strip()
-                loop_summary: str | None = None
+                loop_summary = None
                 try:
                     with renderer.status_spinner("Running autonomous goal loop..."):
                         async for event in session.run_loop(goal_text):

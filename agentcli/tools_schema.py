@@ -395,7 +395,34 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             },
         },
     },
+    SubAgentType.SKILL_RUNNER.value: {
+        "type": "function",
+        "function": {
+            "name": "skill_runner",
+            "description": "Discover, inspect, and execute custom skills and multi-stage workflow recipes from .agentcli/skills/",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "info", "run", "reload"],
+                        "description": "Action to perform: 'list' available skills, 'info' on a skill, 'run' a skill recipe, or 'reload' skills from disk",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Skill name (required for 'info' and 'run' actions)",
+                    },
+                    "args": {
+                        "type": "object",
+                        "description": "Input parameters dict passed to the skill prompt template",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
 }
+
 
 
 def get_tool_definitions(

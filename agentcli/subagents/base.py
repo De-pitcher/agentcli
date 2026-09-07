@@ -40,6 +40,8 @@ class SubAgentType(str, Enum):
     TASK_MANAGER = "task_manager"
     ASK_QUESTION = "ask_question"
     DIAGNOSTICS_CHECK = "diagnostics_check"
+    SKILL_RUNNER = "skill_runner"
+
 
 
 class SubAgentStatus(str, Enum):

@@ -31,6 +31,7 @@ from ..subagents.diagnostics import DiagnosticsAgent
 from ..subagents.file_ops import FileOpsAgent
 from ..subagents.grep_search import GrepSearchAgent
 from ..subagents.shell import ShellExecutionAgent
+from ..subagents.skill_runner import SkillRunnerAgent
 from ..subagents.task_manager import TaskManagerAgent
 from ..subagents.web_fetch import WebFetchAgent
 from ..subagents.web_search import WebSearchAgent
@@ -230,6 +231,10 @@ class ToolRegistry:
         self.register(
             SubAgentType.DIAGNOSTICS_CHECK.value, lambda: DiagnosticsAgent(config=diag_cfg)
         )
+        self.register(
+            SubAgentType.SKILL_RUNNER.value, lambda: SkillRunnerAgent()
+        )
+
 
     @staticmethod
     def _safe_type(agent_type: str) -> SubAgentType:
