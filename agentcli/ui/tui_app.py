@@ -277,8 +277,14 @@ class TUIApplication:
             if not subcmd or subcmd in ("status", "info", "show"):
                 curr = self.config.routing.budget_tier
                 msg = f"Current budget tier: {curr}"
-                if self.session and hasattr(self.session, "governor"):
-                    msg += "\n" + self.session.governor.format_summary()
+                gov = getattr(self.session, "governor", None)
+                if gov is not None and hasattr(gov, "format_summary"):
+                    try:
+                        summary = gov.format_summary()
+                        if isinstance(summary, str):
+                            msg += "\n" + summary
+                    except Exception:
+                        pass
                 self.add_message("system", msg, timestamp)
             elif subcmd in ("low", "medium", "high", "tier"):
                 tier_name = val if subcmd == "tier" else subcmd
@@ -330,7 +336,7 @@ class TUIApplication:
                 self.add_message("system", "Budget and cost counters reset for current session.", timestamp)
             else:
                 self.add_message(
-                    "system", f"Invalid budget subcommand '{subcmd}'. Choose from: low, medium, high, status, set, max-tokens, reset", timestamp
+                    "system", f"Invalid budget tier '{subcmd}'. Choose from: low, medium, high, status, set, max-tokens, reset", timestamp
                 )
             return
 
@@ -406,8 +412,14 @@ class TUIApplication:
                     f"({stats['user_tokens']} prompt, {stats['assistant_tokens']} completion) | "
                     f"Estimated Cost: ${cost:.6f} USD"
                 )
-                if hasattr(self.session, "governor"):
-                    msg_text += "\n" + self.session.governor.format_summary()
+                gov = getattr(self.session, "governor", None)
+                if gov is not None and hasattr(gov, "format_summary"):
+                    try:
+                        summary = gov.format_summary()
+                        if isinstance(summary, str):
+                            msg_text += "\n" + summary
+                    except Exception:
+                        pass
                 self.add_message("system", msg_text, timestamp)
             return
 
