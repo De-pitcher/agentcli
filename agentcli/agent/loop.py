@@ -32,7 +32,10 @@ from ..openrouter_client import OpenRouterError, RateLimitedError
 from ..routing.router import Router
 from ..subagents.base import SubAgentResult, SubAgentTask, SubAgentType
 from ..subagents.planner import PlannerAgent
+from .drift_detector import DriftSeverity, PlanDriftDetector
 from .events import (
+    AutoHealingRollbackEvent,
+    DriftDetectedEvent,
     FinishEvent,
     LoopErrorEvent,
     LoopEvent,
@@ -40,12 +43,15 @@ from .events import (
     ReflectEvent,
     StepResultEvent,
     StepStartEvent,
+    StrategyRecoveryEvent,
 )
 from .protocols import ExecutorProtocol, PlannerProtocol, ReflectorProtocol
 from .reflector import DefaultReflector, LLMReflector, ReflectDecision, ReflectOutcome
 from .registry import ToolRegistry
+from .rollback import AutoHealingManager
 
 logger = logging.getLogger(__name__)
+
 
 
 class LoopIterationLimitError(Exception):
@@ -82,6 +88,8 @@ class AgentLoop:
         run_id: str | None = None,
         initial_context: str | None = None,
         max_cost_usd: float | None = None,
+        drift_detector: PlanDriftDetector | None = None,
+        auto_healing: AutoHealingManager | None = None,
     ) -> None:
         from ..files import expand_file_references
 
@@ -114,6 +122,14 @@ class AgentLoop:
         self.max_cost_usd = max_cost_usd
         self.cumulative_cost_usd: float = 0.0
 
+        self.drift_detector = (
+            drift_detector if drift_detector is not None else PlanDriftDetector()
+        )
+        self.auto_healing = (
+            auto_healing if auto_healing is not None else AutoHealingManager()
+        )
+        self._recovery_guidance: str | None = None
+
         # If using default PlannerAgent, pass config for LLM-based planning
         if self._config is not None and isinstance(self.planner, PlannerAgent):
             self.planner._set_config(self._config)
@@ -121,6 +137,7 @@ class AgentLoop:
         self._all_results: list[SubAgentResult] = []
         self._running_tasks: list[asyncio.Task[Any]] = []
         self._start_time: float | None = None
+
 
     def cancel(self) -> None:
         """Explicitly cancel in-flight tasks in this loop run."""
@@ -190,6 +207,21 @@ class AgentLoop:
                     agent_type = step.get("agent_type", SubAgentType.CODE_ANALYZER.value)
                     payload = dict(step.get("payload", {}))
 
+                    # Auto-healing snapshot capture before mutation
+                    step_snapshot_id = ""
+                    path_to_snapshot = (
+                        payload.get("path")
+                        or payload.get("file")
+                        or payload.get("target")
+                    )
+                    if path_to_snapshot and self.auto_healing.is_enabled:
+                        step_snapshot_id = self.auto_healing.take_snapshot(
+                            description=f"Pre-step {step_index + 1} ({agent_type})",
+                            iteration=iteration,
+                            paths=[str(path_to_snapshot)],
+                            metadata={"agent_type": agent_type, "payload": payload},
+                        )
+
                     yield StepStartEvent(
                         iteration=iteration,
                         run_id=self.run_id,
@@ -203,6 +235,27 @@ class AgentLoop:
                     step_duration = time.monotonic() - t0
                     step_results.append(result)
                     self._all_results.append(result)
+
+                    # Record action in drift detector
+                    self.drift_detector.record_action(
+                        iteration=iteration,
+                        step_index=step_index,
+                        agent_type=agent_type,
+                        payload=payload,
+                        success=result.success,
+                        error=result.error,
+                    )
+
+                    if not result.success:
+                        self.auto_healing.record_failure(
+                            result.error or "Step failed",
+                            step_info={"agent_type": agent_type, "payload": payload},
+                        )
+                        if step_snapshot_id:
+                            self.auto_healing.rollback_to_snapshot(step_snapshot_id)
+                    else:
+                        self.auto_healing.reset_consecutive_failures()
+
 
                     # Accumulate estimated step cost if model specified
                     model_used = payload.get("model", "")
@@ -229,6 +282,60 @@ class AgentLoop:
                         result=result,
                         duration_seconds=round(step_duration, 4),
                     )
+
+                    # Evaluate drift and check for loops / consecutive failures
+                    drift_report = self.drift_detector.evaluate_drift(current_plan=current_plan)
+                    if (
+                        drift_report.severity in (DriftSeverity.MODERATE, DriftSeverity.CRITICAL)
+                        or drift_report.is_loop_detected
+                    ):
+                        yield DriftDetectedEvent(
+                            iteration=iteration,
+                            run_id=self.run_id,
+                            drift_score=drift_report.drift_score,
+                            severity=drift_report.severity.value,
+                            is_loop_detected=drift_report.is_loop_detected,
+                            cycle_signature=drift_report.cycle_signature,
+                            reasons=drift_report.reasons,
+                        )
+
+                        if (
+                            drift_report.severity == DriftSeverity.CRITICAL
+                            or drift_report.is_loop_detected
+                            or drift_report.consecutive_failures >= 2
+                        ):
+                            trigger_name = (
+                                "cycle_detected"
+                                if drift_report.is_loop_detected
+                                else (
+                                    "consecutive_errors"
+                                    if drift_report.consecutive_failures >= 2
+                                    else "critical_drift"
+                                )
+                            )
+                            rollback_res = self.auto_healing.rollback_last()
+                            yield AutoHealingRollbackEvent(
+                                iteration=iteration,
+                                run_id=self.run_id,
+                                snapshot_id=rollback_res.get("snapshot_id", ""),
+                                trigger=trigger_name,
+                                reverted_files=rollback_res.get("reverted_files", []),
+                                error=rollback_res.get("error"),
+                            )
+
+                            recovery_prompt = self.auto_healing.synthesize_recovery_prompt(
+                                drift_report=drift_report,
+                                goal=self.goal,
+                            )
+                            self._recovery_guidance = recovery_prompt
+                            yield StrategyRecoveryEvent(
+                                iteration=iteration,
+                                run_id=self.run_id,
+                                strategy_prompt=recovery_prompt,
+                                alternative_actions=drift_report.reasons,
+                                diagnostics=f"Score: {drift_report.drift_score}, Cycle: {drift_report.cycle_signature}",
+                            )
+
 
                     if (
                         self.max_cost_usd is not None
@@ -380,8 +487,13 @@ class AgentLoop:
             )
             context_parts.append("\n".join(feedback_lines))
 
+        if self._recovery_guidance:
+            context_parts.append(self._recovery_guidance)
+            self._recovery_guidance = None
+
         if context_parts:
             payload["context"] = "\n\n".join(context_parts)
+
 
         task = SubAgentTask(
             agent_type=SubAgentType.PLANNER,

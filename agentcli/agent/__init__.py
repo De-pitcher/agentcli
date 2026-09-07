@@ -19,7 +19,15 @@ Public surface:
   LoopIterationLimitError — raised when max_iterations is exceeded
 """
 
+from .drift_detector import (
+    ActionRecord,
+    DriftReport,
+    DriftSeverity,
+    PlanDriftDetector,
+)
 from .events import (
+    AutoHealingRollbackEvent,
+    DriftDetectedEvent,
     FinishEvent,
     LoopErrorEvent,
     LoopEvent,
@@ -27,22 +35,34 @@ from .events import (
     ReflectEvent,
     StepResultEvent,
     StepStartEvent,
+    StrategyRecoveryEvent,
 )
 from .loop import AgentLoop, LoopIterationLimitError
 from .reflector import DefaultReflector, ReflectDecision
 from .registry import ToolRegistry
+from .rollback import AutoHealingManager, HealingSnapshot
 
 __all__ = [
+    "ActionRecord",
     "AgentLoop",
+    "AutoHealingManager",
+    "AutoHealingRollbackEvent",
     "DefaultReflector",
+    "DriftDetectedEvent",
+    "DriftReport",
+    "DriftSeverity",
     "FinishEvent",
+    "HealingSnapshot",
     "LoopErrorEvent",
     "LoopEvent",
     "LoopIterationLimitError",
+    "PlanDriftDetector",
     "PlanEvent",
     "ReflectDecision",
     "ReflectEvent",
     "StepResultEvent",
     "StepStartEvent",
+    "StrategyRecoveryEvent",
     "ToolRegistry",
 ]
+

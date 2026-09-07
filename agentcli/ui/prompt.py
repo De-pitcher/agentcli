@@ -57,6 +57,8 @@ def resolve_slash_command(text: str) -> str:
         "/worktree": "/branch",
         "/wt": "/branch",
         "/branches": "/branch",
+        "/heal": "/healing",
+        "/selfheal": "/healing",
     }
 
     if raw_cmd in aliases:
@@ -74,6 +76,7 @@ def resolve_slash_command(text: str) -> str:
         "/tasks",
         "/skill",
         "/branch",
+        "/healing",
         "/tokens",
         "/cost",
         "/clear",
@@ -92,7 +95,7 @@ def resolve_slash_command(text: str) -> str:
 
 
 class SlashAndFileCompleter(Completer):
-    """Completer for slash commands (/models, /model, /undo, /tasks, /skill, /branch, /budget, /history, /exit, etc.), model arguments, and @file references."""
+    """Completer for slash commands (/models, /model, /undo, /tasks, /skill, /branch, /healing, /budget, /history, /exit, etc.), model arguments, and @file references."""
 
     SLASH_COMMANDS: ClassVar[list[tuple[str, str]]] = [
         ("/help", "Show help, slash commands, and shortcuts"),
@@ -106,6 +109,7 @@ class SlashAndFileCompleter(Completer):
         ("/tasks", "List or manage background tasks (/tasks, /tasks kill <id>)"),
         ("/skill", "Run or inspect custom skills and recipes (/skill list, /skill run <name>)"),
         ("/branch", "Manage Git worktrees and sandboxes (/branch list, /branch create <name>)"),
+        ("/healing", "Manage self-healing, drift detection, and auto-rollback (/healing status, /healing rollback)"),
         ("/tokens", "Show current session token usage breakdown"),
         ("/cost", "Show current session estimated cost"),
         ("/clear", "Clear terminal screen"),
@@ -126,7 +130,10 @@ class SlashAndFileCompleter(Completer):
         "/worktree": "/branch",
         "/wt": "/branch",
         "/branches": "/branch",
+        "/heal": "/healing",
+        "/selfheal": "/healing",
     }
+
 
 
     def __init__(self) -> None:
@@ -246,6 +253,24 @@ class SlashAndFileCompleter(Completer):
                             display_meta=f"[WORKTREE] {wt.path}",
                         )
             return
+
+        # Complete healing arguments after /healing or /heal
+        if text.startswith(("/healing ", "\\healing ", "/heal ", "\\heal ")):
+            arg = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else ""
+            arg_lower = arg.lower()
+
+            healing_actions = [
+                ("status", "[ACTION] Show self-healing, drift detector, and snapshot status"),
+                ("rollback", "[ACTION] Revert last or specific snapshot (/healing rollback [id])"),
+                ("reset", "[ACTION] Reset drift history, failure counters, and snapshots"),
+                ("enable", "[ACTION] Enable auto-healing snapshots and rollbacks"),
+                ("disable", "[ACTION] Disable auto-healing snapshots and rollbacks"),
+            ]
+            for act, desc in healing_actions:
+                if act.startswith(arg_lower):
+                    yield Completion(act, start_position=-len(arg), display_meta=desc)
+            return
+
 
 
         # Complete slash commands at the start of input (support both / and \)

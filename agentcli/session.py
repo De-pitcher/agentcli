@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from .agent.checkpoints import CheckpointManager
+from .agent.drift_detector import PlanDriftDetector
 from .agent.events import LoopEvent
 from .agent.loop import AgentLoop, is_agentic_task
 from .agent.registry import ToolRegistry
+from .agent.rollback import AutoHealingManager
 from .agent.tasks import TaskManager
 from .config import Config
 from .files import load_agents_md
@@ -120,10 +122,13 @@ class AgentSession:
         self.router: Router | None = None
         self.mcp_manager: MCPClientManager = MCPClientManager(config=self.config)
         self.checkpoint_manager: CheckpointManager = CheckpointManager()
+        self.auto_healing: AutoHealingManager = AutoHealingManager()
+        self.drift_detector: PlanDriftDetector = PlanDriftDetector()
         self.task_manager: TaskManager = TaskManager()
         self.skill_engine: SkillEngine = SkillEngine()
         self.worktree_manager: WorktreeManager = WorktreeManager()
         self.active_worktree_path: Path | None = None
+
 
 
         if config.routing.enabled:
@@ -451,7 +456,10 @@ class AgentSession:
             run_id=run_id,
             initial_context=initial_context,
             max_cost_usd=max_cost,
+            drift_detector=self.drift_detector,
+            auto_healing=self.auto_healing,
         )
+
 
         try:
             async for event in loop.run():
