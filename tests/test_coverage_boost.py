@@ -123,6 +123,7 @@ async def test_web_search_agent_branches(monkeypatch: pytest.MonkeyPatch) -> Non
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.raise_for_status = MagicMock()
+    mock_response.text = '<a class="result__snippet" href="https://example.com/1">Summary 1</a>'
     mock_response.json.return_value = {
         "results": [
             {"title": "Result 1", "url": "https://example.com/1", "content": "Summary 1"},
@@ -132,6 +133,7 @@ async def test_web_search_agent_branches(monkeypatch: pytest.MonkeyPatch) -> Non
 
     mock_client = AsyncMock()
     mock_client.get.return_value = mock_response
+    mock_client.post.return_value = mock_response
 
     # Test running search with mock client
     t_search = SubAgentTask(
@@ -334,12 +336,13 @@ async def test_session_step_budget_and_prompt(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.asyncio
-async def test_session_auto_ground_workspace(tmp_path: Path) -> None:
+async def test_session_auto_ground_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test auto_ground_workspace when git repo is discovered or missing."""
     from agentcli.config import Config
     from agentcli.session import AgentSession
     from agentcli.subagents.base import SubAgentResult, SubAgentType
 
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     config = Config()
     session = AgentSession(config=config, forced_model="google/gemma-4-31b-it:free")
 
@@ -399,6 +402,73 @@ def test_worktree_corrupted_meta_file(tmp_path: Path) -> None:
     assert wt_mgr.is_git_repo() is False
     assert wt_mgr.list_worktrees() == []
     assert wt_mgr.get_worktree("nonexistent") is None
+
+    # Test get_current_branch fallback when git fails
+    with patch.object(wt_mgr, "_run_git") as mock_git:
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_git.return_value = mock_proc
+        assert wt_mgr.get_current_branch() == "main"
+
+
+@pytest.mark.asyncio
+async def test_worktree_agent_exception_handling(tmp_path: Path) -> None:
+    """Test WorktreeAgent graceful error return when WorktreeManager raises an unhandled exception."""
+    from agentcli.subagents.base import SubAgentTask, SubAgentType
+    from agentcli.subagents.worktree import WorktreeAgent
+
+    agent = WorktreeAgent(workspace_dir=tmp_path)
+    with patch.object(agent.manager, "create_worktree", side_effect=RuntimeError("disk full")):
+        task = SubAgentTask(
+            agent_type=SubAgentType.WORKTREE,
+            payload={"action": "create", "branch": "test-branch"},
+        )
+        res = await agent.run(task)
+        assert res.success is False
+        assert "disk full" in (res.error or "")
+
+
+@pytest.mark.asyncio
+async def test_code_analyzer_llm_execution(tmp_path: Path) -> None:
+    """Test CodeAnalyzerAgent LLM path and exception fallback."""
+    from agentcli.config import Config
+    from agentcli.subagents.base import SubAgentTask, SubAgentType
+    from agentcli.subagents.code_analyzer import CodeAnalyzerAgent
+
+    agent = CodeAnalyzerAgent()
+    agent._set_config(Config())
+    sample_file = tmp_path / "mod.py"
+    sample_file.write_text("def test(): pass\n", encoding="utf-8")
+
+    # 1. Successful LLM stream
+    async def mock_stream(*args, **kwargs):
+        yield "Code quality is "
+        yield "excellent."
+
+    mock_client = MagicMock()
+    mock_client.chat_stream = mock_stream
+
+    task = SubAgentTask(
+        agent_type=SubAgentType.CODE_ANALYZER,
+        payload={
+            "files": [str(sample_file)],
+            "focus": "security",
+            "model": "google/gemma-4-31b-it:free",
+        },
+    )
+
+    with patch.object(agent, "_get_client", new_callable=AsyncMock) as mock_get_client:
+        mock_get_client.return_value = mock_client
+        res = await agent.run(task)
+        assert res.success is True
+        assert "excellent" in res.output["analysis"]
+
+    # 2. LLM error fallback
+    with patch.object(agent, "_get_client", side_effect=RuntimeError("connection refused")):
+        res_err = await agent.run(task)
+        assert res_err.success is False
+        assert "LLM analysis failed" in (res_err.error or "")
+
 
 
 
