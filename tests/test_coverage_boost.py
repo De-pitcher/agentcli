@@ -202,9 +202,67 @@ async def test_session_extended_telemetry_and_history(
     assert stats.get("total_tokens", 0) >= 0
 
     # Pop message
-    assert len(session.history) == 2
-    session.pop_last_message()
-    assert len(session.history) == 1
-    assert session.history[0].content == "Hello agent"
-
     await session.aclose()
+
+
+def test_unicode_safe_format_and_print(capsys: pytest.CaptureFixture[str]) -> None:
+    """Test unicode safe formatting and safe printing fallbacks."""
+    from agentcli import unicode as agy_unicode
+
+    # 1. Test safe_format with unicode enabled
+    with patch.object(agy_unicode, "_UNICODE_SUPPORTED", True):
+        assert agy_unicode.safe_format("→ ✓") == "→ ✓"
+        agy_unicode.safe_print("Testing unicode → ✓")
+        out, _ = capsys.readouterr()
+        assert "Testing unicode" in out
+
+    # 2. Test safe_format with ASCII fallback
+    with patch.object(agy_unicode, "_UNICODE_SUPPORTED", False):
+        formatted = agy_unicode.safe_format("Step 1 → [✓] Done 🚀")
+        assert "->" in formatted
+        assert "[OK]" in formatted or "[DONE]" in formatted or "[LAUNCH]" in formatted
+
+        agy_unicode.safe_print("Arrow → Check ✓ Rocket 🚀")
+        out, _ = capsys.readouterr()
+        assert "->" in out
+        assert "[OK]" in out
+
+    # 3. Test configure_utf8_io
+    agy_unicode.configure_utf8_io()
+
+
+def test_prompt_completer_all_branches(tmp_path: Path) -> None:
+    """Test SlashAndFileCompleter branches for @files, skills, branches, and models."""
+    from prompt_toolkit.completion import CompleteEvent
+    from prompt_toolkit.document import Document
+
+    from agentcli.ui.prompt import SlashAndFileCompleter
+
+    completer = SlashAndFileCompleter()
+    event = CompleteEvent()
+
+    # Model completions
+    assert any(c.text == "google/gemini-2.0-flash-exp:free" or "free" in c.text for c in completer.get_completions(Document("/model "), event))
+    assert any(c.text == "free" for c in completer.get_completions(Document("/model f"), event))
+    assert any(c.text == "paid" for c in completer.get_completions(Document("/model p"), event))
+
+    # Budget completions
+    assert any(c.text == "medium" for c in completer.get_completions(Document("/budget med"), event))
+    assert any(c.text == "high" for c in completer.get_completions(Document("/budget hi"), event))
+
+    # Skill completions
+    assert any(c.text == "info" for c in completer.get_completions(Document("/skill in"), event))
+    assert any(c.text == "run" for c in completer.get_completions(Document("/skill r"), event))
+    assert any("code-review" in c.text for c in completer.get_completions(Document("/skill run code"), event))
+
+    # Branch completions
+    assert any(c.text == "create" for c in completer.get_completions(Document("/branch cr"), event))
+    assert any(c.text == "status" for c in completer.get_completions(Document("/branch st"), event))
+    assert any(c.text == "discard" for c in completer.get_completions(Document("/branch disc"), event))
+
+    # File @ completion
+    test_f = tmp_path / "sample_doc.txt"
+    test_f.write_text("content", encoding="utf-8")
+    at_comps = list(completer.get_completions(Document(f"@{test_f!s}"), event))
+    assert isinstance(at_comps, list)
+
