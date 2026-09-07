@@ -421,6 +421,45 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             },
         },
     },
+    "worktree": {
+        "type": "function",
+        "function": {
+            "name": "worktree",
+            "description": "Create, list, diff, merge, and discard isolated Git worktrees for safe sandboxed development and refactoring",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["create", "list", "status", "diff", "merge", "discard", "prune"],
+                        "description": "Action to perform: create sandbox worktree, list active worktrees, check status/dirty files, show unified diff, merge to base branch, discard worktree, or prune stale checkouts",
+                    },
+                    "branch": {
+                        "type": "string",
+                        "description": "Branch name for the worktree sandbox (required for create, status, diff, merge, discard)",
+                    },
+                    "base_ref": {
+                        "type": "string",
+                        "description": "Base branch or commit to branch off (defaults to current branch/HEAD)",
+                    },
+                    "strategy": {
+                        "type": "string",
+                        "enum": ["squash", "merge"],
+                        "description": "Merge strategy when merging worktree back into target branch (default: squash)",
+                    },
+                    "commit_message": {
+                        "type": "string",
+                        "description": "Commit message for squash merge or auto-commit",
+                    },
+                    "delete_branch": {
+                        "type": "boolean",
+                        "description": "Whether to delete the git branch when discarding worktree (default: false)",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
 }
 
 

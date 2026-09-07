@@ -579,6 +579,68 @@ class TUIApplication:
                 self.add_message("system", "No active session skill engine available.", timestamp)
             return
 
+        if cmd in ("/branch", "/worktree", "/wt"):
+            parts = text.split(maxsplit=2)
+            subcmd = parts[1].lower() if len(parts) > 1 else "list"
+            target = parts[2].strip() if len(parts) > 2 else ""
+
+            if self.session and hasattr(self.session, "worktree_manager"):
+                wt_mgr = self.session.worktree_manager
+                if subcmd in ("list", "ls") or len(parts) == 1:
+                    wts = wt_mgr.list_worktrees()
+                    if not wts:
+                        self.add_message("system", "No active Git worktrees. Create with /branch create <name>", timestamp)
+                    else:
+                        lines = [f"Active Worktrees ({len(wts)}):"]
+                        for wt in wts:
+                            lines.append(f"  • [{wt.status.upper()}] {wt.branch} -> {wt.path} (base: {wt.base_ref})")
+                        self.add_message("system", "\n".join(lines), timestamp)
+                elif subcmd in ("create", "add", "new"):
+                    if not target:
+                        self.add_message("system", "Usage: /branch create <branch_name> [base_ref]", timestamp)
+                    else:
+                        c_parts = target.split(maxsplit=1)
+                        b_name = c_parts[0].strip()
+                        b_base = c_parts[1].strip() if len(c_parts) > 1 else None
+                        try:
+                            meta = wt_mgr.create_worktree(b_name, base_ref=b_base)
+                            self.add_message(
+                                "system",
+                                f"Created worktree for '{meta.branch}' at {meta.path} (base: {meta.base_ref})",
+                                timestamp,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            self.add_message("system", f"Error creating worktree: {exc}", timestamp)
+                elif subcmd == "diff":
+                    target_b = target or (wt_mgr.list_worktrees()[0].branch if wt_mgr.list_worktrees() else "")
+                    if not target_b:
+                        self.add_message("system", "Usage: /branch diff <branch_name>", timestamp)
+                    else:
+                        try:
+                            diff_res = wt_mgr.compute_diff(target_b)
+                            msg = diff_res if diff_res.strip() else f"No diff for sandbox '{target_b}'."
+                            self.add_message("system", f"--- Diff for {target_b} ---\n{msg}", timestamp)
+                        except Exception as exc:  # noqa: BLE001
+                            self.add_message("system", f"Error computing diff: {exc}", timestamp)
+                elif subcmd in ("discard", "delete", "remove"):
+                    if not target:
+                        self.add_message("system", "Usage: /branch discard <branch_name>", timestamp)
+                    else:
+                        removed = wt_mgr.remove_worktree(target, force=True, delete_branch=True)
+                        if removed:
+                            self.add_message("system", f"Pruned and discarded worktree '{target}'.", timestamp)
+                        else:
+                            self.add_message("system", f"Failed to remove worktree '{target}'.", timestamp)
+                else:
+                    self.add_message(
+                        "system",
+                        "Usage: /branch [list | create <name> | diff <name> | merge <name> | discard <name> | prune]",
+                        timestamp,
+                    )
+            else:
+                self.add_message("system", "Worktree manager not available in active session.", timestamp)
+            return
+
         if cmd == "/goal":
 
             parts = text.split(maxsplit=1)

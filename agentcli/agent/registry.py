@@ -36,6 +36,7 @@ from ..subagents.task_manager import TaskManagerAgent
 from ..subagents.web_fetch import WebFetchAgent
 from ..subagents.web_search import WebSearchAgent
 from ..subagents.workspace import WorkspaceAgent
+from ..subagents.worktree import WorktreeAgent
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +234,9 @@ class ToolRegistry:
         )
         self.register(
             SubAgentType.SKILL_RUNNER.value, lambda: SkillRunnerAgent()
+        )
+        self.register(
+            SubAgentType.WORKTREE.value, lambda: WorktreeAgent()
         )
 
 

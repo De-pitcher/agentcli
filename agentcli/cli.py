@@ -1016,6 +1016,97 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print("Usage: /skill [list | info <name> | run <name> [args] | reload]")
                 continue
 
+            if user_input.startswith(("/branch", "/worktree", "/wt")):
+                branch_parts = user_input.split(maxsplit=2)
+                branch_subcmd = branch_parts[1].lower() if len(branch_parts) > 1 else "list"
+                target_branch = branch_parts[2].strip() if len(branch_parts) > 2 else ""
+
+                if branch_subcmd in ("list", "ls") or len(branch_parts) == 1:
+                    wts = session.worktree_manager.list_worktrees()
+                    if not wts:
+                        print("\nNo active Git worktrees. Create one with: /branch create <branch-name>\n")
+                    else:
+                        print(f"\n--- Active Git Worktrees ({len(wts)}) ---")
+                        for wt in wts:
+                            status_badge = f"[{wt.status.upper()}]"
+                            print(f"  {status_badge} {wt.branch} -> {wt.path} (base: {wt.base_ref})")
+                        print("------------------------------------------\n")
+                        print("Actions: /branch diff <name> | /branch merge <name> | /branch discard <name>\n")
+                elif branch_subcmd in ("create", "add", "new"):
+                    if not target_branch:
+                        print("Usage: /branch create <branch_name> [base_ref]")
+                    else:
+                        create_parts = target_branch.split(maxsplit=1)
+                        b_name = create_parts[0].strip()
+                        b_base = create_parts[1].strip() if len(create_parts) > 1 else None
+                        try:
+                            meta = session.worktree_manager.create_worktree(b_name, base_ref=b_base)
+                            print(f"\nCreated sandboxed worktree for branch '{meta.branch}'\n  Location: {meta.path}\n  Base Ref: {meta.base_ref}\n")
+                        except Exception as exc:  # noqa: BLE001
+                            print(f"Error creating worktree: {exc}")
+                elif branch_subcmd in ("status", "info"):
+                    target = target_branch or session.worktree_manager.get_current_branch()
+                    try:
+                        st = session.worktree_manager.get_worktree_status(target)
+                        print(f"\nWorktree Sandbox Status: {st['branch']}")
+                        print(f"  Path: {st['path']}")
+                        print(f"  Dirty: {'Yes' if st['dirty'] else 'No'} ({st['changes_count']} change(s))")
+                        if st["changes"]:
+                            print("  Modified files:")
+                            for ch in st["changes"]:
+                                print(f"    - {ch}")
+                        print()
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"Error checking worktree status: {exc}")
+                elif branch_subcmd == "diff":
+                    target = target_branch
+                    if not target:
+                        wts = session.worktree_manager.list_worktrees()
+                        target = wts[0].branch if wts else ""
+                    if not target:
+                        print("Usage: /branch diff <branch_name>")
+                    else:
+                        try:
+                            diff_out = session.worktree_manager.compute_diff(target)
+                            if not diff_out.strip():
+                                print(f"No differences between sandbox '{target}' and base.")
+                            else:
+                                print(f"\n--- Unified Diff for Sandbox '{target}' ---")
+                                print(diff_out)
+                                print("------------------------------------------\n")
+                        except Exception as exc:  # noqa: BLE001
+                            print(f"Error computing diff: {exc}")
+                elif branch_subcmd == "merge":
+                    if not target_branch:
+                        print("Usage: /branch merge <branch_name> [strategy: squash|merge]")
+                    else:
+                        m_parts = target_branch.split(maxsplit=1)
+                        b_name = m_parts[0].strip()
+                        strategy = m_parts[1].strip() if len(m_parts) > 1 else "squash"
+                        try:
+                            merge_res = session.worktree_manager.merge_worktree(b_name, strategy=strategy)
+                            if merge_res.get("success"):
+                                print(f"\nSuccessfully merged worktree '{b_name}' into target ({merge_res.get('strategy')})\n")
+                            else:
+                                print(f"\nMerge failed: {merge_res.get('error')}\n")
+                        except Exception as exc:  # noqa: BLE001
+                            print(f"Error merging worktree: {exc}")
+                elif branch_subcmd in ("discard", "delete", "remove"):
+                    if not target_branch:
+                        print("Usage: /branch discard <branch_name>")
+                    else:
+                        removed = session.worktree_manager.remove_worktree(target_branch, force=True, delete_branch=True)
+                        if removed:
+                            print(f"Pruned and discarded worktree '{target_branch}'.")
+                        else:
+                            print(f"Failed to find or remove worktree '{target_branch}'.")
+                elif branch_subcmd == "prune":
+                    pruned = session.worktree_manager.prune_all()
+                    print(f"Pruned {pruned} orphan worktree reference(s).")
+                else:
+                    print("Usage: /branch [list | create <name> | status <name> | diff <name> | merge <name> | discard <name> | prune]")
+                continue
+
             if user_input in {"/clear", "/cls"}:
 
                 renderer.clear()

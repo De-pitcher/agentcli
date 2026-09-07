@@ -41,6 +41,7 @@ class SubAgentType(str, Enum):
     ASK_QUESTION = "ask_question"
     DIAGNOSTICS_CHECK = "diagnostics_check"
     SKILL_RUNNER = "skill_runner"
+    WORKTREE = "worktree"
 
 
 

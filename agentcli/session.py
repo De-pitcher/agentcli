@@ -26,6 +26,7 @@ from .routing.classifier import classify
 from .routing.registry import ModelRegistry
 from .routing.router import Router
 from .skills.engine import SkillEngine
+from .worktree.manager import WorktreeManager
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,8 @@ class AgentSession:
         self.checkpoint_manager: CheckpointManager = CheckpointManager()
         self.task_manager: TaskManager = TaskManager()
         self.skill_engine: SkillEngine = SkillEngine()
+        self.worktree_manager: WorktreeManager = WorktreeManager()
+        self.active_worktree_path: Path | None = None
 
 
         if config.routing.enabled:

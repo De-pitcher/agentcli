@@ -20,6 +20,7 @@ from .task_manager import TaskManagerAgent
 from .web_fetch import HTMLToMarkdownConverter, WebFetchAgent, html_to_markdown
 from .web_search import WebSearchAgent
 from .workspace import WorkspaceAgent
+from .worktree import WorktreeAgent
 
 __all__ = [
     "AgentVote",
@@ -41,7 +42,6 @@ __all__ = [
     "ShellExecutionAgent",
     "SkillRunnerAgent",
     "SubAgent",
-
     "SubAgentPool",
     "SubAgentResult",
     "SubAgentSpawner",
@@ -51,5 +51,6 @@ __all__ = [
     "WebFetchAgent",
     "WebSearchAgent",
     "WorkspaceAgent",
+    "WorktreeAgent",
     "html_to_markdown",
 ]
