@@ -339,3 +339,247 @@ def test_slash_completer_budget_completions() -> None:
     assert "low" in comps
     assert "medium" in comps
     assert "high" in comps
+
+
+def test_adaptive_compressor_edge_cases_and_metrics() -> None:
+    """Test all edge cases and helper methods in AdaptiveContextCompressor."""
+    from agentcli.memory.adaptive_compressor import CompressionMetrics
+
+    # Test CompressionMetrics
+    metrics = CompressionMetrics()
+    assert metrics.compression_ratio == 1.0
+    assert metrics.tokens_saved == 0
+    d = metrics.to_dict()
+    assert d["runs_count"] == 0
+    assert d["compression_ratio"] == 1.0
+
+    compressor = AdaptiveContextCompressor(keep_recent_turns=2)
+
+    # Empty content tool output
+    assert compressor.compress_tool_output("") == ""
+    assert compressor.compress([], max_context_tokens=100) == []
+    assert compressor.compress_tier2([]) == []
+    t3_empty = compressor.compress_tier3_emergency([])
+    assert len(t3_empty) >= 1
+    assert "Emergency Context Budget Reset" in (t3_empty[0].content or "")
+
+    # Small history fits budget immediately
+    short_history = [
+        ChatMessage(role="user", content="hello"),
+        ChatMessage(role="assistant", content="hi"),
+    ]
+    res = compressor.compress(short_history, max_context_tokens=10000)
+    assert res == short_history
+
+    # compress_tier2 with short history (<= recent_msg_count) without and with system msg
+    assert compressor.compress_tier2(short_history) == short_history
+    sys_short = [ChatMessage(role="system", content="sys"), *short_history]
+    assert compressor.compress_tier2(sys_short) == sys_short
+
+    # compress_tier2 with long history and long message previews (>140 chars)
+    long_msg = "x" * 200
+    older = [ChatMessage(role="user", content=long_msg), ChatMessage(role="assistant", content=long_msg)]
+    recent = [
+        ChatMessage(role="user", content="recent 1"),
+        ChatMessage(role="assistant", content="recent 2"),
+        ChatMessage(role="user", content="recent 3"),
+        ChatMessage(role="assistant", content="recent 4"),
+    ]
+    t2_res = compressor.compress_tier2([ChatMessage(role="system", content="sys"), *older, *recent], keep_recent=2)
+    assert len(t2_res) == 1 + 1 + 4  # sys + summary + 4 recent
+    assert "..." in (t2_res[1].content or "")
+
+    # compress_tier3_emergency without system message
+    t3_no_sys = compressor.compress_tier3_emergency(
+        older, user_goal="solve bug", touched_files=["a.py", "b.py"]
+    )
+    assert len(t3_no_sys) == 2
+    assert "solve bug" in (t3_no_sys[0].content or "")
+    assert "a.py" in (t3_no_sys[0].content or "")
+
+
+def test_governor_serialization_and_resets() -> None:
+    """Test TokenBudgetGovernor serialization, format summary, and resets."""
+    governor = TokenBudgetGovernor(max_cost_usd=5.0, max_tokens=100_000)
+    governor.record_usage(
+        model="openai/gpt-4o",
+        prompt_tokens=5000,
+        completion_tokens=2000,
+        cached_tokens=1000,
+        agent_type="planner",
+    )
+    governor.record_usage(
+        model="google/gemma-4-31b-it:free",
+        prompt_tokens=1000,
+        completion_tokens=500,
+        agent_type="main",
+    )
+
+    summary = governor.format_summary()
+    assert "Token & Cost Budget" in summary
+    assert "planner" in summary
+    assert "gpt-4o" in summary
+
+    # Reset
+    governor.reset()
+    assert governor.total_tokens == 0
+    assert governor.total_cost_usd == 0.0
+    assert len(governor.records) == 0
+
+
+@pytest.mark.asyncio
+async def test_cli_budget_slash_command_execution(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """Test all /budget subcommand executions through run_chat."""
+    import argparse
+    import os
+    from unittest.mock import patch
+
+    from agentcli.cli import run_chat
+    from agentcli.exit_codes import ExitCode
+
+    inputs = [
+        "/budget",
+        "/budget status",
+        "/budget low",
+        "/budget tier high",
+        "/budget tier invalid_tier",
+        "/budget set $0.50",
+        "/budget set invalid",
+        "/budget set",
+        "/budget max-tokens 50,000",
+        "/budget max-tokens invalid",
+        "/budget max-tokens",
+        "/budget reset",
+        "/cost",
+        "/tokens",
+        "/exit",
+    ]
+
+    class MockPrompt:
+        def __init__(self, *args, **kwargs):
+            self.lines = list(inputs)
+
+        async def get_input_async(self, prompt="you> "):
+            if self.lines:
+                return self.lines.pop(0)
+            return "/exit"
+
+    monkeypatch.setattr("agentcli.cli.InteractivePrompt", MockPrompt)
+
+    args = argparse.Namespace(
+        model=None,
+        file=[],
+        no_agents_md=True,
+        show_model=False,
+        resume=None,
+        allow_write=False,
+        plain=True,
+        no_color=True,
+        budget=None,
+        max_cost=None,
+    )
+    config = Config()
+
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-dummy"}):
+        exit_code = await run_chat(args, config)
+        assert exit_code == ExitCode.SUCCESS
+
+    out, _ = capsys.readouterr()
+    assert "Current budget tier" in out
+    assert "Budget tier updated to: low" in out
+    assert "Budget tier updated to: high" in out
+    assert "Session budget ceiling set to: $0.5000 USD" in out
+    assert "Session token budget ceiling set to: 50,000 tokens" in out
+    assert "Budget and cost counters reset" in out
+    assert "Token Usage" in out
+    assert "Token & Cost Budget" in out
+
+
+@pytest.mark.asyncio
+async def test_tui_phase35_slash_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test TUI handles /budget, /cost, /tokens commands seamlessly."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from agentcli.ui.tui_app import TUIApplication
+
+    session = MagicMock()
+    session.governor = TokenBudgetGovernor(max_cost_usd=1.0)
+    session.cumulative_cost_usd = 0.02
+    session.get_session_stats = AsyncMock(
+        return_value={"total_tokens": 1000, "user_tokens": 600, "assistant_tokens": 400}
+    )
+    session.config = Config()
+    session.registry = None
+    session.router = None
+
+    tui = TUIApplication(config=session.config, session=session)
+    mock_event = MagicMock()
+
+    # 1. /cost
+    await tui._handle_slash_command("/cost", "12:00:00", mock_event)
+    assert any("Token & Cost Budget" in m[1] for m in tui.state.messages)
+
+    # 2. /tokens
+    await tui._handle_slash_command("/tokens", "12:00:01", mock_event)
+    assert any("Token Usage:" in m[1] for m in tui.state.messages)
+
+    # 3. /budget status
+    await tui._handle_slash_command("/budget status", "12:00:02", mock_event)
+
+    # 4. /budget set
+    await tui._handle_slash_command("/budget set $2.50", "12:00:03", mock_event)
+    assert session.governor.max_cost_usd == 2.50
+    assert any("ceiling set to: $2.5000" in m[1] for m in tui.state.messages)
+
+    # 5. /budget max-tokens
+    await tui._handle_slash_command("/budget max-tokens 50000", "12:00:04", mock_event)
+    assert session.governor.max_tokens == 50000
+
+    # 6. /budget reset
+    await tui._handle_slash_command("/budget reset", "12:00:05", mock_event)
+    assert any("counters reset" in m[1] for m in tui.state.messages)
+
+    # 7. /budget tier
+    await tui._handle_slash_command("/budget tier high", "12:00:06", mock_event)
+    assert session.config.routing.budget_tier == "high"
+
+    # 8. /budget invalid
+    await tui._handle_slash_command("/budget invalid_subcommand", "12:00:07", mock_event)
+
+
+def test_adaptive_compressor_all_passes() -> None:
+    """Explicitly verify passes 1, 2, 3, and 4 in AdaptiveContextCompressor.compress()."""
+    compressor = AdaptiveContextCompressor(target_budget_ratio=1.0, keep_recent_turns=2)
+
+    # 1. Pass 1 fit (t1 pruned tool output)
+    compressor_small = AdaptiveContextCompressor(target_budget_ratio=1.0, max_tool_chars=50, keep_recent_turns=2)
+    tool_history = [
+        ChatMessage(role="user", content="run tool"),
+        ChatMessage(role="assistant", content="```tool\n" + ("output\n" * 100) + "```"),
+    ]
+    res_t1 = compressor_small.compress(tool_history, max_context_tokens=80)
+    assert len(res_t1) == 2
+    assert "omitted by context governor" in (res_t1[1].content or "")
+
+    # 2. Pass 2: compress_tier2 with keep_recent=2
+    many_turns = [
+        ChatMessage(role="user" if i % 2 == 0 else "assistant", content=f"turn {i}: " + ("context payload " * 20))
+        for i in range(10)
+    ]
+    t2_direct = compressor.compress_tier2(many_turns, keep_recent=2)
+    assert any("Milestone Context Summary" in (m.content or "") for m in t2_direct)
+    assert len(t2_direct) == 5  # 1 summary + 4 recent
+
+    # 3. Pass 3: compress_tier2 with keep_recent=1
+    t2_tight_direct = compressor.compress_tier2(many_turns, keep_recent=1)
+    assert any("Milestone Context Summary" in (m.content or "") for m in t2_tight_direct)
+    assert len(t2_tight_direct) == 3  # 1 summary + 2 recent
+
+    # 4. Pass 4: Tier 3 emergency reset
+    t3_direct = compressor.compress_tier3_emergency(
+        many_turns, user_goal="Emergency recovery", touched_files=["main.py"]
+    )
+    assert any("Emergency Context Budget Reset" in (m.content or "") for m in t3_direct)
+
+
+
