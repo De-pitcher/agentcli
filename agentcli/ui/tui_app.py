@@ -641,6 +641,51 @@ class TUIApplication:
                 self.add_message("system", "Worktree manager not available in active session.", timestamp)
             return
 
+        if cmd in ("/budget", "/cost", "/tokens"):
+            if self.session and hasattr(self.session, "governor"):
+                parts = text.split(maxsplit=2)
+                subcmd = parts[1].lower() if len(parts) > 1 else "status"
+                val = parts[2].strip() if len(parts) > 2 else ""
+
+                if cmd in ("/cost", "/tokens") or subcmd in ("status", "info", "show") or len(parts) == 1:
+                    self.add_message("system", self.session.governor.format_summary(), timestamp)
+                elif subcmd in ("set", "limit", "max-cost"):
+                    if not val:
+                        self.add_message("system", "Usage: /budget set <amount_usd>", timestamp)
+                    else:
+                        try:
+                            f_val = float(val.lstrip("$"))
+                            self.session.governor.set_budget(max_cost_usd=f_val)
+                            self.add_message("system", f"Session budget ceiling set to: ${f_val:.4f} USD", timestamp)
+                        except ValueError:
+                            self.add_message("system", f"Invalid budget amount: '{val}'.", timestamp)
+                elif subcmd in ("tokens", "max-tokens"):
+                    if not val:
+                        self.add_message("system", "Usage: /budget max-tokens <count>", timestamp)
+                    else:
+                        try:
+                            t_val = int(val.replace(",", ""))
+                            self.session.governor.set_budget(max_tokens=t_val)
+                            self.add_message("system", f"Session token budget ceiling set to: {t_val:,} tokens", timestamp)
+                        except ValueError:
+                            self.add_message("system", f"Invalid token count: '{val}'.", timestamp)
+                elif subcmd in ("reset", "clear"):
+                    self.session.governor.reset()
+                    self.session.cumulative_cost_usd = 0.0
+                    self.add_message("system", "Budget and cost counters reset for current session.", timestamp)
+                elif subcmd in ("low", "medium", "high", "tier"):
+                    tier_name = val if subcmd == "tier" else subcmd
+                    if tier_name in ("low", "medium", "high"):
+                        self.session.config.routing.budget_tier = tier_name
+                        self.add_message("system", f"Budget routing tier switched to: [{tier_name.upper()}]", timestamp)
+                    else:
+                        self.add_message("system", "Usage: /budget tier [low | medium | high]", timestamp)
+                else:
+                    self.add_message("system", "Usage: /budget [status | set <amount> | max-tokens <count> | tier <low|med|high> | reset]", timestamp)
+            else:
+                self.add_message("system", "Budget governor not available in active session.", timestamp)
+            return
+
         if cmd == "/goal":
 
             parts = text.split(maxsplit=1)

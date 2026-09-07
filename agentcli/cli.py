@@ -681,20 +681,51 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                         print("-----------------------------------------------\n")
                 continue
 
-            if user_input.startswith("/budget"):
-                parts = user_input.split(maxsplit=1)
-                if len(parts) == 1:
+            if user_input.startswith(("/budget", "\\budget")):
+                budget_parts = user_input.split(maxsplit=2)
+                budget_subcmd = budget_parts[1].lower() if len(budget_parts) > 1 else ""
+                budget_val = budget_parts[2].strip() if len(budget_parts) > 2 else ""
+
+                if not budget_subcmd or budget_subcmd in ("status", "info", "show"):
                     current_tier = config.routing.budget_tier
                     print(f"Current budget tier: {current_tier}")
-                else:
-                    tier = parts[1].strip().lower()
-                    if tier in {"low", "medium", "high"}:
-                        config.routing.budget_tier = tier
+                    print("\n" + session.governor.format_summary() + "\n")
+                elif budget_subcmd in ("low", "medium", "high", "tier"):
+                    tier_name = budget_val if budget_subcmd == "tier" else budget_subcmd
+                    if tier_name in ("low", "medium", "high"):
+                        config.routing.budget_tier = tier_name
                         if session.router is not None:
-                            session.router._budget_tier = tier
-                        print(f"Budget tier updated to: {tier}")
+                            session.router._budget_tier = tier_name
+                        print(f"Budget tier updated to: {tier_name}")
                     else:
-                        print(f"Invalid budget tier '{tier}'. Choose from: low, medium, high")
+                        print(f"Invalid budget tier '{tier_name}'. Choose from: low, medium, high")
+                elif budget_subcmd in ("set", "limit", "max-cost"):
+                    if not budget_val:
+                        print("Usage: /budget set <amount_usd>")
+                    else:
+                        try:
+                            val = float(budget_val.lstrip("$"))
+                            session.governor.set_budget(max_cost_usd=val)
+                            config.routing.max_cost_usd = val
+                            print(f"Session budget ceiling set to: ${val:.4f} USD")
+                        except ValueError:
+                            print(f"Invalid budget amount: '{budget_val}'. Must be a positive number.")
+                elif budget_subcmd in ("tokens", "max-tokens"):
+                    if not budget_val:
+                        print("Usage: /budget max-tokens <count>")
+                    else:
+                        try:
+                            t_val = int(budget_val.replace(",", ""))
+                            session.governor.set_budget(max_tokens=t_val)
+                            print(f"Session token budget ceiling set to: {t_val:,} tokens")
+                        except ValueError:
+                            print(f"Invalid token count: '{budget_val}'.")
+                elif budget_subcmd in ("reset", "clear"):
+                    session.governor.reset()
+                    session.cumulative_cost_usd = 0.0
+                    print("Budget and cost counters reset for current session.")
+                else:
+                    print(f"Invalid budget tier '{budget_subcmd}'. Choose from: low, medium, high")
                 continue
 
             if user_input in {"/models", "/model"} or user_input.startswith(
@@ -812,7 +843,8 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     f"Token Usage: {stats['total_tokens']} total "
                     f"({stats['user_tokens']} prompt, {stats['assistant_tokens']} completion)"
                 )
-                print(f"Estimated Cost: ${cost:.6f} USD")
+                print(f"Estimated Cost: ${cost:.6f} USD\n")
+                print(session.governor.format_summary())
                 continue
 
             if user_input in {"/diff", "/diffs"}:
