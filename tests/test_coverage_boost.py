@@ -470,5 +470,162 @@ async def test_code_analyzer_llm_execution(tmp_path: Path) -> None:
         assert "LLM analysis failed" in (res_err.error or "")
 
 
+@pytest.mark.asyncio
+async def test_workspace_agent_full_coverage(tmp_path: Path) -> None:
+    """Test WorkspaceAgent branches including list_tree, git_branch, and grep."""
+    from agentcli.subagents.base import SubAgentTask, SubAgentType
+    from agentcli.subagents.workspace import WorkspaceAgent
+
+    agent = WorkspaceAgent()
+    d1 = tmp_path / "src"
+    d1.mkdir()
+    (d1 / "app.py").write_text("print('hello world')\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("# Test Repo\n", encoding="utf-8")
+
+    # 1. list_tree
+    task_tree = SubAgentTask(
+        agent_type=SubAgentType.WORKSPACE,
+        payload={"operation": "list_tree", "path": str(tmp_path), "max_depth": 3},
+    )
+    res_tree = await agent.run(task_tree)
+    assert res_tree.success is True
+    assert any("app.py" in line for line in res_tree.output["tree"])
+
+    # 2. search_code
+    task_search = SubAgentTask(
+        agent_type=SubAgentType.WORKSPACE,
+        payload={"operation": "search_code", "query": "hello", "path": str(tmp_path)},
+    )
+    res_search = await agent.run(task_search)
+    assert res_search.success is True
+    assert res_search.output["total_matches"] >= 1
+
+    # 3. git_branch list / create
+    task_git_list = SubAgentTask(
+        agent_type=SubAgentType.WORKSPACE,
+        payload={"operation": "git_branch", "action": "list", "path": str(tmp_path)},
+    )
+    res_git = await agent.run(task_git_list)
+    assert res_git.task_id is not None
+
+    # 4. git_branch missing name
+    task_git_missing = SubAgentTask(
+        agent_type=SubAgentType.WORKSPACE,
+        payload={"operation": "git_branch", "action": "create", "path": str(tmp_path)},
+    )
+    res_git_missing = await agent.run(task_git_missing)
+    assert res_git_missing.success is False
+
+
+@pytest.mark.asyncio
+async def test_spawner_agent_coverage(tmp_path: Path) -> None:
+    """Test SubAgentSpawner pool initialization, task submission, and status."""
+    from collections.abc import Callable
+
+    from agentcli.subagents.base import SubAgent, SubAgentConfig, SubAgentTask, SubAgentType
+    from agentcli.subagents.bus import MessageBus
+    from agentcli.subagents.file_ops import FileOpsAgent
+    from agentcli.subagents.spawner import SubAgentSpawner
+
+    bus = MessageBus()
+    configs: dict[str, SubAgentConfig] = {
+        "file_ops": SubAgentConfig(enabled=True, max_concurrent=2),
+    }
+    factories: dict[str, Callable[[], SubAgent]] = {
+        "file_ops": lambda: FileOpsAgent(),
+    }
+
+    spawner = SubAgentSpawner(config=configs, agent_factories=factories, message_bus=bus)
+    await spawner.start()
+
+    # 1. Valid task submit
+    f = tmp_path / "test.txt"
+    f.write_text("sample content", encoding="utf-8")
+    task = SubAgentTask(
+        agent_type=SubAgentType.FILE_OPS,
+        payload={"operation": "read", "path": str(f)},
+    )
+    res = await spawner.submit_task(SubAgentType.FILE_OPS, task)
+    assert res.success is True
+
+    # 2. Status and resource usage
+    status = await spawner.get_status()
+    assert "file_ops" in status
+    resources = spawner.get_resource_usage()
+    assert "file_ops" in resources
+
+    # 3. Invalid agent type
+    with pytest.raises(ValueError, match="No pool for agent type"):
+        await spawner.submit_task(SubAgentType.PLANNER, task)
+
+    await spawner.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_tui_extended_coverage() -> None:
+    """Test extended TUI handlers: skills, mcp, worktrees, presets, and modals."""
+    from agentcli.config import Config
+    from agentcli.skills.manifest import SkillManifest, SkillParameter
+    from agentcli.ui.tui_app import TUIApplication
+
+    config = Config()
+    mock_session = MagicMock()
+    mock_session.forced_model = "test-model"
+    mock_session.get_session_stats = AsyncMock(return_value={"total_tokens": 100, "user_tokens": 50, "assistant_tokens": 50})
+    mock_session.cumulative_cost_usd = 0.001
+    mock_session.skill_engine = MagicMock()
+    mock_session.skill_engine.list_available_skills.return_value = [
+        {"name": "test_skill", "version": "1.0.0", "description": "Test skill desc", "source_type": "workspace"}
+    ]
+    manifest = SkillManifest(
+        name="test_skill",
+        version="1.0.0",
+        description="Test skill desc",
+        parameters={"query": SkillParameter(name="query", type="string", description="search query")},
+    )
+    mock_session.skill_engine.loader.get_skill.return_value = manifest
+    mock_session.skill_engine.loader.has_skill.return_value = True
+    mock_session.skill_engine.prepare_skill.return_value = (manifest, "rendered goal")
+    mock_session.skill_engine.execute_skill = AsyncMock(return_value={"success": True, "output": "skill done"})
+
+    tui = TUIApplication(config=config, session=mock_session)
+    mock_event = MagicMock()
+
+    # 1. Skills commands
+    await tui._handle_slash_command("/skills", "12:00:00", mock_event)
+    assert any("Available Skills" in m[1] for m in tui.state.messages)
+
+    await tui._handle_slash_command("/skill info test_skill", "12:00:01", mock_event)
+    assert any("Skill [test_skill]" in m[1] for m in tui.state.messages)
+
+    await tui._handle_slash_command("/skill run test_skill query=hello", "12:00:02", mock_event)
+    assert any("/skill run test_skill" in m[1] for m in tui.state.messages)
+
+    # 2. Worktree / branch commands
+    mock_session.worktree_manager = MagicMock()
+    mock_session.worktree_manager.list_worktrees.return_value = []
+    await tui._handle_slash_command("/branch list", "12:00:03", mock_event)
+    assert any("No active Git worktrees" in m[1] for m in tui.state.messages)
+
+    mock_wt = MagicMock()
+    mock_wt.branch = "feat/test"
+    mock_wt.path = "/tmp/wt"
+    mock_wt.base_ref = "main"
+    mock_session.worktree_manager.create_worktree.return_value = mock_wt
+    await tui._handle_slash_command("/branch create feat/test", "12:00:04", mock_event)
+    assert any("Created worktree" in m[1] for m in tui.state.messages)
+
+    mock_session.worktree_manager.compute_diff.return_value = "--- a/file.py\n+++ b/file.py"
+    await tui._handle_slash_command("/branch diff feat/test", "12:00:05", mock_event)
+    assert any("--- Diff for feat/test ---" in m[1] for m in tui.state.messages)
+
+    mock_session.worktree_manager.remove_worktree.return_value = True
+    await tui._handle_slash_command("/branch discard feat/test", "12:00:06", mock_event)
+    assert any("Pruned and discarded" in m[1] for m in tui.state.messages)
+
+
+
+
+
 
 

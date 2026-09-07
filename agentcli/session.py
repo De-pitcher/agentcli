@@ -15,7 +15,9 @@ from .agent.tasks import TaskManager
 from .config import Config
 from .files import load_agents_md
 from .mcp.manager import MCPClientManager
+from .memory.adaptive_compressor import AdaptiveContextCompressor
 from .memory.budget import DEFAULT_CONTEXT_WINDOW, estimate_tokens, trim_history_to_budget
+from .memory.governor import TokenBudgetGovernor
 from .memory.store import MemoryStore
 from .openrouter_client import (
     ChatMessage,
@@ -109,6 +111,11 @@ class AgentSession:
                     self.history.insert(0, ChatMessage(role="system", content=agents_context))
 
         self.cumulative_cost_usd: float = 0.0
+        max_cost = getattr(config.routing, "max_cost_usd", None)
+        self.governor: TokenBudgetGovernor = TokenBudgetGovernor(max_cost_usd=max_cost)
+        self.compressor: AdaptiveContextCompressor = AdaptiveContextCompressor(
+            target_budget_ratio=config.memory.budget_ratio
+        )
         self.registry: ModelRegistry | None = None
         self.router: Router | None = None
         self.mcp_manager: MCPClientManager = MCPClientManager(config=self.config)
@@ -133,18 +140,35 @@ class AgentSession:
         if self.config.mcp_servers:
             await self.mcp_manager.initialize()
 
-    def record_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    def record_cost(
+        self,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cached_tokens: int = 0,
+        agent_type: str = "main",
+    ) -> float:
         """Calculate and accumulate the USD cost for a model invocation."""
-        from .memory.budget import calculate_cost
-
-        cost = calculate_cost(model, prompt_tokens, completion_tokens)
-        self.cumulative_cost_usd += cost
+        cost = self.governor.record_usage(
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cached_tokens=cached_tokens,
+            agent_type=agent_type,
+        )
+        self.cumulative_cost_usd = self.governor.total_cost_usd
         return cost
 
     def is_budget_exceeded(self) -> bool:
         """Check if session cumulative cost has reached or exceeded max_cost_usd."""
-        max_cost = getattr(self.config.routing, "max_cost_usd", None)
-        return bool(max_cost is not None and self.cumulative_cost_usd >= max_cost)
+        max_cost = getattr(self.config.routing, "max_cost_usd", None) or self.governor.max_cost_usd
+        if (
+            max_cost is not None
+            and max_cost > 0
+            and max(self.cumulative_cost_usd, self.governor.total_cost_usd) >= max_cost
+        ):
+            return True
+        return self.governor.is_exceeded()
 
     def close(self) -> None:
         store = getattr(self, "memory_store", None)
@@ -173,18 +197,20 @@ class AgentSession:
         return DEFAULT_CONTEXT_WINDOW
 
     def _trim_history(self, max_context_tokens: int | None = None) -> list[ChatMessage]:
-        """Trim conversation history using dynamic token budget bounded by history_turns."""
+        """Trim conversation history using dynamic token budget and adaptive compression."""
         target_window = (
             max_context_tokens
             if max_context_tokens is not None
             else self._resolve_context_window(self.forced_model)
         )
-        return trim_history_to_budget(
+        trimmed = trim_history_to_budget(
             self.history,
             max_context_tokens=target_window,
             max_turns=self.config.app.history_turns,
             budget_ratio=self.config.memory.budget_ratio,
         )
+        return self.compressor.compress(trimmed, max_context_tokens=target_window)
+
 
     def add_user_message(self, content: str, token_count: int | None = None) -> None:
         self.history.append(ChatMessage(role="user", content=content))

@@ -170,12 +170,16 @@ class SlashAndFileCompleter(Completer):
         if text.startswith(("/budget ", "\\budget ")):
             arg = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else ""
             arg_lower = arg.lower()
-            tier_options = [
+            budget_options = [
+                ("status", "[ACTION] Show budget usage and velocity summary"),
+                ("set", "[ACTION] Set USD budget ceiling (/budget set <amount>)"),
+                ("max-tokens", "[ACTION] Set token ceiling (/budget max-tokens <count>)"),
+                ("reset", "[ACTION] Reset session cost and token counters"),
                 ("low", "[TIER] Free models only"),
                 ("medium", "[TIER] High-efficiency & free models"),
                 ("high", "[TIER] Frontier reasoning & coding models"),
             ]
-            for opt, desc in tier_options:
+            for opt, desc in budget_options:
                 if opt.startswith(arg_lower):
                     yield Completion(opt, start_position=-len(arg), display_meta=desc)
             return
