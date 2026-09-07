@@ -692,6 +692,66 @@ class TUIApplication:
                 self.add_message("system", "Worktree manager not available in active session.", timestamp)
             return
 
+        if cmd in ("/healing", "/heal"):
+            parts = text.split(maxsplit=2)
+            subcmd = parts[1].lower() if len(parts) > 1 else "status"
+            target = parts[2].strip() if len(parts) > 2 else ""
+
+            if self.session and hasattr(self.session, "auto_healing"):
+                healing = self.session.auto_healing
+                detector = self.session.drift_detector
+                if subcmd in ("status", "info"):
+                    status_str = "Enabled" if healing.is_enabled else "Disabled"
+                    report = detector.evaluate_drift()
+                    snaps = healing.list_snapshots()
+                    lines = [
+                        f"Agent Self-Healing [{status_str}]:",
+                        f"  • Drift Severity: {report.severity.value.upper()} (Score: {report.drift_score:.2f})",
+                        f"  • Cycle Detected: {'Yes' if report.is_loop_detected else 'No'}",
+                        f"  • Consecutive Failures: {report.consecutive_failures}",
+                        f"  • Snapshots Available: {len(snaps)}",
+                    ]
+                    if report.cycle_signature:
+                        lines.append(f"  • Cycle Signature: {report.cycle_signature}")
+                    if report.reasons:
+                        lines.append("  • Diagnostics:")
+                        for r in report.reasons:
+                            lines.append(f"      - {r}")
+                    self.add_message("system", "\n".join(lines), timestamp)
+                elif subcmd == "rollback":
+                    res = healing.rollback_to_snapshot(target or None)
+                    if res.get("success"):
+                        reverted = ", ".join(res.get("reverted_files", [])) or "none"
+                        self.add_message(
+                            "system",
+                            f"Rolled back snapshot '{res.get('snapshot_id')}': {reverted}",
+                            timestamp,
+                        )
+                    else:
+                        self.add_message(
+                            "system", f"Rollback failed: {res.get('error')}", timestamp
+                        )
+                elif subcmd == "reset":
+                    healing.reset()
+                    detector.reset()
+                    self.add_message("system", "Self-healing and drift history reset.", timestamp)
+                elif subcmd in ("enable", "on"):
+                    healing.enable()
+                    self.add_message("system", "Auto-healing enabled.", timestamp)
+                elif subcmd in ("disable", "off"):
+                    healing.disable()
+                    self.add_message("system", "Auto-healing disabled.", timestamp)
+                else:
+                    self.add_message(
+                        "system",
+                        "Usage: /healing [status | rollback <id> | reset | enable | disable]",
+                        timestamp,
+                    )
+            else:
+                self.add_message("system", "Auto-healing not available in session.", timestamp)
+            return
+
+
         if cmd in ("/budget", "/cost", "/tokens"):
             if self.session and hasattr(self.session, "governor"):
                 parts = text.split(maxsplit=2)

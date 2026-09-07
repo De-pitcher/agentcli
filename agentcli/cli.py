@@ -1139,7 +1139,58 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     print("Usage: /branch [list | create <name> | status <name> | diff <name> | merge <name> | discard <name> | prune]")
                 continue
 
+            if user_input.startswith(("/healing", "/heal")):
+                h_parts = user_input.split(maxsplit=2)
+                h_subcmd = h_parts[1].lower() if len(h_parts) > 1 else "status"
+                h_target = h_parts[2].strip() if len(h_parts) > 2 else ""
+
+                if h_subcmd in ("status", "info"):
+                    enabled_str = "Enabled" if session.auto_healing.is_enabled else "Disabled"
+                    snaps = session.auto_healing.list_snapshots()
+                    report = session.drift_detector.evaluate_drift()
+                    print(f"\n--- Agent Self-Healing Status [{enabled_str}] ---")
+                    print(f"  Drift Severity: {report.severity.value.upper()} (Score: {report.drift_score:.3f})")
+                    print(f"  Cycle/Loop Detected: {'Yes' if report.is_loop_detected else 'No'}")
+                    if report.cycle_signature:
+                        print(f"  Cycle Signature: {report.cycle_signature}")
+                    print(f"  Consecutive Failures: {report.consecutive_failures}")
+                    print(f"  Total Actions Tracked: {report.total_actions_count} ({report.unique_actions_count} unique)")
+                    print(f"  Active Snapshots: {len(snaps)}")
+                    if report.reasons:
+                        print("  Active Drift Warnings:")
+                        for r in report.reasons:
+                            print(f"    - {r}")
+                    if snaps:
+                        print("  Recent Snapshots:")
+                        for s in snaps[:3]:
+                            print(f"    • [{s['id']}] {s['description']} ({s['file_count']} files)")
+                    print("------------------------------------------------\n")
+                    print("Actions: /healing rollback [id] | /healing reset | /healing [enable|disable]\n")
+                elif h_subcmd == "rollback":
+                    h_target_id: str | None = h_target if h_target else None
+                    h_res: dict[str, Any] = session.auto_healing.rollback_to_snapshot(h_target_id)
+                    if h_res.get("success"):
+                        reverted = ", ".join(h_res.get("reverted_files", [])) or "none"
+                        print(f"\nSuccessfully rolled back snapshot '{h_res.get('snapshot_id')}': {reverted}\n")
+                    else:
+                        print(f"\nRollback failed: {h_res.get('error')}\n")
+
+                elif h_subcmd == "reset":
+                    session.auto_healing.reset()
+                    session.drift_detector.reset()
+                    print("Self-healing and drift detector history reset successfully.")
+                elif h_subcmd in ("enable", "on"):
+                    session.auto_healing.enable()
+                    print("Auto-healing snapshots and rollbacks enabled.")
+                elif h_subcmd in ("disable", "off"):
+                    session.auto_healing.disable()
+                    print("Auto-healing snapshots and rollbacks disabled.")
+                else:
+                    print("Usage: /healing [status | rollback <id> | reset | enable | disable]")
+                continue
+
             if user_input in {"/clear", "/cls"}:
+
 
                 renderer.clear()
                 continue

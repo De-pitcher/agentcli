@@ -71,7 +71,39 @@ class LoopErrorEvent(LoopEvent):
     error: str = ""
 
 
+@dataclass
+class DriftDetectedEvent(LoopEvent):
+    """Emitted when plan drift, oscillation, or action cycles are detected."""
+
+    drift_score: float = 0.0
+    severity: str = "low"  # 'low' | 'moderate' | 'critical'
+    is_loop_detected: bool = False
+    cycle_signature: str | None = None
+    reasons: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AutoHealingRollbackEvent(LoopEvent):
+    """Emitted when auto-healing reverts filesystem changes after failures/drift."""
+
+    snapshot_id: str = ""
+    trigger: str = ""  # 'critical_drift' | 'consecutive_errors' | 'cycle_detected'
+    reverted_files: list[str] = field(default_factory=list)
+    error: str | None = None
+
+
+@dataclass
+class StrategyRecoveryEvent(LoopEvent):
+    """Emitted when a strategy recovery prompt is synthesized for plan correction."""
+
+    strategy_prompt: str = ""
+    alternative_actions: list[str] = field(default_factory=list)
+    diagnostics: str = ""
+
+
 __all__ = [
+    "AutoHealingRollbackEvent",
+    "DriftDetectedEvent",
     "FinishEvent",
     "LoopErrorEvent",
     "LoopEvent",
@@ -79,4 +111,6 @@ __all__ = [
     "ReflectEvent",
     "StepResultEvent",
     "StepStartEvent",
+    "StrategyRecoveryEvent",
 ]
+

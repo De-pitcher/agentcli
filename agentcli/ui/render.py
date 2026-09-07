@@ -160,6 +160,37 @@ class ConsoleRenderer:
                 self.console.print(
                     f"  [magenta]🔍 reflect[/magenta] [bold]{event.decision}[/bold] [dim]— {event.reason}[/dim]"
                 )
+            elif event_name == "DriftDetectedEvent":
+                sev_color = (
+                    "yellow"
+                    if getattr(event, "severity", "") == "moderate"
+                    else ("red" if getattr(event, "severity", "") == "critical" else "dim")
+                )
+                loop_flag = (
+                    " [bold red][CYCLE DETECTED][/bold red]"
+                    if getattr(event, "is_loop_detected", False)
+                    else ""
+                )
+                score_val = getattr(event, "drift_score", 0.0)
+                sev_val = getattr(event, "severity", "low")
+                self.console.print(
+                    f"  [{sev_color}]⚠️ plan drift ({sev_val})[/{sev_color}]{loop_flag} [dim]score: {score_val:.2f}[/dim]"
+                )
+                if verbose and getattr(event, "reasons", None):
+                    for r in event.reasons:
+                        self.console.print(f"    [dim]• {r}[/dim]")
+            elif event_name == "AutoHealingRollbackEvent":
+                reverted = getattr(event, "reverted_files", [])
+                reverted_str = f" ({len(reverted)} file(s) reverted)" if reverted else ""
+                trigger = getattr(event, "trigger", "drift")
+                self.console.print(
+                    f"  [bold yellow]🔄 auto-healing rollback[/bold yellow] [dim]trigger: {trigger}[/dim]{reverted_str}"
+                )
+            elif event_name == "StrategyRecoveryEvent":
+                diag = getattr(event, "diagnostics", "")
+                self.console.print(
+                    f"  [bold cyan]💡 strategy recovery synthesized[/bold cyan] [dim]— {diag}[/dim]"
+                )
             elif event_name == "FinishEvent":
                 self.console.print(f"\n[bold green]✨ Done:[/bold green] {event.summary}")
                 out = getattr(event, "output", None)
@@ -202,6 +233,22 @@ class ConsoleRenderer:
                 safe_print(f"  [step {event.step_index + 1}] [{status}]{err}{timing}")
             elif event_name == "ReflectEvent":
                 safe_print(f"  [reflect] {event.decision} - {event.reason}")
+            elif event_name == "DriftDetectedEvent":
+                loop_flag = (
+                    " [CYCLE DETECTED]" if getattr(event, "is_loop_detected", False) else ""
+                )
+                score_val = getattr(event, "drift_score", 0.0)
+                sev_val = getattr(event, "severity", "low")
+                safe_print(f"  [drift] severity={sev_val} score={score_val:.2f}{loop_flag}")
+            elif event_name == "AutoHealingRollbackEvent":
+                reverted = getattr(event, "reverted_files", [])
+                trigger = getattr(event, "trigger", "drift")
+                safe_print(
+                    f"  [auto-healing] rollback trigger={trigger} files={len(reverted)}"
+                )
+            elif event_name == "StrategyRecoveryEvent":
+                diag = getattr(event, "diagnostics", "")
+                safe_print(f"  [strategy-recovery] {diag}")
             elif event_name == "FinishEvent":
                 safe_print(f"\n[done] {event.summary}")
                 out = getattr(event, "output", None)
@@ -209,6 +256,7 @@ class ConsoleRenderer:
                     safe_print(f"\n{out}")
             elif event_name == "LoopErrorEvent":
                 safe_print(f"\n[loop-error] {event.error}")
+
 
     def render_sessions_table(
         self,
