@@ -1,0 +1,70 @@
+name: Contribution policy
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+  issues:
+    types: [assigned, unassigned, labeled, unlabeled, reopened, closed, edited]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  contribution-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Trusted base workflow only. Never check out or execute PR code with this token.
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            // POLICY-VALIDATOR-BEGIN
+            function primaryIssue(body) {
+              const text = (body || '').replace(/<!--[\s\S]*?-->/g, '').replace(/```[\s\S]*?```/g, '');
+              const matches = [...text.matchAll(/^Closes #([1-9][0-9]*)[ \t\r]*$/gim)];
+              if (matches.length !== 1) throw new Error('Include exactly one standalone Closes #NUMBER line.');
+              return Number(matches[0][1]);
+            }
+            function validateIssue(pr, issue) {
+              if (issue.pull_request || issue.state !== 'open') throw new Error('The primary issue must be an open issue.');
+              const assignees = issue.assignees || [];
+              if (assignees.length !== 1 || assignees[0].login.toLowerCase() !== pr.user.login.toLowerCase()) {
+                throw new Error('Assign the primary issue to the PR author, with one accountable owner.');
+              }
+              const labels = (issue.labels || []).map(label => typeof label === 'string' ? label : label.name);
+              if (!labels.some(label => ['status:ready', 'status:in-progress'].includes(label))) {
+                throw new Error('A maintainer must approve the issue scope with status:ready or status:in-progress.');
+              }
+            }
+            // POLICY-VALIDATOR-END
+            const {owner, repo} = context.repo;
+            const base = context.payload.repository.default_branch;
+            let prs;
+            if (context.payload.pull_request) {
+              prs = [context.payload.pull_request];
+            } else if (context.payload.issue && !context.payload.issue.pull_request) {
+              const open = await github.paginate(github.rest.pulls.list, {owner, repo, state: 'open', base, per_page: 100});
+              prs = open.filter(pr => { try { return primaryIssue(pr.body) === context.payload.issue.number; } catch { return false; } });
+            } else {
+              prs = await github.paginate(github.rest.pulls.list, {owner, repo, state: 'open', base, per_page: 100});
+            }
+            for (const candidate of prs) {
+              const {data: pr} = await github.rest.pulls.get({owner, repo, pull_number: candidate.number});
+              if (pr.state !== 'open' || pr.base.ref !== base) continue;
+              const status = {owner, repo, sha: pr.head.sha, context: 'contribution-policy', target_url: pr.html_url};
+              await github.rest.repos.createCommitStatus({...status, state: 'pending', description: 'Checking assigned, approved primary issue'});
+              try {
+                const number = primaryIssue(pr.body);
+                const {data: issue} = await github.rest.issues.get({owner, repo, issue_number: number});
+                validateIssue(pr, issue);
+                await github.rest.repos.createCommitStatus({...status, state: 'success', description: 'Assigned approved issue #' + number});
+              } catch (error) {
+                await github.rest.repos.createCommitStatus({...status, state: 'failure', description: String(error.message).slice(0, 140)});
+                core.setFailed('PR #' + pr.number + ': ' + error.message);
+              }
+            }

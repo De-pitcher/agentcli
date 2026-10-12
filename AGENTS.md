@@ -18,3 +18,7 @@ This project is developed on `peregrine001`: a 15 W Intel i7-8650U (4 cores / 8 
 - An agentic capability is complete only after an end-to-end test proves planning, tool execution, result grounding, final user-facing synthesis, error handling, and Windows CLI behavior.
 - Clearly mark stubs, prompt builders, unconnected configuration, and unverified integrations in documentation and release notes.
 - Preserve existing user changes. Do not reset, checkout, or overwrite unrelated work.
+
+## Contribution ownership
+
+Before implementation, require an open GitHub issue assigned to the contributor and labelled status:ready or status:in-progress. Record agent worker/reviewer roles under that accountable human assignment. Use one scoped branch/PR with exactly one Closes #NUMBER line. Do not duplicate assigned work or merge directly to main. Required checks and resolved conversations apply to the owner too. See CONTRIBUTING.md. Preserve existing dirty work when moving an existing task into this process.
