@@ -1,14 +1,20 @@
-## What & why
+## Primary issue
 
-<!-- One or two sentences: what changes, and what problem it solves. Link the issue/milestone if one exists. -->
+Closes #NUMBER
 
-## How it was tested
+<!-- Exactly one real issue number. The open issue must be assigned to this PR's author and have status:ready or status:in-progress. Use Related #NUMBER for other references. -->
 
-<!-- e.g. `pytest`, `ruff check .`, `mypy .` locally; manual REPL session; CI result -->
+## What changes and why
+
+<!-- State the issue's trigger, resulting behavior and agreed scope. -->
+
+## Validation and limitations
+
+<!-- Exact commands/results, reviewed source revision, evidence links and pending gates. AI-assisted work identifies the worker and independent reviewer in the issue. -->
 
 ## Checklist
 
-- [ ] Branch is up to date with `main` (rebased)
-- [ ] Tests added/updated for behavior changes
-- [ ] CHANGELOG.md updated under `[Unreleased]`
-- [ ] CI `test` check is green
+- [ ] Primary issue is assigned to me and approved for this scope
+- [ ] Changes stay within that issue's scope
+- [ ] Relevant validation and limitations are recorded
+- [ ] Required checks pass and conversations are resolved
