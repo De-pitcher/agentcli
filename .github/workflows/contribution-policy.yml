@@ -26,7 +26,7 @@ jobs:
             // POLICY-VALIDATOR-BEGIN
             function primaryIssue(body) {
               const text = (body || '').replace(/<!--[\s\S]*?-->/g, '').replace(/```[\s\S]*?```/g, '');
-              const matches = [...text.matchAll(/^Closes #([1-9][0-9]*)[ \t]*$/gim)];
+              const matches = [...text.matchAll(/^Closes #([1-9][0-9]*)[ \t\r]*$/gim)];
               if (matches.length !== 1) throw new Error('Include exactly one standalone Closes #NUMBER line.');
               return Number(matches[0][1]);
             }

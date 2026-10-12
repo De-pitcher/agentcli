@@ -9,6 +9,7 @@ const {primaryIssue, validateIssue} = sandbox.check;
 const pr = {user: {login: 'contributor'}};
 const issue = {state: 'open', assignees: [{login: 'contributor'}], labels: [{name: 'status:ready'}]};
 assert.equal(primaryIssue('Closes #75\nRelated #76'), 75);
+assert.equal(primaryIssue('Closes #75\r\nRelated #76'), 75);
 assert.throws(() => primaryIssue('No issue'), /standalone/);
 assert.throws(() => primaryIssue('Closes #75\nCloses #76'), /standalone/);
 assert.throws(() => primaryIssue('Closes https://github.com/other/repo/issues/1'), /standalone/);
@@ -22,4 +23,4 @@ assert.throws(() => validateIssue(pr, {...issue, assignees: []}), /accountable/)
 assert.throws(() => validateIssue(pr, {...issue, assignees: [{login: 'other'}]}), /accountable/);
 assert.throws(() => validateIssue(pr, {...issue, assignees: [{login: 'contributor'}, {login: 'other'}]}), /accountable/);
 assert.throws(() => validateIssue(pr, {...issue, labels: []}), /approve/);
-console.log('14 contribution-policy validator cases passed');
+console.log('15 contribution-policy validator cases passed');
