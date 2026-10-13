@@ -44,7 +44,6 @@ class SubAgentType(str, Enum):
     WORKTREE = "worktree"
 
 
-
 class SubAgentStatus(str, Enum):
     """Current status of a sub-agent."""
 
@@ -127,6 +126,91 @@ class SubAgent(ABC):
     communicates via the message bus.
     """
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        handler = cls.__dict__.get("run")
+        if handler is None:
+            return
+
+        async def guarded(self: Any, task: SubAgentTask) -> SubAgentResult:
+            from ..policy import active_policy, tool_policy
+
+            policy = (
+                active_policy.get()
+                or getattr(self, "policy", None)
+                or getattr(getattr(self, "manager", None), "policy", None)
+                or getattr(getattr(self, "task_manager", None), "policy", None)
+                or tool_policy(getattr(self, "config", None))
+            )
+            token = active_policy.set(policy)
+            try:
+                async with asyncio.timeout(policy.timeout_seconds):
+                    name = task.agent_type.value
+                    await policy.aauthorize(name, task.payload)
+                    from ..bounds import bound_result
+                    from ..io_boundary import filesystem_request, in_worker, query
+
+                    if (
+                        not in_worker
+                        and not (
+                            name == "workspace"
+                            and task.payload.get("operation") == "semantic_search"
+                        )
+                        and type(self).__module__
+                        in {
+                            "agentcli.subagents.grep_search",
+                            "agentcli.subagents.workspace",
+                            "agentcli.subagents.shell",
+                        }
+                    ):
+                        request = filesystem_request(
+                            "filesystem_tool",
+                            policy,
+                            name=name,
+                            payload=task.payload,
+                            task_id=task.id,
+                            config={
+                                key: self.config[key]
+                                for key in ("allowlist", "denylist", "security_mode")
+                                if key in self.config
+                            },
+                            working_dir=str(
+                                getattr(self, "working_dir", policy.root)
+                                if self.config.get("working_dir")
+                                else policy.root
+                            ),
+                            rg_path=getattr(self, "rg_path", None),
+                        )
+                        data = await query(request, policy)
+                        if name == "shell_execution":
+                            self.working_dir = data["working_dir"]
+                        result = SubAgentResult(
+                            task.id,
+                            task.agent_type,
+                            data["success"],
+                            output=data.get("output"),
+                            error=data.get("error"),
+                        )
+                    else:
+                        result = await asyncio.wait_for(handler(self, task), policy.timeout_seconds)
+                    return bound_result(result, policy.max_output_bytes)
+            except (OSError, ValueError, TypeError, TimeoutError) as exc:
+                return SubAgentResult(
+                    task.id,
+                    task.agent_type,
+                    False,
+                    error=str(exc) or "Tool timed out at its deadline",
+                )
+            finally:
+                active_policy.reset(token)
+                if getattr(self, "_owns_client", False):
+                    await self._client.aclose()
+                    self._client = None
+                    self._owns_client = False
+
+        # Wrap the subclass execution boundary.
+        cls.run = guarded  # type: ignore[method-assign]
+
     def __init__(
         self,
         agent_type: SubAgentType,
@@ -137,6 +221,9 @@ class SubAgent(ABC):
             agent_type if isinstance(agent_type, SubAgentType) else SubAgentType(agent_type)
         )
         self.config: dict[str, Any] = config or {}
+        from ..policy import tool_policy
+
+        self.policy = tool_policy(self.config)
         self.message_bus = message_bus
         self.status = SubAgentStatus.IDLE
         self.current_task_id: str | None = None
