@@ -24,6 +24,7 @@ ALLOWED_OPERATIONS = frozenset(
         "restore",
         "display_diff",
         "file_ops",
+        "shell_execution",
     }
 )
 
@@ -130,6 +131,83 @@ def filesystem(request: dict[str, Any]) -> Any:
                 )
             )
             return {"success": result.success, "output": result.output, "error": result.error}
+        if operation == "shell_execution":
+            import asyncio
+            import shutil
+
+            from .processes import run_process
+            from .subagents.shell import ShellExecutionAgent
+
+            payload = request.get("payload", {})
+            command = payload.get("command", "").strip()
+            working_dir = policy.path(payload.get("working_dir") or policy.root)
+            timeout = payload.get("timeout", policy.timeout_seconds)
+
+            policy.command(command, working_dir)
+
+            caller_cfg = request.get("config", {})
+            if not isinstance(caller_cfg, dict):
+                caller_cfg = {}
+
+            shell_agent = ShellExecutionAgent(
+                config={
+                    "working_dir": str(working_dir),
+                    "allow_execution": policy.allow_execution,
+                    "max_output_bytes": policy.max_output_bytes,
+                    "command_timeout": policy.timeout_seconds,
+                    "security_mode": caller_cfg.get("security_mode", "denylist"),
+                    "allowlist": caller_cfg.get("allowlist", []),
+                    "denylist": caller_cfg.get("denylist"),
+                }
+            )
+            allowed, reason, parts = shell_agent._validate_command(command)
+            if not allowed:
+                return {
+                    "success": False,
+                    "output": None,
+                    "error": f"Command rejected: {reason}",
+                }
+
+            shim_res = shell_agent._execute_builtin_shim(
+                parts, str(working_dir), request.get("task_id", "helper-shell")
+            )
+            if shim_res is not None:
+                return {
+                    "success": shim_res.success,
+                    "output": shim_res.output,
+                    "error": shim_res.error,
+                }
+
+            executable = shutil.which(parts[0])
+            if executable is None:
+                return {
+                    "success": False,
+                    "output": None,
+                    "error": f"Command not found: '{parts[0]}'",
+                }
+
+            proc_args = [executable, *parts[1:]]
+            proc_out = asyncio.run(
+                run_process(
+                    proc_args,
+                    policy,
+                    cwd=working_dir,
+                    timeout=timeout,
+                )
+            )
+            stdout_text = proc_out.stdout.decode("utf-8", errors="replace")
+            stderr_text = proc_out.stderr.decode("utf-8", errors="replace")
+            success = proc_out.returncode == 0
+            return {
+                "success": success,
+                "output": {
+                    "stdout": stdout_text,
+                    "stderr": stderr_text,
+                    "returncode": proc_out.returncode,
+                    "truncated": proc_out.truncated,
+                },
+                "error": stderr_text if not success else None,
+            }
         raise ValueError("Unsupported internal I/O operation")
 
 

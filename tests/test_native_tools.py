@@ -410,7 +410,14 @@ async def test_file_ops_absolute_directory_list_and_read(tmp_path) -> None:
     (external_dir / ".hidden_file").write_text("secret", encoding="utf-8")
     (external_dir / "subdir").mkdir()
 
-    agent = FileOpsAgent(config={"working_dir": str(workspace_dir), "allow_write": False})
+    # Explicitly grant external_dir through readable_roots while keeping allow_write=False
+    agent = FileOpsAgent(
+        config={
+            "working_dir": str(workspace_dir),
+            "allow_write": False,
+            "readable_roots": [str(external_dir)],
+        }
+    )
 
     # Listing external directory excludes hidden items by default
     res = await agent.run(
@@ -445,6 +452,37 @@ async def test_file_ops_absolute_directory_list_and_read(tmp_path) -> None:
     )
     assert res_read.success is True
     assert res_read.output["content"] == "hello"
+
+    # Control 1: Strict omitted-grant denial (an external directory not in readable_roots must fail closed)
+    ungranted_dir = tmp_path / "ungranted"
+    ungranted_dir.mkdir()
+    (ungranted_dir / "secret.txt").write_text("classified", encoding="utf-8")
+    res_ungranted = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.FILE_OPS,
+            payload={"operation": "read", "path": str(ungranted_dir / "secret.txt")},
+        )
+    )
+    assert res_ungranted.success is False
+    assert "outside the granted workspace" in (res_ungranted.error or "")
+
+    # Control 2: Strict write-denial and no-side-effects under read-only policy
+    forbidden_write = external_dir / "mutation.txt"
+    res_write = await agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.FILE_OPS,
+            payload={
+                "operation": "write",
+                "path": str(forbidden_write),
+                "content": "illegal modification",
+            },
+        )
+    )
+    assert res_write.success is False
+    assert "read-only mode" in (res_write.error or "") or "outside the granted workspace" in (
+        res_write.error or ""
+    )
+    assert not forbidden_write.exists(), "Mutation must not occur under read-only policy"
 
 
 @pytest.mark.asyncio

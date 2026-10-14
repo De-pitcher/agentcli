@@ -210,9 +210,35 @@ class ToolRegistry:
 
     def load_plugin_file(self, path: str | Path) -> None:
         """Load a Python plugin file and register tools defined within it."""
-        if not self.context.policy.allow_execution:
+        from ..policy import active_policy
+
+        # Collect applicable explicit authorities at load time:
+        # active_policy.get() and self.context.policy
+        active = active_policy.get()
+        ctx_policy = self.context.policy
+
+        applicable_policies = [p for p in (active, ctx_policy) if p is not None]
+
+        # Explicit denies stay binding when authorities overlap:
+        # If any applicable policy denies execution, deny immediately before file inspection/import.
+        if not all(p.allow_execution for p in applicable_policies):
             raise PermissionError("Plugins are trusted Python code and require trusted execution")
-        p = self.context.policy.path(path)
+
+        # Plugin loading must satisfy path containment under ALL applicable authorities before import side effects.
+        # Resolve one canonical absolute plugin resource and enforce every applicable authority
+        # on that SAME resource before any import side effect.
+        # Use registry owner context policy first if present, otherwise active policy, otherwise local resolve.
+        primary_policy = ctx_policy or active
+        if primary_policy is not None:
+            canonical_path = primary_policy.path(path)
+        else:
+            canonical_path = Path(path).resolve()
+
+        # Enforce that ALL applicable authorities authorize this exact same canonical resource
+        for pol in applicable_policies:
+            pol.path(canonical_path)
+
+        p = canonical_path
         if not p.is_file():
             logger.warning("Plugin file not found: %s", p)
             return

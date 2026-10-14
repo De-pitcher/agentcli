@@ -19,6 +19,13 @@ class ProcessTree:
     """POSIX process group or Windows kill-on-close Job Object."""
 
     def __init__(self, pid: int) -> None:
+        if isinstance(pid, bool) or not isinstance(pid, int):
+            raise TypeError(f"Process PID must be an integer, got {type(pid).__name__}")
+        if pid <= 0:
+            raise ValueError(f"Process PID must be positive, got {pid}")
+        if sys.platform == "win32" and pid > 0xFFFFFFFF:
+            raise ValueError(f"Process PID exceeds Windows DWORD limit: {pid}")
+
         self.pid = pid
         from .io_boundary import in_worker
 
@@ -67,6 +74,7 @@ class ProcessTree:
             kernel = ctypes.WinDLL("kernel32", use_last_error=True)
             kernel.CreateJobObjectW.restype = wintypes.HANDLE
             kernel.OpenProcess.restype = wintypes.HANDLE
+            kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
             kernel.SetInformationJobObject.argtypes = [
                 wintypes.HANDLE,
                 ctypes.c_int,

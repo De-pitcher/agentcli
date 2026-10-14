@@ -20,11 +20,63 @@ def bound_result(result: SubAgentResult, limit: int) -> SubAgentResult:
     if output is None:
         return result
     if isinstance(output, dict) and "stdout" in output:
-        for key in ("stdout", "stderr"):
-            data = str(output.get(key, "")).encode("utf-8")
-            if len(data) > limit:
-                output[key] = data[:limit].decode("utf-8", "ignore")
-                output["truncated"] = True
+        # Check initial serialized length of the complete output dictionary
+        ser_data = json.dumps(output, ensure_ascii=False).encode("utf-8")
+        if len(ser_data) > limit:
+            output["truncated"] = True
+            stdout_str = str(output.get("stdout", ""))
+            stderr_str = str(output.get("stderr", ""))
+
+            # Calculate base envelope overhead without stream contents, retaining all metadata fields (cwd, returncode, truncated, etc.)
+            base_probe = {k: v for k, v in output.items() if k not in ("stdout", "stderr")}
+            base_probe["stdout"] = ""
+            base_probe["stderr"] = ""
+            overhead = len(json.dumps(base_probe, ensure_ascii=False).encode("utf-8"))
+            if overhead > limit:
+                # If non-stream metadata alone cannot fit, fail closed cleanly without leaving oversized output
+                result.success = False
+                result.error = "Output limit cannot represent required envelope"
+                result.output = None
+                return result
+
+            budget = limit - overhead
+            out_bytes = stdout_str.encode("utf-8")
+            err_bytes = stderr_str.encode("utf-8")
+            tot = len(out_bytes) + len(err_bytes)
+
+            if tot == 0:
+                output["stdout"] = ""
+                output["stderr"] = ""
+            else:
+                out_alloc = max(0, int(budget * len(out_bytes) / tot))
+                err_alloc = max(0, budget - out_alloc)
+                cur_out = out_bytes[:out_alloc].decode("utf-8", "ignore")
+                cur_err = err_bytes[:err_alloc].decode("utf-8", "ignore")
+
+                def fits(s_out: str, s_err: str) -> bool:
+                    t = dict(base_probe)
+                    t["stdout"] = s_out
+                    t["stderr"] = s_err
+                    return len(json.dumps(t, ensure_ascii=False).encode("utf-8")) <= limit
+
+                while not fits(cur_out, cur_err) and (cur_out or cur_err):
+                    excess = (
+                        len(
+                            json.dumps(
+                                {**base_probe, "stdout": cur_out, "stderr": cur_err},
+                                ensure_ascii=False,
+                            ).encode("utf-8")
+                        )
+                        - limit
+                    )
+                    drop = max(1, excess // 2)
+                    if len(cur_out) >= len(cur_err) and cur_out:
+                        cur_out = cur_out[:-drop] if len(cur_out) > drop else ""
+                    elif cur_err:
+                        cur_err = cur_err[:-drop] if len(cur_err) > drop else ""
+
+                output["stdout"] = cur_out
+                output["stderr"] = cur_err
     elif len(json.dumps(output, default=str).encode("utf-8")) > limit:
         controls = {}
         if isinstance(output, dict):

@@ -262,72 +262,163 @@ async def test_mcp_default_file_ops_happy_and_denial(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_mcp_default_shell_execution_happy_and_denial():
-    server = MCPServer()
+async def test_mcp_default_shell_execution_happy_and_denial(tmp_path):
+    from agentcli.agent.registry import ToolRegistry
+    from agentcli.policy import RunPolicy
+    from agentcli.runtime import RunContext
 
-    # Happy path: safe allowed execution
-    req_happy = {
+    # 1. Default context denies arbitrary process execution
+    default_server = MCPServer()
+    req_default = {
         "jsonrpc": "2.0",
-        "id": 201,
+        "id": 200,
         "method": "tools/call",
         "params": {
             "name": "shell_execution",
-            "arguments": {"command": "python -c \"print('mcp_ok')\""},
+            "arguments": {"command": "python -c \"print('mcp_denied_by_default')\""},
         },
     }
-    resp_happy = await server.handle_request(req_happy)
-    assert resp_happy["result"]["isError"] is False
-    assert "mcp_ok" in resp_happy["result"]["content"][0]["text"]
+    resp_default = await default_server.handle_request(req_default)
+    assert resp_default["result"]["isError"] is True
+    assert "execution is disabled" in resp_default["result"]["content"][0]["text"].lower()
 
-    # Denial path: command in denylist
-    req_denial = {
-        "jsonrpc": "2.0",
-        "id": 202,
-        "method": "tools/call",
-        "params": {
-            "name": "shell_execution",
-            "arguments": {"command": "rm -rf /"},
-        },
-    }
-    resp_denial = await server.handle_request(req_denial)
-    assert resp_denial["result"]["isError"] is True
-    assert "denied" in resp_denial["result"]["content"][0]["text"].lower()
+    # 2. Explicit trusted context allows safe execution
+    trusted_context = RunContext(policy=RunPolicy(root=tmp_path, allow_execution=True))
+    trusted_registry = ToolRegistry(context=trusted_context)
+    trusted_server = MCPServer(registry=trusted_registry)
+
+    try:
+        # Happy path: safe allowed execution
+        req_happy = {
+            "jsonrpc": "2.0",
+            "id": 201,
+            "method": "tools/call",
+            "params": {
+                "name": "shell_execution",
+                "arguments": {"command": "python -c \"print('mcp_ok')\""},
+            },
+        }
+        resp_happy = await trusted_server.handle_request(req_happy)
+        assert resp_happy["result"]["isError"] is False
+        assert "mcp_ok" in resp_happy["result"]["content"][0]["text"]
+
+        # Denial path 1: command in denylist
+        req_denial = {
+            "jsonrpc": "2.0",
+            "id": 202,
+            "method": "tools/call",
+            "params": {
+                "name": "shell_execution",
+                "arguments": {"command": "rm -rf /"},
+            },
+        }
+        resp_denial = await trusted_server.handle_request(req_denial)
+        assert resp_denial["result"]["isError"] is True
+        assert "denied" in resp_denial["result"]["content"][0]["text"].lower()
+
+        # Denial path 2: outside-root cwd denial
+        outside_dir = tmp_path.parent / "outside_cwd_probe"
+        req_outside_cwd = {
+            "jsonrpc": "2.0",
+            "id": 203,
+            "method": "tools/call",
+            "params": {
+                "name": "shell_execution",
+                "arguments": {
+                    "command": "python -c \"print('should_not_run')\"",
+                    "working_dir": str(outside_dir),
+                },
+            },
+        }
+        resp_outside_cwd = await trusted_server.handle_request(req_outside_cwd)
+        assert resp_outside_cwd["result"]["isError"] is True
+        assert (
+            "outside the granted workspace"
+            in resp_outside_cwd["result"]["content"][0]["text"].lower()
+        )
+
+        # Truthful failure reporting: command with non-zero exit code
+        req_nonzero = {
+            "jsonrpc": "2.0",
+            "id": 204,
+            "method": "tools/call",
+            "params": {
+                "name": "shell_execution",
+                "arguments": {
+                    "command": "python -c \"import sys; sys.stderr.write('err_msg'); sys.exit(42)\""
+                },
+            },
+        }
+        resp_nonzero = await trusted_server.handle_request(req_nonzero)
+        assert resp_nonzero["result"]["isError"] is True
+        content_nonzero = resp_nonzero["result"]["content"][0]["text"]
+        assert "err_msg" in content_nonzero
+        assert "42" in content_nonzero
+    finally:
+        await trusted_context.aclose()
 
 
 @pytest.mark.asyncio
 async def test_mcp_default_code_analyzer_happy_and_denial(tmp_path):
-    server = MCPServer()
+    from agentcli.agent.registry import ToolRegistry
+    from agentcli.policy import RunPolicy
+    from agentcli.runtime import RunContext
 
-    test_code = tmp_path / "sample.py"
-    test_code.write_text("x = 1\n", encoding="utf-8")
+    context = RunContext(policy=RunPolicy(root=tmp_path))
+    registry = ToolRegistry(context=context)
+    server = MCPServer(registry=registry)
 
-    # Happy path: analyze existing file
-    req_happy = {
-        "jsonrpc": "2.0",
-        "id": 301,
-        "method": "tools/call",
-        "params": {
-            "name": "code_analyzer",
-            "arguments": {"files": [str(test_code)]},
-        },
-    }
-    resp_happy = await server.handle_request(req_happy)
-    assert resp_happy["result"]["isError"] is False
-    assert "files_analyzed" in resp_happy["result"]["content"][0]["text"]
+    try:
+        test_code = tmp_path / "sample.py"
+        test_code.write_text("x = 1\n", encoding="utf-8")
 
-    # Denial path: nonexistent file
-    req_denial = {
-        "jsonrpc": "2.0",
-        "id": 302,
-        "method": "tools/call",
-        "params": {
-            "name": "code_analyzer",
-            "arguments": {"files": ["/path/does/not/exist/never.py"]},
-        },
-    }
-    resp_denial = await server.handle_request(req_denial)
-    assert resp_denial["result"]["isError"] is True
-    assert "Failed to read" in resp_denial["result"]["content"][0]["text"]
+        # Happy path: analyze existing file
+        req_happy = {
+            "jsonrpc": "2.0",
+            "id": 301,
+            "method": "tools/call",
+            "params": {
+                "name": "code_analyzer",
+                "arguments": {"files": [str(test_code)]},
+            },
+        }
+        resp_happy = await server.handle_request(req_happy)
+        assert resp_happy["result"]["isError"] is False
+        assert "files_analyzed" in resp_happy["result"]["content"][0]["text"]
+
+        # Denial path 1: missing file within the granted root
+        missing_in_root = tmp_path / "does_not_exist_in_root.py"
+        req_missing = {
+            "jsonrpc": "2.0",
+            "id": 302,
+            "method": "tools/call",
+            "params": {
+                "name": "code_analyzer",
+                "arguments": {"files": [str(missing_in_root)]},
+            },
+        }
+        resp_missing = await server.handle_request(req_missing)
+        assert resp_missing["result"]["isError"] is True
+        assert "Failed to read" in resp_missing["result"]["content"][0]["text"]
+        assert "File not found" in resp_missing["result"]["content"][0]["text"]
+
+        # Denial path 2: separate outside-root denial
+        req_outside = {
+            "jsonrpc": "2.0",
+            "id": 303,
+            "method": "tools/call",
+            "params": {
+                "name": "code_analyzer",
+                "arguments": {"files": ["/path/outside/granted/root.py"]},
+            },
+        }
+        resp_outside = await server.handle_request(req_outside)
+        assert resp_outside["result"]["isError"] is True
+        assert (
+            "Path is outside the granted workspace" in resp_outside["result"]["content"][0]["text"]
+        )
+    finally:
+        await context.aclose()
 
 
 @pytest.mark.asyncio
@@ -337,7 +428,11 @@ async def test_mcp_default_web_search_happy_and_denial(monkeypatch):
     # Happy path with mock provider
     from agentcli.subagents.web_search import SearchResult
 
+    provider_calls = 0
+
     async def mock_search(self, query, max_results=10):
+        nonlocal provider_calls
+        provider_calls += 1
         return [SearchResult(title="Result Title", url="https://example.com", snippet="Snippet")]
 
     from agentcli.subagents.web_search import DuckDuckGoProvider
@@ -356,6 +451,7 @@ async def test_mcp_default_web_search_happy_and_denial(monkeypatch):
     resp_happy = await server.handle_request(req_happy)
     assert resp_happy["result"]["isError"] is False
     assert "https://example.com" in resp_happy["result"]["content"][0]["text"]
+    assert provider_calls == 1
 
     # Denial path: missing query
     req_denial = {
@@ -369,4 +465,5 @@ async def test_mcp_default_web_search_happy_and_denial(monkeypatch):
     }
     resp_denial = await server.handle_request(req_denial)
     assert resp_denial["result"]["isError"] is True
-    assert "No search query" in resp_denial["result"]["content"][0]["text"]
+    assert "Missing required arguments fields" in resp_denial["result"]["content"][0]["text"]
+    assert provider_calls == 1, "Provider invocation must not occur for malformed requests"
