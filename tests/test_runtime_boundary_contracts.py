@@ -191,15 +191,31 @@ def test_bounds_scan_mtimes_boundary_handling(
     problem_file = sub / "broken.py"
     problem_file.write_text("broken", encoding="utf-8")
 
-    # Hook stat on problem_file only to raise OSError
+    # Inject failure only after real traversal/policy checks have yielded this path.
+    # Path.exists uses stat on POSIX, so a global Path.stat patch fails too early.
+    import agentcli.bounds as bounds_module
+
     orig_stat = Path.stat
+    original_walk = bounds_module.walk_entries
+    failed_stats: list[Path] = []
 
-    def selective_stat(self: Path, **kwargs: Any) -> Any:
-        if self == problem_file:
+    class FailingStatPath(Path):
+        # Python 3.11's Path subclass constructor requires its platform flavour.
+        _flavour = getattr(type(tmp_path), "_flavour", None)
+
+        def stat(self, *, follow_symlinks: bool = True) -> Any:
+            failed_stats.append(self)
             raise OSError("Simulated disk error")
-        return orig_stat(self, **kwargs)
 
-    monkeypatch.setattr(Path, "stat", selective_stat)
+    def walk_with_failed_stat(*args: Any, **kwargs: Any) -> Any:
+        for path, depth, is_directory in original_walk(*args, **kwargs):
+            yield (
+                FailingStatPath(path) if path == problem_file else path,
+                depth,
+                is_directory,
+            )
+
+    monkeypatch.setattr(bounds_module, "walk_entries", walk_with_failed_stat)
 
     # A matching extension and non-exact ignore ensure the prefix filter is responsible.
     unfiltered = scan_mtimes([tmp_path], policy, ignored=set(), extensions={".py"})
@@ -214,6 +230,8 @@ def test_bounds_scan_mtimes_boundary_handling(
     assert len(valid_paths) == 1
     assert isinstance(mtimes[valid_paths[0]], float)
     assert mtimes[valid_paths[0]] == orig_stat(normal_file).st_mtime
+    assert len(failed_stats) == 2
+    assert all(path == problem_file for path in failed_stats)
 
 
 # ============================================================================
