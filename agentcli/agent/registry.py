@@ -16,13 +16,20 @@ Default tools (registered automatically):
 
 from __future__ import annotations
 
+import asyncio
+import copy
 import importlib.util
 import inspect
 import logging
+import re
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ..contracts import ToolSpec, check_schema, validate
+from ..policy import active_policy
+from ..runtime import RunContext
 from ..subagents.base import SubAgent, SubAgentResult, SubAgentTask, SubAgentType
 from ..subagents.clarification import ClarificationAgent
 from ..subagents.code_analyzer import CodeAnalyzerAgent
@@ -37,6 +44,8 @@ from ..subagents.web_fetch import WebFetchAgent
 from ..subagents.web_search import WebSearchAgent
 from ..subagents.workspace import WorkspaceAgent
 from ..subagents.worktree import WorktreeAgent
+from ..tools_schema import TOOL_DEFINITIONS
+from ..usage import active_ledger
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +80,7 @@ class CallableAdapterAgent(SubAgent):
                 task_id=task.id,
                 agent_type=task.agent_type,
                 success=False,
-                error=str(exc),
+                error=str(exc) or "Tool timed out at its deadline",
             )
 
 
@@ -91,18 +100,31 @@ class ToolRegistry:
     """
 
     def __init__(
-        self, tool_configs: dict[str, dict[str, Any]] | None = None, config: Any | None = None
+        self,
+        tool_configs: dict[str, dict[str, Any]] | None = None,
+        config: Any | None = None,
+        context: RunContext | None = None,
     ) -> None:
         self._tool_configs = tool_configs or {}
+        self.context = context or RunContext(config=config)
+        self._owns_context = context is None
         self._config = config
         self._factories: dict[str, _ToolFactory] = {}
+        self.specs: dict[str, ToolSpec] = {}
         self._register_defaults()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def register(self, agent_type: str, factory: _ToolFactory) -> None:
+    def register(
+        self,
+        agent_type: str,
+        factory: _ToolFactory,
+        schema: dict[str, Any] | None = None,
+        description: str = "",
+        effect: str = "unknown",
+    ) -> None:
         """Register a tool factory.
 
         Args:
@@ -110,6 +132,28 @@ class ToolRegistry:
                         custom string for future tools).
             factory:    Zero-argument callable returning a SubAgent instance.
         """
+        if agent_type in self._factories:
+            raise ValueError(f"Tool collision: {agent_type}")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", agent_type):
+            raise ValueError("Invalid tool name")
+        definition = TOOL_DEFINITIONS.get(agent_type, {}).get("function", {})
+        contract = copy.deepcopy(
+            schema
+            if schema is not None
+            else definition.get("parameters", {"type": "object", "properties": {}})
+        )
+        if agent_type in TOOL_DEFINITIONS:
+            contract["additionalProperties"] = False
+        check_schema(contract)
+        if effect not in {"observation", "mutation", "unknown"}:
+            raise ValueError("Invalid tool effect declaration")
+        self.specs[agent_type] = ToolSpec(
+            agent_type,
+            description or definition.get("description", "Custom tool"),
+            contract,
+            effect,
+            agent_type in TOOL_DEFINITIONS,
+        )
         self._factories[agent_type] = factory
         logger.debug("ToolRegistry: registered tool '%s'", agent_type)
 
@@ -118,13 +162,83 @@ class ToolRegistry:
         name: str,
         func: Callable[..., Any],
         description: str = "",
+        schema: dict[str, Any] | None = None,
+        effect: str = "unknown",
     ) -> None:
-        """Register a plain Python function as a tool."""
-        self.register(name, lambda: CallableAdapterAgent(func, name=name, description=description))
+        """Register a callable with an explicit or inferred signature contract."""
+        if schema is None:
+            properties = {}
+            required = []
+            for parameter in inspect.signature(func).parameters.values():
+                if parameter.kind in {
+                    parameter.VAR_POSITIONAL,
+                    parameter.VAR_KEYWORD,
+                    parameter.POSITIONAL_ONLY,
+                }:
+                    raise ValueError("Callable requires an explicit schema for this signature")
+                kinds = {
+                    str: "string",
+                    int: "integer",
+                    float: "number",
+                    bool: "boolean",
+                    dict: "object",
+                    list: "array",
+                }
+                annotation = parameter.annotation
+                if annotation not in kinds and parameter.default is not parameter.empty:
+                    annotation = type(parameter.default)
+                properties[parameter.name] = {
+                    "type": kinds.get(
+                        annotation, ["string", "number", "boolean", "object", "array", "null"]
+                    )
+                }
+                if parameter.default is parameter.empty:
+                    required.append(parameter.name)
+            schema = {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "additionalProperties": False,
+            }
+        self.register(
+            name,
+            lambda: CallableAdapterAgent(func, name=name, description=description),
+            schema=schema,
+            description=description,
+            effect=effect,
+        )
 
     def load_plugin_file(self, path: str | Path) -> None:
         """Load a Python plugin file and register tools defined within it."""
-        p = Path(path).resolve()
+        from ..policy import active_policy
+
+        # Collect applicable explicit authorities at load time:
+        # active_policy.get() and self.context.policy
+        active = active_policy.get()
+        ctx_policy = self.context.policy
+
+        applicable_policies = [p for p in (active, ctx_policy) if p is not None]
+
+        # Explicit denies stay binding when authorities overlap:
+        # If any applicable policy denies execution, deny immediately before file inspection/import.
+        if not all(p.allow_execution for p in applicable_policies):
+            raise PermissionError("Plugins are trusted Python code and require trusted execution")
+
+        # Plugin loading must satisfy path containment under ALL applicable authorities before import side effects.
+        # Resolve one canonical absolute plugin resource and enforce every applicable authority
+        # on that SAME resource before any import side effect.
+        # Use registry owner context policy first if present, otherwise active policy, otherwise local resolve.
+        primary_policy = ctx_policy or active
+        if primary_policy is not None:
+            canonical_path = primary_policy.path(path)
+        else:
+            canonical_path = Path(path).resolve()
+
+        # Enforce that ALL applicable authorities authorize this exact same canonical resource
+        for pol in applicable_policies:
+            pol.path(canonical_path)
+
+        p = canonical_path
         if not p.is_file():
             logger.warning("Plugin file not found: %s", p)
             return
@@ -178,10 +292,29 @@ class ToolRegistry:
             agent_type=self._safe_type(agent_type),
             payload=payload,
         )
+        token = active_policy.set(self.context.policy)
+        usage_token = active_ledger.set(self.context.ledger)
         try:
-            agent = factory()
-            result: SubAgentResult = await agent.run(task)
-            return result
+            async with asyncio.timeout(self.context.policy.timeout_seconds):
+                validate(payload, {"type": "object"})
+                payload = self.specs[agent_type].canonical(payload)
+                task = replace(task, payload=payload)
+                validate(payload, self.specs[agent_type].schema)
+                await self.context.policy.aauthorize(agent_type, payload)
+                agent = factory()
+                result: SubAgentResult = await asyncio.wait_for(
+                    agent.run(task), self.context.policy.timeout_seconds
+                )
+                from .evidence import annotate
+
+                annotate(
+                    result,
+                    agent_type,
+                    self.specs[agent_type].operation(payload),
+                    payload,
+                    self.context.tasks,
+                )
+                return result
         except Exception as exc:  # noqa: BLE001
             logger.warning("ToolRegistry: tool '%s' raised unexpectedly: %s", agent_type, exc)
             return SubAgentResult(
@@ -190,6 +323,14 @@ class ToolRegistry:
                 success=False,
                 error=str(exc),
             )
+
+        finally:
+            active_policy.reset(token)
+            active_ledger.reset(usage_token)
+
+    async def aclose(self) -> None:
+        if self._owns_context:
+            await self.context.aclose()
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -203,7 +344,13 @@ class ToolRegistry:
             and hasattr(self._config.subagents, "allow_write")
         ):
             file_cfg.setdefault("allow_write", self._config.subagents.allow_write)
-        shell_cfg = self._tool_configs.get(SubAgentType.SHELL_EXECUTION.value)
+        file_cfg["working_dir"] = str(self.context.policy.root)
+        file_cfg["journal"] = self.context.journal
+        file_cfg["allow_write"] = self.context.policy.allow_write
+        file_cfg["read_only"] = not self.context.policy.allow_write
+        shell_cfg = dict(self._tool_configs.get(SubAgentType.SHELL_EXECUTION.value) or {})
+        shell_cfg["working_dir"] = str(self.context.policy.root)
+        shell_cfg["allow_execution"] = self.context.policy.allow_execution
         code_cfg = self._tool_configs.get(SubAgentType.CODE_ANALYZER.value)
         web_cfg = self._tool_configs.get(SubAgentType.WEB_SEARCH.value)
 
@@ -214,7 +361,13 @@ class ToolRegistry:
         code_analyzer = CodeAnalyzerAgent(config=code_cfg)
         if self._config:
             code_analyzer._set_config(self._config)
-        self.register(SubAgentType.CODE_ANALYZER.value, lambda: code_analyzer)
+            code_analyzer._client = self.context.client
+
+        def analyzer_factory() -> CodeAnalyzerAgent:
+            code_analyzer._client = self.context.client
+            return code_analyzer
+
+        self.register(SubAgentType.CODE_ANALYZER.value, analyzer_factory)
         self.register(SubAgentType.WEB_SEARCH.value, lambda: WebSearchAgent(config=web_cfg))
         web_fetch_cfg = self._tool_configs.get(SubAgentType.WEB_FETCH.value)
         self.register(SubAgentType.WEB_FETCH.value, lambda: WebFetchAgent(config=web_fetch_cfg))
@@ -225,7 +378,10 @@ class ToolRegistry:
         consensus_cfg = self._tool_configs.get(SubAgentType.CONSENSUS.value)
         self.register(SubAgentType.CONSENSUS.value, lambda: ConsensusAgent(config=consensus_cfg))
         task_cfg = self._tool_configs.get(SubAgentType.TASK_MANAGER.value)
-        self.register(SubAgentType.TASK_MANAGER.value, lambda: TaskManagerAgent(config=task_cfg))
+        self.register(
+            SubAgentType.TASK_MANAGER.value,
+            lambda: TaskManagerAgent(config=task_cfg, task_manager=self.context.tasks),
+        )
         ask_cfg = self._tool_configs.get(SubAgentType.ASK_QUESTION.value)
         self.register(SubAgentType.ASK_QUESTION.value, lambda: ClarificationAgent(config=ask_cfg))
         diag_cfg = self._tool_configs.get(SubAgentType.DIAGNOSTICS_CHECK.value)
@@ -233,12 +389,21 @@ class ToolRegistry:
             SubAgentType.DIAGNOSTICS_CHECK.value, lambda: DiagnosticsAgent(config=diag_cfg)
         )
         self.register(
-            SubAgentType.SKILL_RUNNER.value, lambda: SkillRunnerAgent()
+            SubAgentType.SKILL_RUNNER.value,
+            lambda: SkillRunnerAgent(workspace_dir=str(self.context.policy.root)),
         )
         self.register(
-            SubAgentType.WORKTREE.value, lambda: WorktreeAgent()
+            SubAgentType.WORKTREE.value,
+            lambda: WorktreeAgent(
+                manager=__import__(
+                    "agentcli.worktree.manager", fromlist=["WorktreeManager"]
+                ).WorktreeManager(
+                    repo_root=self.context.policy.root,
+                    policy=self.context.policy,
+                    defer_validation=True,
+                )
+            ),
         )
-
 
     @staticmethod
     def _safe_type(agent_type: str) -> SubAgentType:

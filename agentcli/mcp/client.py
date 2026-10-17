@@ -66,13 +66,19 @@ class MCPClient:
             run_env.update(self.env)
 
             logger.debug("[%s] Spawning MCP server process: %s", self.name, cmd)
+            spawn_kwargs: dict[str, Any] = {
+                "stdin": asyncio.subprocess.PIPE,
+                "stdout": asyncio.subprocess.PIPE,
+                "stderr": asyncio.subprocess.PIPE,
+                "env": run_env,
+            }
+            if os.name == "posix":
+                spawn_kwargs["start_new_session"] = True
+
             try:
                 self._proc = await asyncio.create_subprocess_exec(
                     *cmd,
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=run_env,
+                    **spawn_kwargs,
                 )
             except Exception as exc:
                 raise MCPClientError(
@@ -130,6 +136,8 @@ class MCPClient:
 
     async def close(self) -> None:
         """Gracefully terminate the MCP server process and clean up resources."""
+        import signal
+
         async with self._lock:
             self._is_connected = False
 
@@ -147,22 +155,63 @@ class MCPClient:
                     pass
 
             if self._proc is not None:
+                proc = self._proc
+                pid = proc.pid
+
+                # 1. Graceful stdin closure / EOF signal to allow clean server teardown
                 try:
-                    if self._proc.stdin:
-                        self._proc.stdin.close()
-                        await self._proc.stdin.wait_closed()
+                    if proc.stdin:
+                        proc.stdin.close()
+                        await proc.stdin.wait_closed()
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("Error closing stdin for MCP server %s: %s", self.name, exc)
 
+                # Bounded wait for server to exit cleanly upon receiving EOF
                 try:
-                    self._proc.terminate()
+                    await asyncio.wait_for(proc.wait(), timeout=1.0)
+                except TimeoutError:
+                    # 2. Server still running after EOF grace period; escalate to SIGTERM / terminate
                     try:
-                        await asyncio.wait_for(self._proc.wait(), timeout=3.0)
-                    except TimeoutError:
-                        self._proc.kill()
-                        await self._proc.wait()
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("Error terminating process for MCP server %s: %s", self.name, exc)
+                        killpg = getattr(os, "killpg", None)
+                        sigterm = getattr(signal, "SIGTERM", None)
+                        sigkill = getattr(signal, "SIGKILL", None)
+
+                        if os.name == "posix" and killpg is not None and sigterm is not None:
+                            try:
+                                killpg(pid, sigterm)
+                            except (ProcessLookupError, PermissionError):
+                                proc.terminate()
+                        else:
+                            proc.terminate()
+
+                        try:
+                            await asyncio.wait_for(proc.wait(), timeout=2.0)
+                        except TimeoutError:
+                            # 3. Final escalation to SIGKILL / kill if still alive
+                            if os.name == "posix" and killpg is not None and sigkill is not None:
+                                try:
+                                    killpg(pid, sigkill)
+                                except (ProcessLookupError, PermissionError):
+                                    proc.kill()
+                            else:
+                                proc.kill()
+                            try:
+                                await asyncio.wait_for(proc.wait(), timeout=2.0)
+                            except TimeoutError:
+                                logger.warning(
+                                    "Process %d for MCP server %s did not terminate after SIGKILL",
+                                    pid,
+                                    self.name,
+                                )
+                                # Retain process ownership if process did not terminate
+                                return
+                    except ProcessLookupError:
+                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug(
+                            "Error terminating process for MCP server %s: %s", self.name, exc
+                        )
+
                 self._proc = None
 
     # ------------------------------------------------------------------

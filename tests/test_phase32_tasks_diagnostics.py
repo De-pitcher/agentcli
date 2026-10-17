@@ -28,7 +28,15 @@ from agentcli.ui.prompt import SlashAndFileCompleter, resolve_slash_command
 @pytest.mark.asyncio
 async def test_task_manager_lifecycle(tmp_path: Path) -> None:
     """Test TaskManager starts, streams, inspects, and terminates background tasks."""
-    mgr = TaskManager(root_dir=tmp_path)
+    from agentcli.policy import PolicyDenied, RunPolicy
+
+    # Default policy without execution must deny starting tasks
+    default_mgr = TaskManager(root_dir=tmp_path)
+    with pytest.raises(PolicyDenied, match="Arbitrary process execution is disabled"):
+        await default_mgr.start_task(command=f'"{sys.executable}" -c "print(1)"', cwd=tmp_path)
+
+    trusted_policy = RunPolicy(root=tmp_path, allow_execution=True)
+    mgr = TaskManager(root_dir=tmp_path, policy=trusted_policy)
 
     # Launch a fast Python process that prints two lines and waits
     cmd = f"\"{sys.executable}\" -c \"import time, sys; print('STARTED_TASK'); sys.stdout.flush(); time.sleep(2); print('DONE_TASK')\""
@@ -46,8 +54,6 @@ async def test_task_manager_lifecycle(tmp_path: Path) -> None:
         if any("STARTED_TASK" in line for line in logs.get("lines", [])):
             break
     assert any("STARTED_TASK" in line for line in logs.get("lines", []))
-
-
 
     # Offset & tail
     logs_offset = mgr.get_logs(task.id, tail=1, offset=0)
@@ -80,7 +86,10 @@ async def test_task_manager_lifecycle(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_task_manager_stdin_and_failed_start(tmp_path: Path) -> None:
     """Test sending stdin to a task and handling start failures."""
-    mgr = TaskManager(root_dir=tmp_path)
+    from agentcli.policy import RunPolicy
+
+    trusted_policy = RunPolicy(root=tmp_path, allow_execution=True)
+    mgr = TaskManager(root_dir=tmp_path, policy=trusted_policy)
 
     # Test stdin
     cmd = f'"{sys.executable}" -c "import sys; line = sys.stdin.readline(); print(\'ECHO:\' + line.strip()); sys.stdout.flush()"'
@@ -99,7 +108,6 @@ async def test_task_manager_stdin_and_failed_start(tmp_path: Path) -> None:
             break
     assert any("ECHO:hello_agentcli" in line for line in logs.get("lines", []))
 
-
     # Test unknown task errors
     assert "error" in mgr.get_status("invalid_id")
     assert "error" in mgr.get_logs("invalid_id")
@@ -110,8 +118,14 @@ async def test_task_manager_stdin_and_failed_start(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_task_manager_agent_actions(tmp_path: Path) -> None:
     """Test TaskManagerAgent subagent interface across all supported actions."""
-    mgr = TaskManager(root_dir=tmp_path)
-    agent = TaskManagerAgent(task_manager=mgr)
+    from agentcli.policy import RunPolicy
+
+    trusted_policy = RunPolicy(root=tmp_path, allow_execution=True)
+    mgr = TaskManager(root_dir=tmp_path, policy=trusted_policy)
+    agent = TaskManagerAgent(
+        config={"policy": trusted_policy, "working_dir": str(tmp_path)},
+        task_manager=mgr,
+    )
 
     # 1. Run action
     cmd = f'"{sys.executable}" -c "print(\'AGENT_ACTION_OK\')"'
@@ -150,11 +164,12 @@ async def test_task_manager_agent_actions(tmp_path: Path) -> None:
     for _ in range(30):
         await asyncio.sleep(0.1)
         r_logs = await agent.run(t_logs)
-        if r_logs.success and any("AGENT_ACTION_OK" in line for line in r_logs.output.get("lines", [])):
+        if r_logs.success and any(
+            "AGENT_ACTION_OK" in line for line in r_logs.output.get("lines", [])
+        ):
             break
     assert r_logs is not None and r_logs.success is True
     assert any("AGENT_ACTION_OK" in line for line in r_logs.output["lines"])
-
 
     # 5. Send input action
     t_input = SubAgentTask(
@@ -445,4 +460,3 @@ def test_ui_slash_tasks_resolution() -> None:
     doc = Document("/tas")
     completions = [c.text for c in completer.get_completions(doc, CompleteEvent())]
     assert "/tasks" in completions
-

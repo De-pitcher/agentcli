@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from agentcli.subagents.base import (
@@ -124,7 +126,22 @@ async def test_message_bus_delegate_task_timeout() -> None:
 
 
 @pytest.mark.asyncio
-async def test_peer_delegation_spawner_integration() -> None:
+async def test_peer_delegation_spawner_integration(tmp_path: Path) -> None:
+    from agentcli.policy import RunPolicy
+
+    # Test denied authority under default read-only policy
+    denied_agent = FileOpsAgent(config={"working_dir": str(tmp_path)})
+    denied_res = await denied_agent.run(
+        SubAgentTask(
+            agent_type=SubAgentType.FILE_OPS,
+            payload={"operation": "write", "path": "denied.tmp", "content": "blocked"},
+        )
+    )
+    assert denied_res.success is False
+    assert "read-only" in str(denied_res.error).lower() or "denied" in str(denied_res.error).lower()
+
+    # Scoped trusted policy for swarm delegation
+    trusted_policy = RunPolicy(root=tmp_path, allow_write=True)
     bus = MessageBus()
     configs = {
         SubAgentType.FILE_OPS.value: SubAgentConfig(enabled=True),
@@ -132,16 +149,28 @@ async def test_peer_delegation_spawner_integration() -> None:
     }
     factories = {
         SubAgentType.FILE_OPS.value: lambda: FileOpsAgent(
-            config={"read_only": False}, message_bus=bus
+            config={
+                "policy": trusted_policy,
+                "allow_write": True,
+                "read_only": False,
+                "working_dir": str(tmp_path),
+            },
+            message_bus=bus,
         ),
-        SubAgentType.CODE_ANALYZER.value: lambda: CodeAnalyzerAgent(message_bus=bus),
+        SubAgentType.CODE_ANALYZER.value: lambda: CodeAnalyzerAgent(
+            config={"policy": trusted_policy, "working_dir": str(tmp_path)},
+            message_bus=bus,
+        ),
     }
     spawner = SubAgentSpawner(config=configs, agent_factories=factories, message_bus=bus)
     await spawner.start()
 
     try:
         # Create a delegating agent
-        caller = CodeAnalyzerAgent(message_bus=bus)
+        caller = CodeAnalyzerAgent(
+            config={"policy": trusted_policy, "working_dir": str(tmp_path)},
+            message_bus=bus,
+        )
         parent_task = SubAgentTask(agent_type=SubAgentType.CODE_ANALYZER, payload={})
         await caller.on_start(parent_task)
 

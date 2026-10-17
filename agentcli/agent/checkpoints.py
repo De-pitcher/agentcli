@@ -1,194 +1,293 @@
-"""Filesystem Checkpoints & Atomic Rollback Manager (Phase 31).
-
-Enables automatic turn snapshotting, diff inspection, and safe single-command
-rollback (/undo) for agent actions and subagent executions.
-"""
+"""Byte-preserving, authorized file undo with explicit post-state conflicts."""
 
 from __future__ import annotations
 
 import difflib
-import logging
+import hashlib
+import os
+import tempfile
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-logger = logging.getLogger(__name__)
+from ..policy import RunPolicy
 
+MAX_SNAPSHOT_FILE_BYTES = 1048576
 MAX_CHECKPOINTS = 20
-MAX_SNAPSHOT_FILE_BYTES = 2_000_000  # 2MB
+
+
+def fingerprint(path: Path) -> str | None:
+    from ..io_boundary import filesystem_request, in_worker, query_sync
+
+    if not in_worker:
+        return cast(
+            str | None,
+            query_sync(
+                filesystem_request("fingerprint", RunPolicy(root=path.parent), path=str(path)),
+                RunPolicy(root=path.parent),
+            ),
+        )
+    if not path.exists():
+        return None
+    if not path.is_file() or path.stat().st_size > MAX_SNAPSHOT_FILE_BYTES:
+        raise ValueError("Directories and oversized file undo are unsupported")
+    info = path.stat()
+    with path.open("rb") as stream:
+        data = stream.read(MAX_SNAPSHOT_FILE_BYTES + 1)
+    if len(data) > MAX_SNAPSHOT_FILE_BYTES:
+        raise ValueError("File exceeds snapshot limit")
+    return hashlib.sha256(data + str((info.st_mode, info.st_mtime_ns)).encode()).hexdigest()
 
 
 @dataclass
 class FileSnapshot:
-    """Snapshot of a single file before mutation."""
-
     rel_path: str
     exists: bool
-    content: str | None = None
+    content: str | None = None  # compatibility for display only; never restored
     is_binary: bool = False
+    data: bytes | None = None
+    mode: int | None = None
+    mtime_ns: int | None = None
+    atime_ns: int | None = None
+    expected: str | None = None
+    sealed: bool = False
+
+
+def unchanged(snap: FileSnapshot) -> bool:
+    if not snap.sealed:
+        return False
+    if not snap.exists:
+        return snap.expected is None
+    if snap.data is None:
+        return False
+    before = hashlib.sha256(snap.data + str((snap.mode, snap.mtime_ns)).encode()).hexdigest()
+    return before == snap.expected
+
+
+def capture(policy: RunPolicy, value: str) -> FileSnapshot:
+    from ..io_boundary import filesystem_request, in_worker, query_sync, unpack_snapshot
+
+    if not in_worker:
+        return unpack_snapshot(
+            query_sync(filesystem_request("capture", policy, path=value), policy)
+        )
+    path = policy.path(value, write=True)
+    if not path.exists():
+        return FileSnapshot(str(path), False)
+    info = path.stat()
+    if not path.is_file() or info.st_size > MAX_SNAPSHOT_FILE_BYTES:
+        raise ValueError("Directories and oversized file undo are unsupported")
+    with path.open("rb") as stream:
+        data = stream.read(MAX_SNAPSHOT_FILE_BYTES + 1)
+    if len(data) > MAX_SNAPSHOT_FILE_BYTES:
+        raise ValueError("Snapshot exceeds byte limit")
+    return FileSnapshot(
+        str(path),
+        True,
+        data=data,
+        mode=info.st_mode,
+        mtime_ns=info.st_mtime_ns,
+        atime_ns=info.st_atime_ns,
+    )
+
+
+def restore(policy: RunPolicy, snap: FileSnapshot) -> None:
+    from ..io_boundary import filesystem_request, in_worker, pack_snapshot, query_sync
+
+    if not in_worker:
+        query_sync(filesystem_request("restore", policy, snapshot=pack_snapshot(snap)), policy)
+        return
+    path = policy.path(snap.rel_path, write=True)
+    if not snap.sealed:
+        raise ValueError("Undo unavailable: expected post-state was not recorded")
+    if fingerprint(path) != snap.expected:
+        raise ValueError("Undo conflict: file changed after the recorded operation")
+    if not snap.exists:
+        if path.exists():
+            path.unlink()
+        return
+    if snap.data is None:
+        raise ValueError("Undo unavailable: original bytes were not captured")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=".agentcli-undo-", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(snap.data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        policy.path(path, write=True)
+        if fingerprint(path) != snap.expected:
+            raise ValueError("Undo conflict during restoration")
+        if snap.mode is not None:
+            os.chmod(temporary, snap.mode)
+        os.replace(temporary, path)
+        if snap.mtime_ns is not None:
+            os.utime(
+                path, ns=(snap.mtime_ns if snap.atime_ns is None else snap.atime_ns, snap.mtime_ns)
+            )
+    finally:
+        if temporary.exists():
+            os.chmod(temporary, 0o600)
+            temporary.unlink()
 
 
 @dataclass
 class Checkpoint:
-    """Snapshot of workspace state at a specific point in time."""
-
     id: str
     description: str
-    timestamp: float = field(default_factory=time.time)
-    files: dict[str, FileSnapshot] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    files: dict[str, FileSnapshot] = field(default_factory=dict)
+    timestamp: str = ""
 
 
 class CheckpointManager:
-    """Manages workspace snapshots and rollback operations."""
-
-    def __init__(self, root_dir: Path | str = ".") -> None:
-        self.root_dir = Path(root_dir).resolve()
+    def __init__(self, root_dir: Path | str = ".", policy: RunPolicy | None = None) -> None:
+        self.policy = policy or RunPolicy(root=Path(root_dir))
+        self.root_dir = self.policy.root
         self._checkpoints: list[Checkpoint] = []
-
-    def record_file_before_write(self, rel_path: str, checkpoint: Checkpoint | None = None) -> None:
-        """Record the state of a file before modifying or deleting it."""
-        norm_path = Path(rel_path).as_posix()
-        target_cp = checkpoint or (self._checkpoints[-1] if self._checkpoints else None)
-        if target_cp is None:
-            return
-
-        if norm_path in target_cp.files:
-            return  # Already recorded in this checkpoint
-
-        full_path = (self.root_dir / norm_path).resolve()
-        if not full_path.exists():
-            target_cp.files[norm_path] = FileSnapshot(rel_path=norm_path, exists=False)
-            return
-
-        try:
-            if full_path.stat().st_size > MAX_SNAPSHOT_FILE_BYTES:
-                target_cp.files[norm_path] = FileSnapshot(
-                    rel_path=norm_path, exists=True, is_binary=True
-                )
-                return
-
-            text = full_path.read_text(encoding="utf-8", errors="replace")
-            target_cp.files[norm_path] = FileSnapshot(rel_path=norm_path, exists=True, content=text)
-        except OSError:
-            target_cp.files[norm_path] = FileSnapshot(
-                rel_path=norm_path, exists=True, is_binary=True
-            )
 
     def create_checkpoint(
         self, description: str = "Turn checkpoint", metadata: dict[str, Any] | None = None
     ) -> str:
-        """Create a new checkpoint tracking session mutations."""
-        cp_id = uuid.uuid4().hex[:8]
-        cp = Checkpoint(
-            id=cp_id,
-            description=description,
-            metadata=metadata or {},
-        )
+        cp = Checkpoint(uuid.uuid4().hex, description, metadata or {})
         self._checkpoints.append(cp)
+        self._checkpoints = self._checkpoints[-MAX_CHECKPOINTS:]
+        return cp.id
 
-        # Evict oldest if exceeding limit
-        if len(self._checkpoints) > MAX_CHECKPOINTS:
-            self._checkpoints.pop(0)
+    def _get_checkpoint(self, checkpoint_id: str | None = None) -> Checkpoint | None:
+        if checkpoint_id is None:
+            return self._checkpoints[-1] if self._checkpoints else None
+        return next((c for c in self._checkpoints if c.id == checkpoint_id), None)
 
-        return cp_id
+    def record_file_before_write(self, rel_path: str, checkpoint: Checkpoint | None = None) -> None:
+        cp = checkpoint or self._get_checkpoint()
+        if cp is None:
+            raise ValueError("No active checkpoint")
+        path = str(self.policy.path(rel_path, write=True))
+        if path not in cp.files:
+            if len(cp.files) >= 128:
+                raise ValueError("Checkpoint file count limit exceeded")
+            snapshot = capture(self.policy, path)
+            retained = sum(len(s.data or b"") for c in self._checkpoints for s in c.files.values())
+            if retained + len(snapshot.data or b"") > 16 * MAX_SNAPSHOT_FILE_BYTES:
+                raise ValueError("Journal retained byte limit exceeded")
+            cp.files[path] = snapshot
+
+    def record_snapshot(self, snapshot: FileSnapshot) -> None:
+        """Retain a helper-validated preimage before dispatching a mutation."""
+        cp = self._get_checkpoint()
+        if cp is None:
+            raise ValueError("No active checkpoint")
+        if snapshot.rel_path in cp.files:
+            return
+        if len(cp.files) >= 128:
+            raise ValueError("Checkpoint file count limit exceeded")
+        retained = sum(len(s.data or b"") for c in self._checkpoints for s in c.files.values())
+        if retained + len(snapshot.data or b"") > 16 * MAX_SNAPSHOT_FILE_BYTES:
+            raise ValueError("Journal retained byte limit exceeded")
+        cp.files[snapshot.rel_path] = snapshot
+
+    def discard_empty_checkpoint(self, checkpoint_id: str) -> bool:
+        cp = self._get_checkpoint(checkpoint_id)
+        if cp is not None and not cp.files:
+            self._checkpoints.remove(cp)
+            return True
+        return False
+
+    def record_post_state(self, checkpoint_id: str | None = None) -> None:
+        cp = self._get_checkpoint(checkpoint_id)
+        if cp is None:
+            raise ValueError("Checkpoint not found")
+        for path, snap in list(cp.files.items()):
+            snap.expected = fingerprint(self.policy.path(snap.rel_path, write=True))
+            snap.sealed = True
+            if unchanged(snap):
+                cp.files.pop(path)
+        self.discard_empty_checkpoint(cp.id)
 
     def list_checkpoints(self) -> list[dict[str, Any]]:
-        """List all available checkpoints."""
         return [
             {
-                "id": cp.id,
-                "description": cp.description,
-                "timestamp": cp.timestamp,
-                "file_count": len(cp.files),
-                "files": list(cp.files.keys()),
+                "id": c.id,
+                "description": c.description,
+                "timestamp": c.timestamp,
+                "file_count": len(c.files),
+                "files": list(c.files),
             }
-            for cp in reversed(self._checkpoints)
+            for c in reversed(self._checkpoints)
         ]
 
     def get_diff(self, checkpoint_id: str | None = None) -> str:
-        """Generate unified diff showing changes made since the given checkpoint."""
-        cp = self._get_checkpoint(checkpoint_id)
-        if cp is None or not cp.files:
-            return "No file changes recorded in this checkpoint."
-
-        diffs: list[str] = []
-        for rel_path, snap in cp.files.items():
-            full_path = (self.root_dir / rel_path).resolve()
-            current_content = ""
-            if full_path.exists():
-                try:
-                    current_content = full_path.read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    current_content = "[Binary or unreadable file]"
-
-            orig_content = snap.content if (snap.exists and snap.content is not None) else ""
-            orig_lines = orig_content.splitlines(keepends=True)
-            curr_lines = current_content.splitlines(keepends=True)
-
-            file_diff = "".join(
-                difflib.unified_diff(
-                    orig_lines,
-                    curr_lines,
-                    fromfile=f"a/{rel_path} (checkpoint {cp.id})",
-                    tofile=f"b/{rel_path} (current)",
-                )
-            )
-            if file_diff:
-                diffs.append(file_diff)
-
-        return "\n".join(diffs) if diffs else "No modified files found."
-
-    def rollback(self, checkpoint_id: str | None = None) -> dict[str, Any]:
-        """Revert all file changes recorded in the specified (or latest) checkpoint."""
         cp = self._get_checkpoint(checkpoint_id)
         if cp is None:
-            return {
-                "success": False,
-                "error": "No checkpoint available to restore",
-                "reverted_files": [],
-            }
+            return "No file changes recorded in this checkpoint."
+        from ..io_boundary import filesystem_request, in_worker, pack_snapshot, query_sync
 
-        reverted: list[str] = []
-        errors: list[str] = []
+        output: list[str] = []
+        deadline = time.monotonic() + self.policy.timeout_seconds
+        for path, snap in cp.files.items():
+            if not in_worker:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Diff acquisition deadline exceeded")
+                policy = replace(self.policy, timeout_seconds=remaining)
+                diff = query_sync(
+                    filesystem_request("display_diff", policy, snapshot=pack_snapshot(snap)), policy
+                )
+            else:
+                from ..bounds import read_text
 
-        for rel_path, snap in cp.files.items():
-            full_path = (self.root_dir / rel_path).resolve()
+                resolved = self.policy.path(path)
+                old = (snap.data or b"").decode("utf-8", errors="replace")
+                new = read_text(resolved, self.policy) if resolved.exists() else ""
+                diff = "".join(
+                    difflib.unified_diff(
+                        old.splitlines(True),
+                        new.splitlines(True),
+                        fromfile="a/" + path,
+                        tofile="b/" + path,
+                    )
+                )
+            if (
+                sum(len(part.encode("utf-8")) for part in output) + len(diff.encode("utf-8"))
+                > self.policy.max_output_bytes
+            ):
+                raise ValueError("Diff output exceeds limit; narrow checkpoint scope")
+            output.append(diff)
+        return "".join(output) or "No modified files found."
+
+    def rollback(self, checkpoint_id: str | None = None) -> dict[str, Any]:
+        cp = self._get_checkpoint(checkpoint_id)
+        if cp is None:
+            return {"success": False, "error": "No checkpoint available", "reverted_files": []}
+        reverted, errors = [], []
+        for snap in cp.files.values():
+            if (
+                not snap.sealed
+                or fingerprint(self.policy.path(snap.rel_path, write=True)) != snap.expected
+            ):
+                return {
+                    "success": False,
+                    "error": "Undo conflict or missing expected post-state",
+                    "reverted_files": [],
+                }
+        for path, snap in list(cp.files.items()):
             try:
-                if not snap.exists:
-                    # File did not exist originally: delete it if created
-                    if full_path.exists():
-                        full_path.unlink()
-                        reverted.append(f"deleted {rel_path}")
-                else:
-                    # File existed: restore content
-                    full_path.parent.mkdir(parents=True, exist_ok=True)
-                    if snap.content is not None:
-                        full_path.write_text(snap.content, encoding="utf-8")
-                        reverted.append(f"restored {rel_path}")
-            except OSError as exc:
-                errors.append(f"Failed to revert {rel_path}: {exc}")
-
-        # Remove the restored checkpoint
-        if cp in self._checkpoints:
+                restore(self.policy, snap)
+                reverted.append(
+                    ("restored " if snap.exists else "deleted ")
+                    + str(Path(path).relative_to(self.root_dir))
+                )
+                cp.files.pop(path)
+            except (OSError, ValueError) as exc:
+                errors.append(str(exc))
+        if not errors:
             self._checkpoints.remove(cp)
-
         return {
-            "success": len(errors) == 0,
-            "checkpoint_id": cp.id,
-            "description": cp.description,
+            "success": not errors,
+            "error": "; ".join(errors) or None,
             "reverted_files": reverted,
-            "errors": errors,
         }
-
-    def _get_checkpoint(self, checkpoint_id: str | None) -> Checkpoint | None:
-        if not self._checkpoints:
-            return None
-        if checkpoint_id is None:
-            return self._checkpoints[-1]
-        for cp in self._checkpoints:
-            if cp.id == checkpoint_id:
-                return cp
-        return None

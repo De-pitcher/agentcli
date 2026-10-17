@@ -437,6 +437,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Permit mutating file operations (write, create, delete, mkdir)",
     )
+    mcp_p.add_argument(
+        "--allow-execution",
+        action="store_true",
+        help="Permit arbitrary command execution via shell_execution tool",
+    )
 
     sessions_p = sub.add_parser(
         "sessions", help="Manage persisted conversation sessions", parents=[sub_common_parser]
@@ -709,7 +714,9 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                             config.routing.max_cost_usd = val
                             print(f"Session budget ceiling set to: ${val:.4f} USD")
                         except ValueError:
-                            print(f"Invalid budget amount: '{budget_val}'. Must be a positive number.")
+                            print(
+                                f"Invalid budget amount: '{budget_val}'. Must be a positive number."
+                            )
                 elif budget_subcmd in ("tokens", "max-tokens"):
                     if not budget_val:
                         print("Usage: /budget max-tokens <count>")
@@ -967,25 +974,37 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                         print(f"\n--- Available Skills ({len(skills_list)}) ---")
                         for s in skills_list:
                             source_badge = f"[{s['source_type'].upper()}]"
-                            print(f"  {source_badge} {s['name']} (v{s['version']}): {s['description']}")
+                            print(
+                                f"  {source_badge} {s['name']} (v{s['version']}): {s['description']}"
+                            )
                         print("------------------------------------\n")
-                        print("Run a skill with: /skill run <name> or inspect with /skill info <name>\n")
+                        print(
+                            "Run a skill with: /skill run <name> or inspect with /skill info <name>\n"
+                        )
                 elif skill_subcmd == "info":
                     if not target_skill:
                         print("Usage: /skill info <skill_name>")
                     else:
                         manifest = session.skill_engine.loader.get_skill(target_skill)
                         if not manifest:
-                            print(f"Skill '{target_skill}' not found. Run '/skill list' to see available skills.")
+                            print(
+                                f"Skill '{target_skill}' not found. Run '/skill list' to see available skills."
+                            )
                         else:
                             print(f"\nSkill [{manifest.name}] (v{manifest.version})")
                             print(f"  Description: {manifest.description}")
-                            print(f"  Source: {manifest.source_type} ({manifest.skill_dir or 'builtin'})")
-                            print(f"  Execution Mode: {manifest.execution_mode} (max {manifest.max_iterations} iterations)")
+                            print(
+                                f"  Source: {manifest.source_type} ({manifest.skill_dir or 'builtin'})"
+                            )
+                            print(
+                                f"  Execution Mode: {manifest.execution_mode} (max {manifest.max_iterations} iterations)"
+                            )
                             if manifest.parameters:
                                 print("  Parameters:")
                                 for p_name, p in manifest.parameters.items():
-                                    req_str = " (required)" if p.required else f" (default: {p.default})"
+                                    req_str = (
+                                        " (required)" if p.required else f" (default: {p.default})"
+                                    )
                                     print(f"    - {p_name} [{p.type}]{req_str}: {p.description}")
                             if manifest.required_tools:
                                 print(f"  Required Tools: {', '.join(manifest.required_tools)}")
@@ -994,10 +1013,16 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     session.skill_engine.loader.reload()
                     total = len(session.skill_engine.loader.list_skills())
                     print(f"Reloaded skills. Found {total} skill(s).")
-                elif skill_subcmd in ("run", "exec") or session.skill_engine.loader.has_skill(skill_subcmd):
+                elif skill_subcmd in ("run", "exec") or session.skill_engine.loader.has_skill(
+                    skill_subcmd
+                ):
                     if skill_subcmd in ("run", "exec"):
                         actual_name = target_skill.split(maxsplit=1)[0] if target_skill else ""
-                        raw_args_str = target_skill.split(maxsplit=1)[1] if len(target_skill.split(maxsplit=1)) > 1 else ""
+                        raw_args_str = (
+                            target_skill.split(maxsplit=1)[1]
+                            if len(target_skill.split(maxsplit=1)) > 1
+                            else ""
+                        )
                     else:
                         actual_name = skill_subcmd
                         raw_args_str = target_skill
@@ -1020,7 +1045,9 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                             skill_name=actual_name,
                             arguments=parsed_args,
                         )
-                        print(f"\nExecuting skill '{manifest.name}' ({manifest.execution_mode})...\n")
+                        print(
+                            f"\nExecuting skill '{manifest.name}' ({manifest.execution_mode})...\n"
+                        )
 
                         if manifest.execution_mode == "loop" or session.should_use_loop(rendered):
                             await session.async_add_user_message(rendered)
@@ -1056,14 +1083,20 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 if branch_subcmd in ("list", "ls") or len(branch_parts) == 1:
                     wts = session.worktree_manager.list_worktrees()
                     if not wts:
-                        print("\nNo active Git worktrees. Create one with: /branch create <branch-name>\n")
+                        print(
+                            "\nNo active Git worktrees. Create one with: /branch create <branch-name>\n"
+                        )
                     else:
                         print(f"\n--- Active Git Worktrees ({len(wts)}) ---")
                         for wt in wts:
                             status_badge = f"[{wt.status.upper()}]"
-                            print(f"  {status_badge} {wt.branch} -> {wt.path} (base: {wt.base_ref})")
+                            print(
+                                f"  {status_badge} {wt.branch} -> {wt.path} (base: {wt.base_ref})"
+                            )
                         print("------------------------------------------\n")
-                        print("Actions: /branch diff <name> | /branch merge <name> | /branch discard <name>\n")
+                        print(
+                            "Actions: /branch diff <name> | /branch merge <name> | /branch discard <name>\n"
+                        )
                 elif branch_subcmd in ("create", "add", "new"):
                     if not target_branch:
                         print("Usage: /branch create <branch_name> [base_ref]")
@@ -1073,7 +1106,9 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                         b_base = create_parts[1].strip() if len(create_parts) > 1 else None
                         try:
                             meta = session.worktree_manager.create_worktree(b_name, base_ref=b_base)
-                            print(f"\nCreated sandboxed worktree for branch '{meta.branch}'\n  Location: {meta.path}\n  Base Ref: {meta.base_ref}\n")
+                            print(
+                                f"\nCreated sandboxed worktree for branch '{meta.branch}'\n  Location: {meta.path}\n  Base Ref: {meta.base_ref}\n"
+                            )
                         except Exception as exc:  # noqa: BLE001
                             print(f"Error creating worktree: {exc}")
                 elif branch_subcmd in ("status", "info"):
@@ -1082,7 +1117,9 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                         st = session.worktree_manager.get_worktree_status(target)
                         print(f"\nWorktree Sandbox Status: {st['branch']}")
                         print(f"  Path: {st['path']}")
-                        print(f"  Dirty: {'Yes' if st['dirty'] else 'No'} ({st['changes_count']} change(s))")
+                        print(
+                            f"  Dirty: {'Yes' if st['dirty'] else 'No'} ({st['changes_count']} change(s))"
+                        )
                         if st["changes"]:
                             print("  Modified files:")
                             for ch in st["changes"]:
@@ -1116,9 +1153,13 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                         b_name = m_parts[0].strip()
                         strategy = m_parts[1].strip() if len(m_parts) > 1 else "squash"
                         try:
-                            merge_res = session.worktree_manager.merge_worktree(b_name, strategy=strategy)
+                            merge_res = session.worktree_manager.merge_worktree(
+                                b_name, strategy=strategy
+                            )
                             if merge_res.get("success"):
-                                print(f"\nSuccessfully merged worktree '{b_name}' into target ({merge_res.get('strategy')})\n")
+                                print(
+                                    f"\nSuccessfully merged worktree '{b_name}' into target ({merge_res.get('strategy')})\n"
+                                )
                             else:
                                 print(f"\nMerge failed: {merge_res.get('error')}\n")
                         except Exception as exc:  # noqa: BLE001
@@ -1127,7 +1168,9 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     if not target_branch:
                         print("Usage: /branch discard <branch_name>")
                     else:
-                        removed = session.worktree_manager.remove_worktree(target_branch, force=True, delete_branch=True)
+                        removed = session.worktree_manager.remove_worktree(
+                            target_branch, force=True, delete_branch=True
+                        )
                         if removed:
                             print(f"Pruned and discarded worktree '{target_branch}'.")
                         else:
@@ -1136,7 +1179,9 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     pruned = session.worktree_manager.prune_all()
                     print(f"Pruned {pruned} orphan worktree reference(s).")
                 else:
-                    print("Usage: /branch [list | create <name> | status <name> | diff <name> | merge <name> | discard <name> | prune]")
+                    print(
+                        "Usage: /branch [list | create <name> | status <name> | diff <name> | merge <name> | discard <name> | prune]"
+                    )
                 continue
 
             if user_input.startswith(("/healing", "/heal")):
@@ -1149,12 +1194,16 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                     snaps = session.auto_healing.list_snapshots()
                     report = session.drift_detector.evaluate_drift()
                     print(f"\n--- Agent Self-Healing Status [{enabled_str}] ---")
-                    print(f"  Drift Severity: {report.severity.value.upper()} (Score: {report.drift_score:.3f})")
+                    print(
+                        f"  Drift Severity: {report.severity.value.upper()} (Score: {report.drift_score:.3f})"
+                    )
                     print(f"  Cycle/Loop Detected: {'Yes' if report.is_loop_detected else 'No'}")
                     if report.cycle_signature:
                         print(f"  Cycle Signature: {report.cycle_signature}")
                     print(f"  Consecutive Failures: {report.consecutive_failures}")
-                    print(f"  Total Actions Tracked: {report.total_actions_count} ({report.unique_actions_count} unique)")
+                    print(
+                        f"  Total Actions Tracked: {report.total_actions_count} ({report.unique_actions_count} unique)"
+                    )
                     print(f"  Active Snapshots: {len(snaps)}")
                     if report.reasons:
                         print("  Active Drift Warnings:")
@@ -1165,13 +1214,17 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                         for s in snaps[:3]:
                             print(f"    • [{s['id']}] {s['description']} ({s['file_count']} files)")
                     print("------------------------------------------------\n")
-                    print("Actions: /healing rollback [id] | /healing reset | /healing [enable|disable]\n")
+                    print(
+                        "Actions: /healing rollback [id] | /healing reset | /healing [enable|disable]\n"
+                    )
                 elif h_subcmd == "rollback":
                     h_target_id: str | None = h_target if h_target else None
                     h_res: dict[str, Any] = session.auto_healing.rollback_to_snapshot(h_target_id)
                     if h_res.get("success"):
                         reverted = ", ".join(h_res.get("reverted_files", [])) or "none"
-                        print(f"\nSuccessfully rolled back snapshot '{h_res.get('snapshot_id')}': {reverted}\n")
+                        print(
+                            f"\nSuccessfully rolled back snapshot '{h_res.get('snapshot_id')}': {reverted}\n"
+                        )
                     else:
                         print(f"\nRollback failed: {h_res.get('error')}\n")
 
@@ -1190,8 +1243,6 @@ async def run_chat(args: argparse.Namespace, config: Config) -> int:
                 continue
 
             if user_input in {"/clear", "/cls"}:
-
-
                 renderer.clear()
                 continue
 
@@ -2032,8 +2083,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "mcp":
         from .agent.registry import ToolRegistry
         from .mcp import run_mcp
+        from .policy import RunPolicy
+        from .runtime import RunContext
 
-        reg = ToolRegistry(config=config)
+        allow_write = getattr(args, "allow_write", False)
+        allow_execution = getattr(args, "allow_execution", False)
+        mcp_policy = RunPolicy(
+            root=Path.cwd(),
+            allow_write=allow_write,
+            allow_execution=allow_execution,
+        )
+        context = RunContext(policy=mcp_policy)
+        reg = ToolRegistry(config=config, context=context)
         for p in config.app.plugins:
             reg.load_plugin_file(p)
         return run_mcp(registry=reg)
