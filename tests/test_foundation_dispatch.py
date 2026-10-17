@@ -29,10 +29,10 @@ from agentcli.policy import PolicyDenied, RunPolicy
 from agentcli.subagents import file_ops as fops_module
 
 CANDIDATE_WORKER_CANONICAL_LF_SHA256 = (
-    "a40c2dbe21e48c18786816abe33786aee388390993b26320703a3cb740868b77"
+    "b18aa1235c50aafef2871949da7ee8cf282022015e7c98f6d4d7f0f093152b58"
 )
 CANDIDATE_WORKER_WINDOWS_CRLF_SHA256 = (
-    "ad34b2761e5c32a4a728484ac5fa2267f981bf0f84d986dfded52889a48d4151"
+    "870a60faffd728512b6402affd3e20ea11a0002d8702f2bc2f96b0cb6cd28350"
 )
 
 

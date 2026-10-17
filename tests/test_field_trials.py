@@ -81,7 +81,11 @@ def test_field_trial_scorecard_rendering() -> None:
 
 
 def test_field_trial_sandbox_evaluation(tmp_path: Path) -> None:
-    """Test TaskEvaluator on a field trial task setup."""
+    """Test TaskEvaluator on a field trial task setup.
+
+    Verifies both a correct solution passes and an incorrect solution fails
+    with meaningful output. Uses the actual test discovery command.
+    """
     tasks = get_builtin_field_trials_tasks()
     task = tasks[0]  # field_bugfix_auth_jwt
 
@@ -93,7 +97,7 @@ def test_field_trial_sandbox_evaluation(tmp_path: Path) -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
 
-    # Fix the bug in src/auth/jwt.py
+    # --- Test 1: Correct solution passes ---
     jwt_file = ws / "src" / "auth" / "jwt.py"
     jwt_file.write_text(
         "def extract_bearer_token(header: str | None) -> str | None:\n"
@@ -108,6 +112,23 @@ def test_field_trial_sandbox_evaluation(tmp_path: Path) -> None:
 
     evaluator = TaskEvaluator()
     success, reason, stdout = evaluator.evaluate(task, ws)
-    assert success is True
-    assert reason == "success"
-    assert "OK" in stdout or "Ran 2 tests" in stdout or "passed" in stdout.lower() or not stdout
+    assert success is True, f"Correct solution should pass. reason={reason}, stdout={stdout}"
+    assert reason == "success", f"Expected 'success', got {reason}. stdout={stdout}"
+
+    # --- Test 2: Incorrect solution fails with meaningful output ---
+    jwt_file.write_text(
+        "def extract_bearer_token(header: str | None) -> str | None:\n"
+        "    if not header:\n"
+        "        return None\n"
+        "    # BUG: only checks exact lowercase 'bearer '\n"
+        "    if header.startswith('bearer '):\n"
+        "        return header[7:]\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+
+    success, reason, stdout = evaluator.evaluate(task, ws)
+    assert success is False, f"Incorrect solution should fail. reason={reason}, stdout={stdout}"
+    assert reason == "test_failure", f"Expected assertion failure, got {reason}. stdout={stdout}"
+    assert "Ran 2 tests" in stdout and "FAILED" in stdout, stdout
+    assert "ImportError" not in stdout and "ModuleNotFoundError" not in stdout, stdout

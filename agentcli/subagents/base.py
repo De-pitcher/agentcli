@@ -307,6 +307,32 @@ def _parse_helper_result(h_res: Any, task_id: str, agent_type: SubAgentType) -> 
         )
 
 
+def _parse_workspace_list_tree_result(
+    h_res: Any,
+    task_id: str,
+    agent_type: SubAgentType,
+) -> SubAgentResult:
+    """Validate and parse a workspace_list_tree helper response."""
+    if not isinstance(h_res, dict):
+        raise TypeError(f"Invalid helper response: expected dict, got {type(h_res).__name__}")
+    root = h_res.get("root")
+    tree = h_res.get("tree")
+    if not isinstance(root, str):
+        raise TypeError("Invalid helper response: 'root' must be str")
+    if not isinstance(tree, list):
+        raise TypeError("Invalid helper response: 'tree' must be list")
+    for item in tree:
+        if not isinstance(item, str):
+            raise TypeError("Invalid helper response: 'tree' items must be str")
+    return SubAgentResult(
+        task_id=task_id,
+        agent_type=agent_type,
+        success=True,
+        output={"root": root, "tree": tree},
+        error=None,
+    )
+
+
 class SubAgent(ABC):
     """Abstract base class for all sub-agents.
 
@@ -386,6 +412,38 @@ class SubAgent(ABC):
                             h_res = await query(req, policy)
                             res_obj = _parse_helper_result(h_res, task.id, task.agent_type)
                             return bound_result(res_obj, policy.max_output_bytes)
+
+                        if not in_worker and name == "workspace":
+                            operation = task.payload.get("operation")
+                            if operation in ("list_tree", "workspace_list_tree"):
+                                raw_path = task.payload.get("path")
+                                target_path = policy.path(raw_path or policy.root, write=False)
+                                raw_depth = task.payload.get("max_depth", 2)
+                                if type(raw_depth) is not int:
+                                    raise TypeError("max_depth must be an integer")
+                                if not 0 <= raw_depth <= 20:
+                                    raise ValueError("max_depth must be between 0 and 20")
+
+                                raw_entries = task.payload.get("max_entries", 4096)
+                                if type(raw_entries) is not int:
+                                    raise TypeError("max_entries must be an integer")
+                                if not 1 <= raw_entries <= 4096:
+                                    raise ValueError("max_entries must be between 1 and 4096")
+
+                                req = filesystem_request(
+                                    "workspace_list_tree",
+                                    policy,
+                                    task_id=task.id,
+                                    path=str(target_path),
+                                    max_depth=raw_depth,
+                                    max_entries=raw_entries,
+                                    payload=task.payload,
+                                )
+                                h_res = await query(req, policy)
+                                res_obj = _parse_workspace_list_tree_result(
+                                    h_res, task.id, task.agent_type
+                                )
+                                return bound_result(res_obj, policy.max_output_bytes)
 
                         # If this agent requires filesystem_tool, in Batch 1 it is not yet available in _io_worker.
                         # Governed callers must fail closed rather than falling back to unmanaged blocking handlers.

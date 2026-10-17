@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from datetime import UTC
+from pathlib import Path
 
 import pytest
 
@@ -581,20 +583,59 @@ class TestShellExecution:
         assert "Dangerous environment variable override rejected" in str(result.error)
 
     @pytest.mark.asyncio
-    async def test_timeout_and_output_bounding(self) -> None:
+    async def test_timeout_and_output_bounding(self, tmp_path: Path) -> None:
+        from agentcli.policy import RunPolicy
 
-        agent = ShellExecutionAgent(config={"command_timeout": 0.1, "max_output_bytes": 10})
+        # 1. Default denial without explicit allow_execution
+        default_agent = ShellExecutionAgent(
+            config={"command_timeout": 1.0, "working_dir": str(tmp_path)}
+        )
+        t_denied = SubAgentTask(
+            agent_type=SubAgentType.SHELL_EXECUTION,
+            payload={"command": f'{sys.executable} -c "print(1)"'},
+        )
+        r_denied = await default_agent.run(t_denied)
+        assert r_denied.success is False
+        assert "Arbitrary process execution is disabled" in str(r_denied.error)
+
+        # 2. Explicit execution policy with command timeout
+        trusted_policy = RunPolicy(
+            root=tmp_path,
+            allow_execution=True,
+            timeout_seconds=10.0,
+            max_output_bytes=64,
+        )
+
+        ready_marker = tmp_path / "cmd_ready.txt"
+        cmd = (
+            f'{sys.executable} -c "'
+            f"import time, pathlib; "
+            f"pathlib.Path(r'{ready_marker}').write_text('ready'); "
+            f'time.sleep(5)"'
+        )
+
+        agent = ShellExecutionAgent(
+            config={
+                "policy": trusted_policy,
+                "command_timeout": 0.5,
+                "working_dir": str(tmp_path),
+                "max_output_bytes": 64,
+            }
+        )
 
         t_timeout = SubAgentTask(
             agent_type=SubAgentType.SHELL_EXECUTION,
-            payload={"command": 'python -c "import time; time.sleep(1)"'},
+            payload={"command": cmd, "timeout": 0.5},
         )
 
         r_timeout = await agent.run(t_timeout)
 
         assert r_timeout.success is False
-
-        assert "timed out" in str(r_timeout.error)
+        assert ready_marker.exists(), "Command must have achieved readiness before timing out"
+        assert (
+            "timed out" in str(r_timeout.error).lower()
+            or "deadline" in str(r_timeout.error).lower()
+        )
 
     @pytest.mark.asyncio
     async def test_builtin_shims_pwd_whoami_echo_which(self, tmp_path) -> None:

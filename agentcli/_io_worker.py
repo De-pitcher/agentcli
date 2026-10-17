@@ -25,6 +25,7 @@ ALLOWED_OPERATIONS = frozenset(
         "display_diff",
         "file_ops",
         "shell_execution",
+        "workspace_list_tree",
     }
 )
 
@@ -207,6 +208,104 @@ def filesystem(request: dict[str, Any]) -> Any:
                     "truncated": proc_out.truncated,
                 },
                 "error": stderr_text if not success else None,
+            }
+        if operation == "workspace_list_tree":
+            import os
+            import stat
+            import time
+
+            raw_path = request.get("path") or request.get("payload", {}).get("path")
+            target_path = policy.path(raw_path or policy.root, write=False)
+
+            payload = request.get("payload", {})
+            raw_depth = payload.get("max_depth", request.get("max_depth", 2))
+            if type(raw_depth) is not int:
+                raise TypeError("max_depth must be an integer")
+            if not 0 <= raw_depth <= 20:
+                raise ValueError("max_depth must be between 0 and 20")
+            max_depth = raw_depth
+
+            raw_entries = payload.get("max_entries", request.get("max_entries", 4096))
+            if type(raw_entries) is not int:
+                raise TypeError("max_entries must be an integer")
+            if not 1 <= raw_entries <= 4096:
+                raise ValueError("max_entries must be between 1 and 4096")
+            max_entries = raw_entries
+
+            deadline = time.monotonic() + policy.timeout_seconds
+            tree: list[str] = []
+            acquired_count = 0
+
+            from .policy import PolicyDenied
+            from .subagents.workspace import DEFAULT_IGNORES
+
+            def walk_dir(current_dir: Path, depth: int) -> None:
+                nonlocal acquired_count
+                if depth > max_depth or acquired_count >= max_entries:
+                    return
+                if time.monotonic() > deadline:
+                    raise TimeoutError("workspace_list_tree exceeded timeout")
+
+                raw_items: list[tuple[str, bool, Path]] = []
+                try:
+                    with os.scandir(current_dir) as it:
+                        for entry in it:
+                            acquired_count += 1
+                            if time.monotonic() > deadline:
+                                raise TimeoutError("workspace_list_tree exceeded timeout")
+
+                            entry_name = entry.name
+                            if entry_name in DEFAULT_IGNORES or entry_name.endswith(".egg-info"):
+                                if acquired_count >= max_entries:
+                                    break
+                                continue
+
+                            entry_path = current_dir / entry_name
+
+                            # Validate link/reparse policy BEFORE is_dir or following
+                            try:
+                                lstat_res = entry.stat(follow_symlinks=False)
+                            except OSError:
+                                if acquired_count >= max_entries:
+                                    break
+                                continue
+
+                            is_link = entry.is_symlink() or bool(
+                                getattr(lstat_res, "st_file_attributes", 0)
+                                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                            )
+                            if is_link:
+                                raise PolicyDenied("Links and reparse paths are unsupported")
+
+                            # Validate path under policy root / readable_roots
+                            policy.path(entry_path, write=False)
+
+                            is_dir = entry.is_dir(follow_symlinks=False)
+                            raw_items.append((entry_name, is_dir, entry_path))
+
+                            if acquired_count >= max_entries:
+                                break
+                except PolicyDenied:
+                    raise
+                except OSError:
+                    return
+
+                # Sort only within bounded acquired items
+                sorted_items = sorted(raw_items, key=lambda x: (not x[1], x[0].lower()))
+
+                for name, is_dir, p_entry in sorted_items:
+                    indent = "  " * (depth - 1)
+                    prefix = "📁 " if is_dir else "📄 "
+                    tree.append(f"{indent}{prefix}{name}")
+                    if is_dir:
+                        walk_dir(p_entry, depth + 1)
+
+            if max_depth >= 1:
+                walk_dir(target_path, 1)
+
+            return {
+                "root": str(target_path),
+                "tree": tree,
             }
         raise ValueError("Unsupported internal I/O operation")
 

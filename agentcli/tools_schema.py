@@ -179,6 +179,10 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                         "type": "integer",
                         "description": "Max depth for list_tree (default: 2)",
                     },
+                    "max_entries": {
+                        "type": "integer",
+                        "description": "Max entries to scan for list_tree (default: 4096)",
+                    },
                 },
                 "required": ["operation"],
             },
@@ -461,7 +465,6 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         },
     },
 }
-
 
 
 def get_tool_definitions(
