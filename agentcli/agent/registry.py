@@ -302,9 +302,7 @@ class ToolRegistry:
                 validate(payload, self.specs[agent_type].schema)
                 await self.context.policy.aauthorize(agent_type, payload)
                 agent = factory()
-                result: SubAgentResult = await asyncio.wait_for(
-                    agent.run(task), self.context.policy.timeout_seconds
-                )
+                result: SubAgentResult = await agent.run(task)
                 from .evidence import annotate
 
                 annotate(
