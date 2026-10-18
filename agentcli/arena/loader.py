@@ -204,7 +204,7 @@ def get_builtin_field_trials_tasks() -> list[BenchmarkTask]:
                 ),
             },
             expected_files={"src/auth/jwt.py": r"def extract_bearer_token"},
-            test_command="python -m unittest tests/test_auth.py",
+            test_command="python -m unittest discover -s tests -p test_auth.py",
             test_files={
                 "tests/test_auth.py": (
                     "import unittest\n"
@@ -240,7 +240,7 @@ def get_builtin_field_trials_tasks() -> list[BenchmarkTask]:
             ),
             workspace_setup={},
             expected_files={"src/cache/store.py": r"class LRUCache"},
-            test_command="python -m unittest tests/test_cache.py",
+            test_command="python -m unittest discover -s tests -p test_cache.py",
             test_files={
                 "tests/test_cache.py": (
                     "import unittest\n"
@@ -279,7 +279,7 @@ def get_builtin_field_trials_tasks() -> list[BenchmarkTask]:
                 "packages/common/utils.py": r"def slugify",
                 "packages/app/main.py": r"def build_endpoint",
             },
-            test_command="python -m unittest tests/test_mesh_app.py",
+            test_command="python -m unittest discover -s tests -p test_mesh_app.py",
             test_files={
                 "tests/test_mesh_app.py": (
                     "import unittest\n"
@@ -320,7 +320,7 @@ def get_builtin_field_trials_tasks() -> list[BenchmarkTask]:
                 )
             },
             expected_files={"logs/summary.json": r"error_count"},
-            test_command="python -m unittest tests/test_log_summary.py",
+            test_command="python -m unittest discover -s tests -p test_log_summary.py",
             test_files={
                 "tests/test_log_summary.py": (
                     "import json, os, unittest\n\n"

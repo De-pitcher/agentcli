@@ -256,7 +256,19 @@ async def test_grep_search_ripgrep_mocked(tmp_path: Path) -> None:
 
 def test_checkpoint_manager_lifecycle(tmp_path: Path) -> None:
     """Test CheckpointManager records snapshots, creates diffs, and performs clean rollbacks."""
-    mgr = CheckpointManager(root_dir=tmp_path)
+    from agentcli.policy import PolicyDenied, RunPolicy
+
+    # Default policy (read-only) must deny rollback mutation
+    default_mgr = CheckpointManager(root_dir=tmp_path)
+    file_default = tmp_path / "default_test.txt"
+    file_default.write_text("Default test\n", encoding="utf-8")
+    default_mgr.create_checkpoint(description="Default policy")
+    with pytest.raises(PolicyDenied, match="Mutation denied in read-only mode"):
+        default_mgr.record_file_before_write("default_test.txt")
+
+    # Trusted policy granting write permissions within tmp_path
+    write_policy = RunPolicy(root=tmp_path, allow_write=True)
+    mgr = CheckpointManager(root_dir=tmp_path, policy=write_policy)
 
     file_a = tmp_path / "file_a.txt"
     file_a.write_text("Initial content A\n", encoding="utf-8")
@@ -271,19 +283,27 @@ def test_checkpoint_manager_lifecycle(tmp_path: Path) -> None:
     file_b = tmp_path / "file_b.txt"
     file_b.write_text("Newly created file B\n", encoding="utf-8")
 
-    # 3. Inspect diff
+    # Attempting rollback before sealing post-state must fail (unsealed control)
+    unsealed_res = mgr.rollback(cp1)
+    assert unsealed_res["success"] is False
+    assert "Undo conflict or missing expected post-state" in str(unsealed_res.get("error"))
+
+    # 3. Seal expected post-state
+    mgr.record_post_state(cp1)
+
+    # 4. Inspect diff
     diff_text = mgr.get_diff(cp1)
     assert "-Initial content A" in diff_text
     assert "+Modified content A" in diff_text
     assert "+Newly created file B" in diff_text
 
-    # 4. Perform rollback
+    # 5. Perform rollback
     rollback_res = mgr.rollback(cp1)
     assert rollback_res["success"] is True
     assert any("restored file_a.txt" in r for r in rollback_res["reverted_files"])
     assert any("deleted file_b.txt" in r for r in rollback_res["reverted_files"])
 
-    # 5. Verify filesystem restored
+    # 6. Verify filesystem restored
     assert file_a.read_text(encoding="utf-8") == "Initial content A\n"
     assert not file_b.exists()
 

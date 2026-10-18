@@ -638,6 +638,9 @@ class TestToolRegistryPlugins:
 
     @pytest.mark.asyncio
     async def test_load_plugin_file(self, tmp_path: Any) -> None:
+        from agentcli.policy import RunPolicy
+        from agentcli.runtime import RunContext
+
         plugin_file = tmp_path / "custom_tool.py"
         plugin_file.write_text(
             """
@@ -650,13 +653,15 @@ def register_tools(registry):
             encoding="utf-8",
         )
 
-        registry = ToolRegistry()
+        context = RunContext(policy=RunPolicy(root=tmp_path, allow_execution=True))
+        registry = ToolRegistry(context=context)
         registry.load_plugin_file(plugin_file)
         assert "multiplier" in registry.registered_types()
 
         result = await registry.execute("multiplier", {"x": 5, "y": 6})
         assert result.success is True
         assert result.output == {"output": "30"}
+        await context.aclose()
 
 
 class TestObservabilityAndCancellation:

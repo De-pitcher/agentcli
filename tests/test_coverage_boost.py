@@ -16,8 +16,12 @@ from agentcli.subagents.workspace import WorkspaceAgent
 
 
 @pytest.mark.asyncio
-async def test_shell_cd_commands(tmp_path: Path) -> None:
-    """Test ShellExecutionAgent built-in cd handling across valid, home, non-existent, and file paths."""
+async def test_shell_cd_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test ShellExecutionAgent built-in cd handling across valid, home, non-existent, and file paths.
+
+    Uses monkeypatch.chdir to isolate cwd changes so the original cwd is restored on teardown.
+    """
+    monkeypatch.chdir(tmp_path)
     sub_dir = tmp_path / "sub"
     sub_dir.mkdir()
     sample_file = tmp_path / "file.txt"
@@ -49,9 +53,8 @@ async def test_shell_cd_commands(tmp_path: Path) -> None:
     # 4. cd into a regular file (not a directory)
     t_file = SubAgentTask(
         agent_type=SubAgentType.SHELL_EXECUTION,
-        payload={"command": f"cd {sample_file.name}"},
+        payload={"command": f'cd "{sample_file}"'},
     )
-    agent.working_dir = str(tmp_path)
     r_file = await agent.run(t_file)
     assert r_file.success is False
     assert r_file.error is not None and "not a directory" in r_file.error
@@ -245,23 +248,33 @@ def test_prompt_completer_all_branches(tmp_path: Path) -> None:
     event = CompleteEvent()
 
     # Model completions
-    assert any(c.text == "google/gemini-2.0-flash-exp:free" or "free" in c.text for c in completer.get_completions(Document("/model "), event))
+    assert any(
+        c.text == "google/gemini-2.0-flash-exp:free" or "free" in c.text
+        for c in completer.get_completions(Document("/model "), event)
+    )
     assert any(c.text == "free" for c in completer.get_completions(Document("/model f"), event))
     assert any(c.text == "paid" for c in completer.get_completions(Document("/model p"), event))
 
     # Budget completions
-    assert any(c.text == "medium" for c in completer.get_completions(Document("/budget med"), event))
+    assert any(
+        c.text == "medium" for c in completer.get_completions(Document("/budget med"), event)
+    )
     assert any(c.text == "high" for c in completer.get_completions(Document("/budget hi"), event))
 
     # Skill completions
     assert any(c.text == "info" for c in completer.get_completions(Document("/skill in"), event))
     assert any(c.text == "run" for c in completer.get_completions(Document("/skill r"), event))
-    assert any("code-review" in c.text for c in completer.get_completions(Document("/skill run code"), event))
+    assert any(
+        "code-review" in c.text
+        for c in completer.get_completions(Document("/skill run code"), event)
+    )
 
     # Branch completions
     assert any(c.text == "create" for c in completer.get_completions(Document("/branch cr"), event))
     assert any(c.text == "status" for c in completer.get_completions(Document("/branch st"), event))
-    assert any(c.text == "discard" for c in completer.get_completions(Document("/branch disc"), event))
+    assert any(
+        c.text == "discard" for c in completer.get_completions(Document("/branch disc"), event)
+    )
 
     # File @ completion
     test_f = tmp_path / "sample_doc.txt"
@@ -336,7 +349,9 @@ async def test_session_step_budget_and_prompt(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.asyncio
-async def test_session_auto_ground_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_session_auto_ground_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test auto_ground_workspace when git repo is discovered or missing."""
     from agentcli.config import Config
     from agentcli.session import AgentSession
@@ -353,7 +368,9 @@ async def test_session_auto_ground_workspace(tmp_path: Path, monkeypatch: pytest
         success=True,
         output={"is_git_repo": True, "summary": "Branch: main, clean status"},
     )
-    with patch("agentcli.subagents.workspace.WorkspaceAgent.run", new_callable=AsyncMock) as mock_run:
+    with patch(
+        "agentcli.subagents.workspace.WorkspaceAgent.run", new_callable=AsyncMock
+    ) as mock_run:
         mock_run.return_value = mock_success_res
         summary = await session.auto_ground_workspace(tmp_path)
         assert summary == "Branch: main, clean status"
@@ -366,7 +383,9 @@ async def test_session_auto_ground_workspace(tmp_path: Path, monkeypatch: pytest
         success=False,
         output={"is_git_repo": False},
     )
-    with patch("agentcli.subagents.workspace.WorkspaceAgent.run", new_callable=AsyncMock) as mock_run:
+    with patch(
+        "agentcli.subagents.workspace.WorkspaceAgent.run", new_callable=AsyncMock
+    ) as mock_run:
         mock_run.return_value = mock_fail_res
         summary = await session.auto_ground_workspace(tmp_path)
         assert summary is None
@@ -380,7 +399,9 @@ def test_unicode_safe_print_encode_error(capsys: pytest.CaptureFixture[str]) -> 
 
     with (
         patch.object(agy_unicode, "_UNICODE_SUPPORTED", False),
-        patch("builtins.print", side_effect=[UnicodeEncodeError("ascii", "test", 0, 1, "bad"), None]),
+        patch(
+            "builtins.print", side_effect=[UnicodeEncodeError("ascii", "test", 0, 1, "bad"), None]
+        ),
     ):
         agy_unicode.safe_print("Testing exception fallback")
 
@@ -571,22 +592,33 @@ async def test_tui_extended_coverage() -> None:
     config = Config()
     mock_session = MagicMock()
     mock_session.forced_model = "test-model"
-    mock_session.get_session_stats = AsyncMock(return_value={"total_tokens": 100, "user_tokens": 50, "assistant_tokens": 50})
+    mock_session.get_session_stats = AsyncMock(
+        return_value={"total_tokens": 100, "user_tokens": 50, "assistant_tokens": 50}
+    )
     mock_session.cumulative_cost_usd = 0.001
     mock_session.skill_engine = MagicMock()
     mock_session.skill_engine.list_available_skills.return_value = [
-        {"name": "test_skill", "version": "1.0.0", "description": "Test skill desc", "source_type": "workspace"}
+        {
+            "name": "test_skill",
+            "version": "1.0.0",
+            "description": "Test skill desc",
+            "source_type": "workspace",
+        }
     ]
     manifest = SkillManifest(
         name="test_skill",
         version="1.0.0",
         description="Test skill desc",
-        parameters={"query": SkillParameter(name="query", type="string", description="search query")},
+        parameters={
+            "query": SkillParameter(name="query", type="string", description="search query")
+        },
     )
     mock_session.skill_engine.loader.get_skill.return_value = manifest
     mock_session.skill_engine.loader.has_skill.return_value = True
     mock_session.skill_engine.prepare_skill.return_value = (manifest, "rendered goal")
-    mock_session.skill_engine.execute_skill = AsyncMock(return_value={"success": True, "output": "skill done"})
+    mock_session.skill_engine.execute_skill = AsyncMock(
+        return_value={"success": True, "output": "skill done"}
+    )
 
     tui = TUIApplication(config=config, session=mock_session)
     mock_event = MagicMock()
@@ -622,10 +654,3 @@ async def test_tui_extended_coverage() -> None:
     mock_session.worktree_manager.remove_worktree.return_value = True
     await tui._handle_slash_command("/branch discard feat/test", "12:00:06", mock_event)
     assert any("Pruned and discarded" in m[1] for m in tui.state.messages)
-
-
-
-
-
-
-

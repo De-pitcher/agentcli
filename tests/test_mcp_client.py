@@ -330,10 +330,30 @@ async def test_mcp_client_manager_registration() -> None:
 @pytest.mark.asyncio
 async def test_mcp_client_server_live_e2e() -> None:
     """Test full live subprocess communication between MCPClient and agentcli MCPServer."""
+    # 1. Default invocation without --allow-execution flag must deny shell execution
+    client_default = MCPClient(
+        name="live_agentcli_mcp_default",
+        command=sys.executable,
+        args=["-m", "agentcli", "mcp"],
+        timeout_seconds=10.0,
+    )
+    try:
+        await client_default.connect()
+        call_res_default = await client_default.call_tool(
+            "shell_execution",
+            {"command": "python -c \"print('mcp_denied_default')\""},
+        )
+        assert call_res_default.get("isError") is True
+        output_text = call_res_default.get("content", [])[0].get("text", "")
+        assert "execution is disabled" in output_text.lower()
+    finally:
+        await client_default.close()
+
+    # 2. Invocation with explicit --allow-execution flag allows shell execution
     client = MCPClient(
         name="live_agentcli_mcp",
         command=sys.executable,
-        args=["-m", "agentcli", "mcp"],
+        args=["-m", "agentcli", "mcp", "--allow-execution"],
         timeout_seconds=10.0,
     )
 
