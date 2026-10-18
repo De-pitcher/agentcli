@@ -649,7 +649,10 @@ async def test_p03_cancellation_and_grandchild_teardown(tmp_path: Path) -> None:
     grandchild_script = tmp_path / "grandchild_runner.py"
     grandchild_script.write_text(
         f"import os, time, pathlib\n"
-        f"pathlib.Path(r'{grandchild_pid_file}').write_text(str(os.getpid()))\n"
+        f"_pid_target = pathlib.Path(r'{grandchild_pid_file}'); "
+        f"_pid_staging = _pid_target.with_suffix('.tmp'); "
+        f"_pid_staging.write_text(str(os.getpid()), encoding='utf-8'); "
+        f"os.replace(_pid_staging, _pid_target)\n"
         f"time.sleep(60)\n",
         encoding="utf-8",
     )
@@ -658,8 +661,14 @@ async def test_p03_cancellation_and_grandchild_teardown(tmp_path: Path) -> None:
     child_script = tmp_path / "child_runner.py"
     child_script.write_text(
         f"import os, subprocess, sys, time, pathlib\n"
-        f"pathlib.Path(r'{child_pid_file}').write_text(str(os.getpid()))\n"
-        f"pathlib.Path(r'{helper_pid_file}').write_text(str(os.getppid()))\n"
+        f"_pid_target = pathlib.Path(r'{child_pid_file}'); "
+        f"_pid_staging = _pid_target.with_suffix('.tmp'); "
+        f"_pid_staging.write_text(str(os.getpid()), encoding='utf-8'); "
+        f"os.replace(_pid_staging, _pid_target)\n"
+        f"_pid_target = pathlib.Path(r'{helper_pid_file}'); "
+        f"_pid_staging = _pid_target.with_suffix('.tmp'); "
+        f"_pid_staging.write_text(str(os.getppid()), encoding='utf-8'); "
+        f"os.replace(_pid_staging, _pid_target)\n"
         f"proc = subprocess.Popen([sys.executable, str(pathlib.Path(r'{grandchild_script}'))])\n"
         f"proc.wait()\n",
         encoding="utf-8",
@@ -772,7 +781,10 @@ async def test_p03_normal_command_exit_retaining_descendant(tmp_path: Path) -> N
     grandchild_script = tmp_path / "gc_retain.py"
     grandchild_script.write_text(
         f"import os, time, pathlib\n"
-        f"pathlib.Path(r'{grandchild_pid_file}').write_text(str(os.getpid()))\n"
+        f"_pid_target = pathlib.Path(r'{grandchild_pid_file}'); "
+        f"_pid_staging = _pid_target.with_suffix('.tmp'); "
+        f"_pid_staging.write_text(str(os.getpid()), encoding='utf-8'); "
+        f"os.replace(_pid_staging, _pid_target)\n"
         f"time.sleep(60)\n",
         encoding="utf-8",
     )
@@ -847,7 +859,10 @@ async def test_p03_abrupt_client_server_shutdown_with_execution_pending(tmp_path
     child_cmd = (
         f'{sys.executable} -c "'
         f"import os, time, pathlib; "
-        f"pathlib.Path(r'{pid_file}').write_text(str(os.getpid())); "
+        f"_pid_target = pathlib.Path(r'{pid_file}'); "
+        f"_pid_staging = _pid_target.with_suffix('.tmp'); "
+        f"_pid_staging.write_text(str(os.getpid()), encoding='utf-8'); "
+        f"os.replace(_pid_staging, _pid_target); "
         f'time.sleep(60)"'
     )
 
@@ -985,7 +1000,10 @@ async def test_p03_negative_mutations_reject_fail_open_and_missing_teardown(
         gc_script = sub_dir / "gc.py"
         gc_script.write_text(
             f"import os, time, pathlib\n"
-            f"pathlib.Path(r'{marker_gc}').write_text(str(os.getpid()))\n"
+            f"_pid_target = pathlib.Path(r'{marker_gc}'); "
+            f"_pid_staging = _pid_target.with_suffix('.tmp'); "
+            f"_pid_staging.write_text(str(os.getpid()), encoding='utf-8'); "
+            f"os.replace(_pid_staging, _pid_target)\n"
             f"time.sleep(45)\n"
         )
 
@@ -993,7 +1011,10 @@ async def test_p03_negative_mutations_reject_fail_open_and_missing_teardown(
         child_script.write_text(
             f"import os, subprocess, sys, pathlib, json, time\n"
             f"p = subprocess.Popen([sys.executable, r'{gc_script}'])\n"
-            f"pathlib.Path(r'{marker_pids}').write_text(json.dumps([os.getppid(), os.getpid(), p.pid]))\n"
+            f"_pid_target = pathlib.Path(r'{marker_pids}'); "
+            f"_pid_staging = _pid_target.with_suffix('.tmp'); "
+            f"_pid_staging.write_text(json.dumps([os.getppid(), os.getpid(), p.pid]), encoding='utf-8'); "
+            f"os.replace(_pid_staging, _pid_target)\n"
             f"time.sleep(45)\n"
         )
 
@@ -1120,7 +1141,10 @@ async def test_empirical_child_command_teardown_and_pids(tmp_path: Path) -> None
     child_cmd = (
         f'{sys.executable} -c "'
         f"import os, time, pathlib; "
-        f"pathlib.Path(r'{pid_file}').write_text(str(os.getpid())); "
+        f"_pid_target = pathlib.Path(r'{pid_file}'); "
+        f"_pid_staging = _pid_target.with_suffix('.tmp'); "
+        f"_pid_staging.write_text(str(os.getpid()), encoding='utf-8'); "
+        f"os.replace(_pid_staging, _pid_target); "
         f'time.sleep(60)"'
     )
 
