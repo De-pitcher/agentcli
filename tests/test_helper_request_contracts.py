@@ -15,6 +15,7 @@ import json
 import socket
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -334,18 +335,42 @@ def test_io_worker_truthful_unsupported_failures(
     ):
         _io_worker.filesystem(req_unknown)
 
-    # file_ops operation: on this frozen foundation runtime base, FileOpsAgent lacks _run_local
+    # file_ops interface check: rejects FileOpsAgent implementations lacking _run_local
+    class MissingRunLocalAgent:
+        def __init__(self, config: dict[str, Any] | None = None) -> None:
+            self.config = config or {}
+
+    from agentcli.subagents import file_ops as file_ops_module
+
+    dummy_file = tmp_path / "dummy.txt"
+    dummy_file.write_text("dummy content", encoding="utf-8")
     req_fileops = io_boundary.filesystem_request(
         "file_ops",
         policy,
-        task_id="t-fileops",
+        task_id="t-fileops-missing",
         read_only=True,
-        payload={"operation": "read", "path": str(tmp_path / "dummy.txt")},
+        payload={"operation": "read", "path": str(dummy_file)},
     )
-    with pytest.raises(
-        NotImplementedError, match="FileOps in-worker local execution is unavailable"
-    ):
-        _io_worker.filesystem(req_fileops)
+    with monkeypatch.context() as m:
+        m.setattr(file_ops_module, "FileOpsAgent", MissingRunLocalAgent)
+        with pytest.raises(
+            NotImplementedError, match="FileOps in-worker local execution is unavailable"
+        ):
+            _io_worker.filesystem(req_fileops)
+
+    # file_ops positive execution: real FileOpsAgent with _run_local executes successfully
+    req_positive = io_boundary.filesystem_request(
+        "file_ops",
+        policy,
+        task_id="t-fileops-pos",
+        read_only=True,
+        payload={"operation": "read", "path": str(dummy_file)},
+    )
+    pos_res = _io_worker.filesystem(req_positive)
+    assert isinstance(pos_res, dict)
+    assert pos_res["success"] is True
+    assert pos_res["output"]["content"] == "dummy content"
+    assert pos_res["error"] is None
 
 
 # ============================================================================
