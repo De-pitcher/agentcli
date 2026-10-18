@@ -464,7 +464,7 @@ class SubAgent(ABC):
                                 "Helper operation 'filesystem_tool' is unsupported on this foundation runtime"
                             )
 
-                        result = await asyncio.wait_for(handler(self, task), policy.timeout_seconds)
+                        result = await handler(self, task)
                         return bound_result(result, policy.max_output_bytes)
                 except (
                     OSError,

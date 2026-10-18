@@ -21,7 +21,7 @@ import pytest
 import agentcli
 from agentcli.bounds import bound_result
 from agentcli.policy import RunPolicy
-from agentcli.subagents.base import SubAgentResult, SubAgentTask, SubAgentType
+from agentcli.subagents.base import SubAgent, SubAgentResult, SubAgentTask, SubAgentType
 from agentcli.subagents.file_ops import FileOpsAgent
 
 # Path to the current worktree root for child subprocess bootstrap
@@ -1053,3 +1053,654 @@ class TestI04BoundedNativeListing:
         assert "ordinary_file.txt" in names
         assert ".env.production" not in names
         assert ".git" not in names
+
+
+class _CooperativeOwnedHandler:
+    """Public duck-typed handler whose cancellation cleanup stays owned.
+
+    The handler never completes on its own. Its ``finally`` finalizer records
+    that cleanup began and then blocks on an explicit release event, so the
+    public request must remain pending until the test releases it. A repeat
+    cancellation is delivered to that same finalizer instead of a detached
+    execution path, which makes request/handler ownership directly observable.
+    """
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.finalizer_entered = asyncio.Event()
+        self.finalizer_finished = asyncio.Event()
+        self.release = asyncio.Event()
+        self.owner_task: asyncio.Task[Any] | None = None
+        self.finalizer_entries = 0
+        self.repeat_cancellations_delivered = 0
+
+    async def run(self, task: SubAgentTask) -> SubAgentResult:
+        self.owner_task = asyncio.current_task()
+        self.started.set()
+        try:
+            while True:
+                await asyncio.sleep(1)
+        finally:
+            self.finalizer_entries += 1
+            self.finalizer_entered.set()
+            # Remain owned: the request must not settle until this same finalizer
+            # is explicitly released, even across repeat cancellation.
+            while not self.release.is_set():
+                try:
+                    await self.release.wait()
+                except asyncio.CancelledError:
+                    self.repeat_cancellations_delivered += 1
+            self.finalizer_finished.set()
+        return SubAgentResult(task_id=task.id, agent_type=task.agent_type, success=True, output={})
+
+
+class _GuardedSlowAgent(SubAgent):
+    """Cooperative guarded handler that always exceeds its policy deadline."""
+
+    async def run(self, task: SubAgentTask) -> SubAgentResult:
+        await asyncio.sleep(10)
+        return SubAgentResult(
+            task_id=task.id, agent_type=task.agent_type, success=True, output={"ok": True}
+        )
+
+
+class _GuardedFastAgent(SubAgent):
+    """Cooperative guarded handler that completes well inside its deadline."""
+
+    async def run(self, task: SubAgentTask) -> SubAgentResult:
+        return SubAgentResult(
+            task_id=task.id, agent_type=task.agent_type, success=True, output={"ok": True}
+        )
+
+
+class TestI05CancellationOwnershipAndDeadlines:
+    """R102: the public request owns handler teardown across repeat cancellation.
+
+    These regressions run on native CPython (including 3.11) without a child
+    helper: they assert public request/handler ownership and the unchanged
+    enclosing deadline contexts, not task identity or source shape alone.
+    """
+
+    @pytest.mark.asyncio
+    async def test_public_request_owns_handler_until_finalizer_released(
+        self, tmp_path: Path
+    ) -> None:
+        """Repeat cancellation stays inside one owned finalizer until released."""
+        from agentcli.agent.registry import ToolRegistry
+        from agentcli.runtime import RunContext
+
+        base_tasks = set(asyncio.all_tasks())
+        context = RunContext(policy=RunPolicy(root=tmp_path, timeout_seconds=30.0))
+        handler = _CooperativeOwnedHandler()
+        request: asyncio.Task[Any] | None = None
+        try:
+            registry = ToolRegistry(context=context)
+            registry.register(
+                "owned_contract",
+                lambda: handler,
+                schema={"type": "object", "properties": {}, "additionalProperties": False},
+                effect="observation",
+            )
+            request = asyncio.create_task(registry.execute("owned_contract", {}))
+            await asyncio.wait_for(handler.started.wait(), timeout=5.0)
+            assert not request.done(), "request settled before any cancellation"
+
+            # First cancellation must enter the owned finalizer.
+            assert request.cancel() is True
+            await asyncio.wait_for(handler.finalizer_entered.wait(), timeout=5.0)
+            assert handler.finalizer_entries == 1
+            # The request stays pending while cleanup is unfinished, and it is the
+            # task that actually owns the handler (no detached execution path).
+            assert not request.done(), "request returned before cleanup settled"
+            assert handler.owner_task is request, "handler ran outside the public request"
+
+            # Second cancellation must reach that same (single) finalizer.
+            assert request.cancel() is True
+            watch = asyncio.get_running_loop().time() + 5.0
+            while (
+                handler.repeat_cancellations_delivered < 1
+                and asyncio.get_running_loop().time() < watch
+            ):
+                await asyncio.sleep(0.01)
+            assert handler.repeat_cancellations_delivered >= 1
+            assert handler.finalizer_entries == 1
+            assert not request.done(), "request returned while finalizer stayed blocked"
+
+            # Explicit release is the only thing that lets finalization settle.
+            handler.release.set()
+            done, _ = await asyncio.wait({request}, timeout=5.0)
+            assert request in done, "finalization did not settle after release"
+            with pytest.raises(asyncio.CancelledError):
+                await request
+            assert handler.finalizer_finished.is_set()
+            assert handler.owner_task.done()
+        finally:
+            handler.release.set()
+            if request is not None:
+                if not request.done():
+                    request.cancel()
+                await asyncio.gather(request, return_exceptions=True)
+            await context.aclose()
+        leaked = set(asyncio.all_tasks()) - base_tasks
+        assert leaked == set(), f"owned tasks leaked after return: {leaked}"
+
+    @pytest.mark.asyncio
+    async def test_guarded_subagent_deadline_returns_truthful_failure(self, tmp_path: Path) -> None:
+        """The unchanged enclosing timeout still fails a slow guarded handler."""
+        policy = RunPolicy(root=tmp_path, timeout_seconds=0.2)
+        agent = _GuardedSlowAgent(agent_type=SubAgentType.CODE_ANALYZER, config={"policy": policy})
+        task = SubAgentTask(id="deadline-slow", agent_type=SubAgentType.CODE_ANALYZER, payload={})
+        with policy.activate():
+            result = await asyncio.wait_for(agent.run(task), timeout=5.0)
+        assert result.success is False
+        assert "timed out" in (result.error or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_guarded_subagent_within_deadline_succeeds(self, tmp_path: Path) -> None:
+        """The unchanged enclosing timeout does not fail a handler inside its deadline."""
+        policy = RunPolicy(root=tmp_path, timeout_seconds=5.0)
+        agent = _GuardedFastAgent(agent_type=SubAgentType.CODE_ANALYZER, config={"policy": policy})
+        task = SubAgentTask(id="deadline-fast", agent_type=SubAgentType.CODE_ANALYZER, payload={})
+        with policy.activate():
+            result = await asyncio.wait_for(agent.run(task), timeout=5.0)
+        assert result.success is True
+        assert (result.output or {}).get("ok") is True
+
+    @pytest.mark.asyncio
+    async def test_public_registry_deadline_bounds_cooperative_handler(
+        self, tmp_path: Path
+    ) -> None:
+        """The registry's enclosing timeout still bounds a non-cancelled handler."""
+        from agentcli.agent.registry import ToolRegistry
+        from agentcli.runtime import RunContext
+
+        async def slow_handler() -> dict[str, bool]:
+            await asyncio.sleep(10)
+            return {"ok": True}
+
+        context = RunContext(policy=RunPolicy(root=tmp_path, timeout_seconds=0.2))
+        try:
+            registry = ToolRegistry(context=context)
+            registry.register_callable(
+                "slow_contract",
+                slow_handler,
+                description="slow contract",
+                schema={"type": "object", "properties": {}, "additionalProperties": False},
+            )
+            result = await asyncio.wait_for(registry.execute("slow_contract", {}), timeout=5.0)
+        finally:
+            await context.aclose()
+        assert result.success is False
+        assert isinstance(result.error, str)
+
+
+class TestI06NativeFileOpsContracts:
+    """R103: helper-local native FileOps contract tests.
+
+    These run ``FileOpsAgent._run_local``/``_atomic_write`` in-process against real
+    temporary files with a real active ``RunPolicy`` and ``io_boundary.in_worker``
+    scoped by monkeypatch. They are helper-local contract tests, not end-to-end
+    claims; the real public subprocess tests above remain authoritative.
+    """
+
+    @staticmethod
+    async def _dispatch(
+        root: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        policy: RunPolicy,
+        task: SubAgentTask,
+        *,
+        read_only: bool = False,
+    ) -> SubAgentResult:
+        from agentcli import io_boundary
+
+        monkeypatch.setattr(io_boundary, "in_worker", True)
+        agent = FileOpsAgent(
+            config={
+                "policy": policy,
+                "working_dir": str(root),
+                "allow_write": True,
+                "read_only": read_only,
+            }
+        )
+        with policy.activate():
+            return await agent.run(task)
+
+    @staticmethod
+    def _task(operation: str, **payload: Any) -> SubAgentTask:
+        return SubAgentTask(
+            id=f"native-{operation}",
+            agent_type=SubAgentType.FILE_OPS,
+            payload={"operation": operation, **payload},
+        )
+
+    @pytest.mark.asyncio
+    async def test_atomic_write_create_bytes_and_temp_cleanup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Write/create absent and existing files atomically, preserving bytes and mode."""
+        import stat
+
+        policy = RunPolicy(root=tmp_path, allow_write=True, max_file_bytes=4096)
+        text = "h\u00e9llo\x00world"
+        expected = text.encode("utf-8")
+
+        created = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("write", path="created.bin", content=text),
+        )
+        assert created.success is True
+        assert (created.output or {}).get("bytes_written") == len(expected)
+        assert (tmp_path / "created.bin").read_bytes() == expected
+
+        nested = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("create", path="nested/dir/created2.txt", content="new"),
+        )
+        assert nested.success is True
+        assert (tmp_path / "nested" / "dir" / "created2.txt").read_bytes() == b"new"
+
+        existing = tmp_path / "existing.txt"
+        existing.write_bytes(b"original")
+        original_mode = stat.S_IMODE(existing.stat().st_mode) if os.name != "nt" else None
+        replaced = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("write", path="existing.txt", content="replaced"),
+        )
+        assert replaced.success is True
+        assert existing.read_bytes() == b"replaced"
+        if original_mode is not None:
+            assert stat.S_IMODE(existing.stat().st_mode) == original_mode
+
+        assert not list(tmp_path.rglob(".agentcli-write-*")), "staging temp files remained"
+
+    @pytest.mark.asyncio
+    async def test_append_preserves_bytes_and_reports_count(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Append combines binary-safe original bytes with encoded new data."""
+        policy = RunPolicy(root=tmp_path, allow_write=True, max_file_bytes=4096)
+        target = tmp_path / "append.bin"
+        original = b"\x00\xffAB\r\n"
+        target.write_bytes(original)
+        added = "\u00e9"
+
+        appended = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("append", path="append.bin", content=added),
+        )
+        assert appended.success is True
+        assert (appended.output or {}).get("bytes_appended") == len(added.encode("utf-8"))
+        assert target.read_bytes() == original + added.encode("utf-8")
+
+        fresh = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("append", path="fresh.txt", content="seed"),
+        )
+        assert fresh.success is True
+        assert (tmp_path / "fresh.txt").read_bytes() == b"seed"
+
+    @pytest.mark.asyncio
+    async def test_oversized_mutation_rejected_without_change(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Oversized append/write is rejected and leaves original bytes intact."""
+        policy = RunPolicy(root=tmp_path, allow_write=True, max_file_bytes=8)
+        target = tmp_path / "small.bin"
+        target.write_bytes(b"123456")
+
+        oversized_append = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("append", path="small.bin", content="789012"),
+        )
+        assert oversized_append.success is False
+        assert "byte limit" in (oversized_append.error or "").lower()
+        assert target.read_bytes() == b"123456"
+
+        oversized_write = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("write", path="small.bin", content="x" * 20),
+        )
+        assert oversized_write.success is False
+        assert "byte limit" in (oversized_write.error or "").lower()
+        assert target.read_bytes() == b"123456"
+
+    @pytest.mark.asyncio
+    async def test_delete_success_missing_and_directory_rejection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """File deletion succeeds, missing paths fail, directories are refused."""
+        policy = RunPolicy(root=tmp_path, allow_write=True)
+        victim = tmp_path / "victim.txt"
+        victim.write_bytes(b"bye")
+
+        deleted = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("delete", path="victim.txt")
+        )
+        assert deleted.success is True
+        assert (deleted.output or {}).get("deleted") is True
+        assert not victim.exists()
+
+        missing = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("delete", path="victim.txt")
+        )
+        assert missing.success is False
+        assert "not found" in (missing.error or "").lower()
+
+        directory = tmp_path / "keepdir"
+        directory.mkdir()
+        (directory / "inner.txt").write_bytes(b"inner")
+        rejected = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("delete", path="keepdir")
+        )
+        assert rejected.success is False
+        assert "directory deletion is unsupported" in (rejected.error or "").lower()
+        assert directory.is_dir()
+        assert (directory / "inner.txt").read_bytes() == b"inner"
+
+    @pytest.mark.asyncio
+    async def test_mkdir_and_exists_stat_field_accuracy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """mkdir, then exists/stat report accurate file/directory/size fields."""
+        policy = RunPolicy(root=tmp_path, allow_write=True)
+
+        before = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("stat", path="data/child.txt")
+        )
+        assert before.success is True
+        assert (before.output or {}).get("exists") is False
+        assert (before.output or {}).get("is_file") is False
+        assert (before.output or {}).get("is_dir") is False
+        assert (before.output or {}).get("size") is None
+
+        made = await self._dispatch(tmp_path, monkeypatch, policy, self._task("mkdir", path="data"))
+        assert made.success is True
+        assert (made.output or {}).get("created") is True
+        assert (tmp_path / "data").is_dir()
+
+        payload = b"payload!"
+        (tmp_path / "data" / "child.txt").write_bytes(payload)
+        after = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("exists", path="data/child.txt")
+        )
+        assert after.success is True
+        assert (after.output or {}).get("exists") is True
+        assert (after.output or {}).get("is_file") is True
+        assert (after.output or {}).get("is_dir") is False
+        assert (after.output or {}).get("size") == len(payload)
+
+        directory_stat = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("stat", path="data")
+        )
+        assert directory_stat.success is True
+        assert (directory_stat.output or {}).get("is_dir") is True
+        assert (directory_stat.output or {}).get("is_file") is False
+
+    @pytest.mark.asyncio
+    async def test_read_success_missing_oversized_and_encoding(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Read handles success, missing files, oversized files and encodings."""
+        policy = RunPolicy(root=tmp_path, allow_write=True, max_file_bytes=64)
+        text = "Gr\u00fc\u00dfe \u00e9 text"
+        (tmp_path / "read.txt").write_bytes(text.encode("utf-8"))
+
+        ok = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("read", path="read.txt")
+        )
+        assert ok.success is True
+        assert (ok.output or {}).get("content") == text
+
+        missing = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("read", path="absent.txt")
+        )
+        assert missing.success is False
+        assert "file not found" in (missing.error or "").lower()
+
+        (tmp_path / "big.bin").write_bytes(b"z" * 200)
+        oversized = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("read", path="big.bin")
+        )
+        assert oversized.success is False
+        assert "byte limit" in (oversized.error or "").lower()
+
+        utf16 = "wide"
+        (tmp_path / "utf16.txt").write_bytes(utf16.encode("utf-16"))
+        encoded = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("read", path="utf16.txt", encoding="utf-16"),
+        )
+        assert encoded.success is True
+        assert (encoded.output or {}).get("content") == utf16
+
+        bad_encoding = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("read", path="read.txt", encoding=123),
+        )
+        assert bad_encoding.success is False
+        assert "encoding must be a string" in (bad_encoding.error or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_read_directory_reports_os_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reading a directory surfaces the native OS error as a failed result."""
+        policy = RunPolicy(root=tmp_path, allow_write=True)
+        (tmp_path / "adir").mkdir()
+        result = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("read", path="adir")
+        )
+        assert result.success is False
+        assert "operation failed" in (result.error or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_replacement_failure_preserves_original_and_removes_temp(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A controlled replacement OS error keeps original bytes and cleans staging."""
+        policy = RunPolicy(root=tmp_path, allow_write=True)
+        target = tmp_path / "replace.txt"
+        target.write_bytes(b"original bytes")
+
+        real_replace = os.replace
+        failing = {"active": True}
+
+        def guarded_replace(src: Any, dst: Any) -> None:
+            if failing["active"]:
+                raise OSError("simulated replacement failure")
+            real_replace(src, dst)
+
+        monkeypatch.setattr(os, "replace", guarded_replace)
+        failed = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("write", path="replace.txt", content="updated"),
+        )
+        assert failed.success is False
+        assert (failed.error or "").lower().startswith("operation failed")
+        assert target.read_bytes() == b"original bytes"
+        assert not list(tmp_path.rglob(".agentcli-write-*"))
+
+        # The scoped seam restores real behaviour for later operations.
+        failing["active"] = False
+        succeeded = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("write", path="replace.txt", content="updated"),
+        )
+        assert succeeded.success is True
+        assert target.read_bytes() == b"updated"
+
+    @pytest.mark.asyncio
+    async def test_invalid_content_and_encoding_types(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Non-string content/encoding fail through real public error handling."""
+        policy = RunPolicy(root=tmp_path, allow_write=True)
+        bad_content = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("write", path="bad.txt", content=123),
+        )
+        assert bad_content.success is False
+        assert "must be strings" in (bad_content.error or "").lower()
+
+        bad_encoding = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("append", path="bad.txt", content="ok", encoding=5),
+        )
+        assert bad_encoding.success is False
+        assert "must be a string" in (bad_encoding.error or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_read_only_mutation_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A read-only agent refuses mutations without creating the target."""
+        policy = RunPolicy(root=tmp_path, allow_write=True)
+        result = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            self._task("write", path="blocked.txt", content="nope"),
+            read_only=True,
+        )
+        assert result.success is False
+        assert "read-only mode" in (result.error or "").lower()
+        assert not (tmp_path / "blocked.txt").exists()
+
+    @pytest.mark.asyncio
+    async def test_standalone_missing_operation_path_and_unknown(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Missing operation/path and unknown operations use public error handling."""
+        policy = RunPolicy(root=tmp_path, allow_write=True)
+        no_op = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            SubAgentTask(
+                id="native-no-op",
+                agent_type=SubAgentType.FILE_OPS,
+                payload={"path": "x.txt"},
+            ),
+        )
+        assert no_op.success is False
+        assert "no operation specified" in (no_op.error or "").lower()
+
+        no_path = await self._dispatch(
+            tmp_path,
+            monkeypatch,
+            policy,
+            SubAgentTask(
+                id="native-no-path",
+                agent_type=SubAgentType.FILE_OPS,
+                payload={"operation": "read"},
+            ),
+        )
+        assert no_path.success is False
+        assert "no path specified" in (no_path.error or "").lower()
+
+        unknown = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("frobnicate", path="x.txt")
+        )
+        assert unknown.success is False
+        assert "unknown operation" in (unknown.error or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_list_hidden_filter_and_target_errors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Listing filters hidden entries by default and reports target errors."""
+        policy = RunPolicy(root=tmp_path, allow_write=True)
+        listing = tmp_path / "listing"
+        listing.mkdir()
+        (listing / "visible.txt").write_text("v", encoding="utf-8")
+        (listing / ".hidden_note.txt").write_text("h", encoding="utf-8")
+
+        filtered = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("list", path="listing")
+        )
+        assert filtered.success is True
+        names = [item["name"] for item in (filtered.output or {}).get("items", [])]
+        assert "visible.txt" in names
+        assert ".hidden_note.txt" not in names
+
+        missing = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("list", path="absent_dir")
+        )
+        assert missing.success is False
+        assert "path not found" in (missing.error or "").lower()
+
+        not_dir = await self._dispatch(
+            tmp_path, monkeypatch, policy, self._task("list", path="listing/visible.txt")
+        )
+        assert not_dir.success is False
+        assert "not a directory" in (not_dir.error or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_public_parent_dispatch_malformed_payloads(self, tmp_path: Path) -> None:
+        """Standalone parent dispatch reports real malformed-operation errors."""
+        agent = FileOpsAgent(
+            config={"working_dir": str(tmp_path), "allow_write": True, "max_file_bytes": 8}
+        )
+        no_operation = await agent.run(
+            SubAgentTask(id="parent-no-op", agent_type=SubAgentType.FILE_OPS, payload={})
+        )
+        assert no_operation.success is False
+        assert "no operation specified" in (no_operation.error or "").lower()
+
+        no_path = await agent.run(
+            SubAgentTask(
+                id="parent-no-path",
+                agent_type=SubAgentType.FILE_OPS,
+                payload={"operation": "read"},
+            )
+        )
+        assert no_path.success is False
+        assert "no path specified" in (no_path.error or "").lower()
+
+        bad_content = await agent.run(
+            SubAgentTask(
+                id="parent-bad-content",
+                agent_type=SubAgentType.FILE_OPS,
+                payload={"operation": "write", "path": "x.txt", "content": 123},
+            )
+        )
+        assert bad_content.success is False
+        assert "must be strings" in (bad_content.error or "").lower()
+
+        oversized = await agent.run(
+            SubAgentTask(
+                id="parent-oversized",
+                agent_type=SubAgentType.FILE_OPS,
+                payload={"operation": "write", "path": "x.txt", "content": "x" * 20},
+            )
+        )
+        assert oversized.success is False
+        assert "byte limit" in (oversized.error or "").lower()
+        assert not (tmp_path / "x.txt").exists()
